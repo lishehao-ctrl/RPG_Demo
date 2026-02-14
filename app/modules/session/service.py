@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 
 from fastapi import HTTPException
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -12,7 +12,6 @@ from app.db.models import (
     Branch,
     Character,
     DialogueNode,
-    LLMUsageLog,
     Session as StorySession,
     SessionCharacterState,
     SessionSnapshot,
@@ -20,12 +19,7 @@ from app.db.models import (
 )
 from app.modules.affection.engine import apply_affection
 from app.modules.branch.engine import build_branch_context, resolve_branch
-from app.modules.llm.adapter import get_llm_runtime
-from app.modules.narrative.prompt_builder import build_step_prompt
-from app.modules.replay.engine import ReplayEngine, upsert_replay_report
 from app.modules.session.schemas import ChoiceOut, SessionStateOut
-
-replay_engine = ReplayEngine()
 
 
 def classify_input_stub(input_text: str | None, choice_id: str | None) -> dict:
@@ -54,10 +48,8 @@ def classify_input_stub(input_text: str | None, choice_id: str | None) -> dict:
     elif "flirt" in tags:
         intent = "romantic"
         tone = "warm"
-    elif "kind" in tags:
-        intent = "friendly"
 
-    return {"behavior_tags": sorted(set(tags)), "intent": intent, "tone": tone, "choice_id": choice_id, "risk_tags": [], "confidence": 0.6}
+    return {"behavior_tags": sorted(set(tags)), "intent": intent, "tone": tone, "choice_id": choice_id}
 
 
 def _ensure_user(db: Session, user_id: uuid.UUID) -> User:
@@ -172,51 +164,19 @@ def get_session_state(db: Session, session_id: uuid.UUID, user_id: uuid.UUID) ->
     return _serialize_state(db, sess)
 
 
-def _sum_step_tokens(db: Session, session_id: uuid.UUID, step_started_at: datetime) -> tuple[int, int]:
-    prompt_tokens = (
-        db.execute(
-            select(func.coalesce(func.sum(LLMUsageLog.prompt_tokens), 0)).where(
-                LLMUsageLog.session_id == session_id,
-                LLMUsageLog.created_at >= step_started_at,
-            )
-        ).scalar_one()
-        or 0
-    )
-    completion_tokens = (
-        db.execute(
-            select(func.coalesce(func.sum(LLMUsageLog.completion_tokens), 0)).where(
-                LLMUsageLog.session_id == session_id,
-                LLMUsageLog.created_at >= step_started_at,
-            )
-        ).scalar_one()
-        or 0
-    )
-    return int(prompt_tokens), int(completion_tokens)
-
-
 def step_session(db: Session, session_id: uuid.UUID, user_id: uuid.UUID, input_text: str | None, choice_id: str | None):
     with db.begin():
         sess = _require_session(db, session_id, user_id)
         if sess.status != "active":
             raise HTTPException(status_code=409, detail={"code": "SESSION_NOT_ACTIVE"})
 
-        conservative_cost = 20 + (len(input_text or "") // 4)
-        if conservative_cost > sess.token_budget_remaining or sess.token_budget_remaining <= 0:
+        deterministic_cost = 20 + (len(input_text or "") // 4)
+        if deterministic_cost > sess.token_budget_remaining:
             raise HTTPException(status_code=409, detail={"code": "TOKEN_BUDGET_EXCEEDED"})
 
-        step_started_at = datetime.utcnow()
-        llm_runtime = get_llm_runtime()
-
-        llm_classification, classify_ok = llm_runtime.classify_with_fallback(db, text=input_text or "", session_id=sess.id)
-        if classify_ok:
-            cls = llm_classification.model_dump()
-        else:
-            cls = classify_input_stub(input_text, choice_id)
-
+        cls = classify_input_stub(input_text, choice_id)
         char_states = db.execute(
-            select(SessionCharacterState)
-            .where(SessionCharacterState.session_id == sess.id)
-            .order_by(SessionCharacterState.character_id.asc())
+            select(SessionCharacterState).where(SessionCharacterState.session_id == sess.id)
         ).scalars().all()
 
         affection_delta = []
@@ -240,10 +200,7 @@ def step_session(db: Session, session_id: uuid.UUID, user_id: uuid.UUID, input_t
                     "vector_delta": result["vector_delta"],
                 }
             )
-            for hit in result["rule_hits"]:
-                hit_copy = dict(hit)
-                hit_copy["character_id"] = str(cs.character_id)
-                rule_hits_all.append(hit_copy)
+            rule_hits_all.extend(result["rule_hits"])
 
         ctx = build_branch_context(sess, char_states)
         branches = []
@@ -251,47 +208,17 @@ def step_session(db: Session, session_id: uuid.UUID, user_id: uuid.UUID, input_t
             branches = db.execute(
                 select(Branch).where(Branch.from_node_id == sess.current_node_id)
             ).scalars().all()
-        chosen_branch, branch_evaluation = resolve_branch(branches, ctx)
-
-        character_compact = [
-            {
-                "character_id": str(cs.character_id),
-                "score_visible": cs.score_visible,
-                "relation_vector": cs.relation_vector or {},
-            }
-            for cs in char_states
-        ]
-
+        chosen_branch, branch_hits = resolve_branch(branches, ctx)
         branch_result = {
             "chosen_branch_id": str(chosen_branch.id) if chosen_branch else None,
-            "route_type": chosen_branch.route_type if chosen_branch else None,
+            "branch_hits": branch_hits,
         }
 
-        narrative_prompt = build_step_prompt(
-            memory_summary=sess.memory_summary or "",
-            branch_result=branch_result,
-            character_compact=character_compact,
-            player_input=input_text or "",
-            classification={
-                "intent": cls.get("intent"),
-                "tone": cls.get("tone"),
-                "behavior_tags": cls.get("behavior_tags", []),
-            },
-        )
-
-        llm_narrative, _ = llm_runtime.narrative_with_fallback(db, prompt=narrative_prompt, session_id=sess.id)
-        narrative_text = llm_narrative.narrative_text
-        choices = [c.model_dump() for c in llm_narrative.choices]
-
-        db.flush()
-        tokens_in, tokens_out = _sum_step_tokens(db, sess.id, step_started_at)
-        actual_total = tokens_in + tokens_out
-        deterministic_cost = actual_total if actual_total > 0 else conservative_cost
-        if deterministic_cost > sess.token_budget_remaining:
-            raise HTTPException(status_code=409, detail={"code": "TOKEN_BUDGET_EXCEEDED"})
-
-        next_remaining = sess.token_budget_remaining - deterministic_cost
-        branch_result["token_budget_remaining"] = next_remaining
+        narrative_text = f"[stub] {cls['intent']}/{cls['tone']} input processed."
+        choices = [
+            {"id": "c1", "text": "Continue", "type": "dialog"},
+            {"id": "c2", "text": "Pause", "type": "action"},
+        ]
 
         node = DialogueNode(
             session_id=sess.id,
@@ -312,33 +239,20 @@ def step_session(db: Session, session_id: uuid.UUID, user_id: uuid.UUID, input_t
             classification=cls,
             matched_rules=rule_hits_all,
             affection_delta=affection_delta,
-            branch_evaluation=branch_evaluation,
         )
         db.add(log)
 
         sess.current_node_id = node.id
         sess.token_budget_used += deterministic_cost
-        sess.token_budget_remaining = next_remaining
+        sess.token_budget_remaining -= deterministic_cost
         sess.updated_at = datetime.utcnow()
-
-        latest_usage = db.execute(
-            select(LLMUsageLog)
-            .where(
-                LLMUsageLog.session_id == sess.id,
-                LLMUsageLog.created_at >= step_started_at,
-                LLMUsageLog.operation == "generate",
-                LLMUsageLog.status == "success",
-            )
-            .order_by(LLMUsageLog.created_at.desc())
-        ).scalars().first()
-        provider_name = latest_usage.provider if latest_usage else "none"
 
     return {
         "node_id": node.id,
         "narrative_text": narrative_text,
         "choices": choices,
         "affection_delta": affection_delta,
-        "cost": {"tokens_in": tokens_in, "tokens_out": tokens_out, "provider": provider_name},
+        "cost": {"tokens_in": deterministic_cost, "tokens_out": 0, "provider": "none"},
     }
 
 
@@ -428,28 +342,9 @@ def rollback_to_snapshot(db: Session, session_id: uuid.UUID, user_id: uuid.UUID,
     return sess
 
 
-def end_session(db: Session, session_id: uuid.UUID, user_id: uuid.UUID) -> dict:
+def end_session(db: Session, session_id: uuid.UUID, user_id: uuid.UUID) -> StorySession:
     with db.begin():
         sess = _require_session(db, session_id, user_id)
         sess.status = "ended"
         sess.updated_at = datetime.utcnow()
-
-        report = replay_engine.build_report(session_id=sess.id, db=db)
-        replay_row = upsert_replay_report(db, session_id=sess.id, report=report)
-        db.flush()
-
-    return {
-        "ended": True,
-        "replay_report_id": str(replay_row.id),
-        "route_type": report.get("route_type", "default"),
-    }
-
-
-def get_replay(db: Session, session_id: uuid.UUID, user_id: uuid.UUID) -> dict:
-    _require_session(db, session_id, user_id)
-    from app.db.models import ReplayReport
-
-    row = db.execute(select(ReplayReport).where(ReplayReport.session_id == session_id)).scalar_one_or_none()
-    if not row:
-        raise HTTPException(status_code=404, detail={"code": "REPLAY_NOT_READY"})
-    return row.report_json
+    return sess

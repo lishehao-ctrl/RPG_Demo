@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -66,13 +66,10 @@ def end_session(
     db: Session = Depends(get_db),
     user_id: uuid.UUID = Depends(get_current_user_id),
 ):
-    return service.end_session(db, session_id, user_id)
+    sess = service.end_session(db, session_id, user_id)
+    return {"id": str(sess.id), "status": sess.status}
 
 
 @router.get("/sessions/{session_id}/replay")
-def get_replay(
-    session_id: uuid.UUID,
-    db: Session = Depends(get_db),
-    user_id: uuid.UUID = Depends(get_current_user_id),
-):
-    return service.get_replay(db, session_id, user_id)
+def get_replay(session_id: uuid.UUID):
+    raise HTTPException(status_code=501, detail="Replay not implemented yet")

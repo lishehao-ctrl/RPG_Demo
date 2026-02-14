@@ -2,46 +2,44 @@
 
 ## Migration verification
 
+1. Run migration:
+
 ```bash
-DATABASE_URL=sqlite:///./manual_m6.db alembic upgrade head
+DATABASE_URL=sqlite:///./tmp_verify.db alembic upgrade head
 ```
 
 Expected: command exits 0 and creates all required tables.
 
-## Test suite
+2. Run tests:
 
 ```bash
 pytest -q
 ```
 
-## Milestone 6 checklist
+## Milestone 4 verification
 
-- `tests/test_llm_integration.py`
-  - classify success updates tags used by AffectionEngine
-  - classify provider failure falls back to deterministic stub
-  - narrative generation success writes schema-valid choices
-  - invalid narrative schema triggers repair attempt
-  - `llm_usage_logs` rows are written on both success and failure
-  - token budget decrement matches logged token usage
-  - narrative falls back to deterministic template when provider fails
+### AffectionEngine
+- `tests/test_affection_engine.py`
+  - saturation / clamp bounds
+  - drift decay
+  - determinism for same input/state
+  - mapping boundaries (very positive vs very negative vectors)
 
-- Existing Milestone 5 replay tests still pass:
-  - replay determinism
-  - missed route (priority-lost + near-miss unlock hints)
-  - `/end` idempotent upsert behavior
+### BranchEngine
+- `tests/test_branch_engine.py`
+  - threshold boundary (`gte` on exact boundary)
+  - priority/exclusive resolution
+  - default fallback path
 
-## Manual run (optional)
+### Session integration
+- `tests/test_session_step_integration.py`
+  - session step classification tags are persisted
+  - affection deltas/rule hits persisted in action log
+  - branch selected and persisted in dialogue node
 
-```bash
-LLM_PROVIDER_PRIMARY=fake uvicorn app.main:app --host 127.0.0.1 --port 8000
-```
-
-Then call `/sessions` and `/sessions/{id}/step` to verify LLM-integrated flow without external network.
-
-## Real provider env vars (manual only)
-
-- `LLM_PROVIDER_PRIMARY=doubao`
-- `LLM_DOUBAO_API_KEY=...`
-- `LLM_DOUBAO_BASE_URL=...`
-- `LLM_MODEL_CLASSIFY=...`
-- `LLM_MODEL_GENERATE=...`
+### Snapshot/Rollback and token limit
+- `tests/test_session_api.py`
+  - create/get
+  - snapshot/rollback exact restoration
+  - rollback pruning nodes/logs after cutoff
+  - token budget hard-limit error code stability

@@ -29,7 +29,7 @@ class LLMRuntime:
         pout = float(table.get("output_per_1k", 0.0))
         return round((prompt_tokens / 1000.0) * pin + (completion_tokens / 1000.0) * pout, 6)
 
-    def _log_usage(self, db: Session, *, session_id: uuid.UUID | None, step_id: uuid.UUID | None, operation: str, usage: dict):
+    def _log_usage(self, db: Session, *, session_id: uuid.UUID | None, operation: str, usage: dict):
         cost = usage.get("cost_estimate")
         if cost is None:
             cost = self._estimate_cost(usage.get("provider", "default"), int(usage.get("prompt_tokens", 0) or 0), int(usage.get("completion_tokens", 0) or 0))
@@ -38,7 +38,6 @@ class LLMRuntime:
             provider=usage.get("provider", "unknown"),
             model=usage.get("model", "unknown"),
             operation=operation,
-            step_id=step_id,
             prompt_tokens=int(usage.get("prompt_tokens", 0) or 0),
             completion_tokens=int(usage.get("completion_tokens", 0) or 0),
             latency_ms=int(usage.get("latency_ms", 0) or 0),
@@ -52,7 +51,7 @@ class LLMRuntime:
     def _run(self, coro):
         return asyncio.run(coro)
 
-    def _call_with_retries(self, db: Session, *, provider_name: str, operation: str, payload: str, model: str, session_id: uuid.UUID | None, step_id: uuid.UUID | None, retries: int):
+    def _call_with_retries(self, db: Session, *, provider_name: str, operation: str, payload: str, model: str, session_id: uuid.UUID | None, retries: int):
         provider = self.providers[provider_name]
         last_exc = None
         for _ in range(retries):
@@ -66,14 +65,13 @@ class LLMRuntime:
                 usage["provider"] = provider_name
                 usage["model"] = model
                 usage["status"] = usage.get("status", "success")
-                self._log_usage(db, session_id=session_id, step_id=step_id, operation=operation, usage=usage)
+                self._log_usage(db, session_id=session_id, operation=operation, usage=usage)
                 return result
             except Exception as exc:  # noqa: BLE001
                 last_exc = exc
                 self._log_usage(
                     db,
                     session_id=session_id,
-                    step_id=step_id,
                     operation=operation,
                     usage={
                         "provider": provider_name,
@@ -87,7 +85,7 @@ class LLMRuntime:
                 )
         raise RuntimeError(str(last_exc) if last_exc else "llm call failed")
 
-    def classify_with_fallback(self, db: Session, *, text: str, session_id: uuid.UUID | None, step_id: uuid.UUID | None = None) -> tuple[PlayerInputClassification, bool]:
+    def classify_with_fallback(self, db: Session, *, text: str, session_id: uuid.UUID | None) -> tuple[PlayerInputClassification, bool]:
         prompt = build_classification_prompt(text)
         provider_chain = [settings.llm_provider_primary] + list(settings.llm_provider_fallbacks)
 
@@ -103,7 +101,6 @@ class LLMRuntime:
                     payload=prompt,
                     model=settings.llm_model_classify,
                     session_id=session_id,
-                    step_id=step_id,
                     retries=retries,
                 )
                 if isinstance(raw, str):
@@ -121,7 +118,7 @@ class LLMRuntime:
             confidence=0.4,
         ), False
 
-    def narrative_with_fallback(self, db: Session, *, prompt: str, session_id: uuid.UUID | None, step_id: uuid.UUID | None = None) -> tuple[NarrativeOutput, bool]:
+    def narrative_with_fallback(self, db: Session, *, prompt: str, session_id: uuid.UUID | None) -> tuple[NarrativeOutput, bool]:
         provider_chain = [settings.llm_provider_primary] + list(settings.llm_provider_fallbacks)
 
         for idx, provider_name in enumerate(provider_chain):
@@ -138,7 +135,6 @@ class LLMRuntime:
                         payload=prompt,
                         model=settings.llm_model_generate,
                         session_id=session_id,
-                        step_id=step_id,
                         retries=1,
                     )
                     parsed = self._parse_narrative(raw)
@@ -152,7 +148,6 @@ class LLMRuntime:
                             payload=build_repair_prompt(str(raw)),
                             model=settings.llm_model_generate,
                             session_id=session_id,
-                            step_id=step_id,
                             retries=1,
                         )
                         parsed = self._parse_narrative(repair_raw)

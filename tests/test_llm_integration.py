@@ -5,7 +5,7 @@ import uuid
 from pathlib import Path
 
 from fastapi.testclient import TestClient
-from sqlalchemy import select, text
+from sqlalchemy import select
 
 from app.config import settings
 from app.db import session as db_session
@@ -146,45 +146,3 @@ def test_llm_generate_fallback_template_on_failure(tmp_path: Path) -> None:
         assert any(r.status == "error" for r in gen_rows)
 
     fake.fail_generate = False
-
-
-def test_llm_usage_logs_persist_step_id(tmp_path: Path) -> None:
-    _prepare_db(tmp_path)
-    client = TestClient(app)
-    sid = uuid.UUID(client.post("/sessions").json()["id"])
-
-    resp = client.post(f"/sessions/{sid}/step", json={"input_text": "hello"})
-    assert resp.status_code == 200
-
-    with db_session.SessionLocal() as db:
-        rows = db.execute(select(LLMUsageLog).where(LLMUsageLog.session_id == sid)).scalars().all()
-        assert rows
-        assert all(r.step_id is not None for r in rows)
-        assert len({r.step_id for r in rows}) == 1
-
-
-def test_token_budget_decrement_is_guarded_atomically(tmp_path: Path, monkeypatch) -> None:
-    _prepare_db(tmp_path)
-    settings.llm_provider_primary = "fake"
-
-    from app.modules.session import service as session_service
-
-    original_sum = session_service._sum_step_tokens
-
-    def _racey_sum(db, session_id, step_id):
-        db.execute(text("UPDATE sessions SET token_budget_remaining=0 WHERE id=:sid"), {"sid": str(session_id)})
-        return 20, 0
-
-    monkeypatch.setattr(session_service, "_sum_step_tokens", _racey_sum)
-
-    client = TestClient(app)
-    sid = uuid.UUID(client.post("/sessions").json()["id"])
-    resp = client.post(f"/sessions/{sid}/step", json={"input_text": "hello"})
-    assert resp.status_code == 409
-    assert resp.json()["detail"]["code"] == "TOKEN_BUDGET_EXCEEDED"
-
-    with db_session.SessionLocal() as db:
-        sess = db.get(Session, sid)
-        assert sess.token_budget_remaining == settings.session_token_budget_total
-
-    monkeypatch.setattr(session_service, "_sum_step_tokens", original_sum)

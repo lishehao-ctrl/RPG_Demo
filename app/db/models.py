@@ -113,7 +113,6 @@ class ActionLog(Base):
     classification: Mapped[dict] = mapped_column(JSONType, default=dict)
     matched_rules: Mapped[list] = mapped_column(JSONType, default=list)
     affection_delta: Mapped[list] = mapped_column(JSONType, default=list)
-    branch_evaluation: Mapped[list] = mapped_column(JSONType, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
 
 
@@ -135,14 +134,12 @@ class LLMUsageLog(Base):
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     session_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("sessions.id"), nullable=True, index=True)
     provider: Mapped[str] = mapped_column(String(64), index=True)
-    model: Mapped[str] = mapped_column(String(128), default="", index=True)
     operation: Mapped[str] = mapped_column(String(64), index=True)
     prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
     completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
     latency_ms: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[str] = mapped_column(String(32), index=True)
-    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    cost_estimate: Mapped[float | None] = mapped_column(Numeric(10, 4), nullable=True)
+    cost_estimate: Mapped[float] = mapped_column(Numeric(10, 4), default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
 
 

@@ -1,21 +1,19 @@
-from datetime import datetime
-
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.db.models import AuditLog
 from app.db.session import get_db
 from app.modules.auth.dev_auth import (
     build_google_auth_url,
     create_access_token,
     exchange_code_for_tokens,
-    get_current_user,
     upsert_google_user,
     verify_google_id_token,
     verify_oauth_state_token,
+    get_current_user,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
 
 
 @router.get("/me")
@@ -30,29 +28,10 @@ def google_login():
 
 @router.get("/google/callback")
 def google_callback(
-    code: str | None = Query(default=None),
-    state: str | None = Query(default=None),
-    error: str | None = Query(default=None),
-    error_description: str | None = Query(default=None),
+    code: str = Query(...),
+    state: str = Query(...),
     db: Session = Depends(get_db),
 ):
-    if error:
-        with db.begin():
-            db.add(
-                AuditLog(
-                    event_type="google_oauth_callback_error",
-                    payload={"error": error, "error_description": error_description},
-                    created_at=datetime.utcnow(),
-                )
-            )
-        raise HTTPException(
-            status_code=400,
-            detail={"code": "GOOGLE_OAUTH_ERROR", "error": error, "error_description": error_description},
-        )
-
-    if not code or not state:
-        raise HTTPException(status_code=400, detail={"code": "MISSING_CODE_OR_STATE"})
-
     verify_oauth_state_token(state)
 
     try:

@@ -76,5 +76,3 @@ def test_step_applies_affection_and_selects_branch(tmp_path: Path) -> None:
         assert "flirt" in tags
         assert len(log.affection_delta) >= 1
         assert len(log.matched_rules) >= 1
-        assert len(log.branch_evaluation) == 2
-        assert all("trace" in item for item in log.branch_evaluation)

@@ -41,23 +41,7 @@ class ReplayEngine:
         attribution = []
         missed_routes = []
         what_if = []
-
         accumulator = {}
-        for state in final_states:
-            char_id = str(state.character_id)
-            relation = state.relation_vector or {}
-            accumulator[char_id] = {
-                'score_visible': int(state.score_visible),
-                'relation_vector': {dim: float(relation.get(dim, 0.0)) for dim in self.REQUIRED_DIMS},
-            }
-            affection_timeline[char_id].append(
-                {
-                    'step_index': 0,
-                    'timestamp': sess.created_at.isoformat(),
-                    'score_visible': accumulator[char_id]['score_visible'],
-                    'relation_vector': dict(accumulator[char_id]['relation_vector']),
-                }
-            )
 
         for idx, log in enumerate(logs, start=1):
             node = node_map.get(str(log.node_id)) if log.node_id else None
@@ -93,20 +77,13 @@ class ReplayEngine:
 
             for delta in log.affection_delta or []:
                 char_id = str(delta.get('char_id'))
-                if char_id not in accumulator:
-                    accumulator[char_id] = {
+                cur = accumulator.setdefault(
+                    char_id,
+                    {
                         'score_visible': 50,
                         'relation_vector': {dim: 0.0 for dim in self.REQUIRED_DIMS},
-                    }
-                    affection_timeline[char_id].append(
-                        {
-                            'step_index': 0,
-                            'timestamp': sess.created_at.isoformat(),
-                            'score_visible': 50,
-                            'relation_vector': {dim: 0.0 for dim in self.REQUIRED_DIMS},
-                        }
-                    )
-                cur = accumulator[char_id]
+                    },
+                )
                 cur['score_visible'] += int(delta.get('score_delta', 0))
                 cur['score_visible'] = max(0, min(100, cur['score_visible']))
                 vec_delta = delta.get('vector_delta') or {}

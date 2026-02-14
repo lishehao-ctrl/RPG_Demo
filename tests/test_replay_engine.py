@@ -116,26 +116,3 @@ def test_replay_report_is_deterministic_and_contains_required_keys(tmp_path: Pat
         engine = ReplayEngine()
         rebuilt = engine.build_report(sid, db)
         assert rebuilt == payload
-
-
-def test_replay_timeline_starts_from_persisted_character_baseline(tmp_path: Path) -> None:
-    _prepare_db(tmp_path)
-    client = TestClient(app)
-
-    sid = uuid.UUID(client.post('/sessions').json()['id'])
-    with db_session.SessionLocal() as db:
-        state = db.execute(select(SessionCharacterState).where(SessionCharacterState.session_id == sid)).scalars().first()
-        assert state is not None
-        state.score_visible = 73
-        state.relation_vector = {'trust': 0.7, 'attraction': 0.2, 'fear': 0.05, 'respect': 0.6}
-        db.commit()
-        char_id = str(state.character_id)
-
-    with db_session.SessionLocal() as db:
-        report = ReplayEngine().build_report(sid, db)
-
-    first = report['affection_timeline'][char_id][0]
-    assert first['step_index'] == 0
-    assert first['score_visible'] == 73
-    assert first['relation_vector']['trust'] == 0.7
-    assert first['relation_vector']['respect'] == 0.6

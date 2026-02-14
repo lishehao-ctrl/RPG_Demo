@@ -136,7 +136,6 @@ def upgrade() -> None:
         sa.Column("classification", JSONType, nullable=False),
         sa.Column("matched_rules", JSONType, nullable=False),
         sa.Column("affection_delta", JSONType, nullable=False),
-        sa.Column("branch_evaluation", JSONType, nullable=False),
         sa.Column("created_at", sa.DateTime(), nullable=False),
     )
     op.create_index("ix_action_logs_session_id", "action_logs", ["session_id"], unique=False)
@@ -159,19 +158,16 @@ def upgrade() -> None:
         sa.Column("id", GUID(), primary_key=True, nullable=False),
         sa.Column("session_id", GUID(), sa.ForeignKey("sessions.id"), nullable=True),
         sa.Column("provider", sa.String(length=64), nullable=False),
-        sa.Column("model", sa.String(length=128), nullable=False, server_default=""),
         sa.Column("operation", sa.String(length=64), nullable=False),
         sa.Column("prompt_tokens", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("completion_tokens", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("latency_ms", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("status", sa.String(length=32), nullable=False),
-        sa.Column("error_message", sa.Text(), nullable=True),
-        sa.Column("cost_estimate", sa.Numeric(10, 4), nullable=True),
+        sa.Column("cost_estimate", sa.Numeric(10, 4), nullable=False, server_default="0"),
         sa.Column("created_at", sa.DateTime(), nullable=False),
     )
     op.create_index("ix_llm_usage_logs_session_id", "llm_usage_logs", ["session_id"], unique=False)
     op.create_index("ix_llm_usage_logs_provider", "llm_usage_logs", ["provider"], unique=False)
-    op.create_index("ix_llm_usage_logs_model", "llm_usage_logs", ["model"], unique=False)
     op.create_index("ix_llm_usage_logs_operation", "llm_usage_logs", ["operation"], unique=False)
     op.create_index("ix_llm_usage_logs_status", "llm_usage_logs", ["status"], unique=False)
     op.create_index("ix_llm_usage_logs_created_at", "llm_usage_logs", ["created_at"], unique=False)
@@ -198,7 +194,6 @@ def downgrade() -> None:
     op.drop_index("ix_llm_usage_logs_created_at", table_name="llm_usage_logs")
     op.drop_index("ix_llm_usage_logs_status", table_name="llm_usage_logs")
     op.drop_index("ix_llm_usage_logs_operation", table_name="llm_usage_logs")
-    op.drop_index("ix_llm_usage_logs_model", table_name="llm_usage_logs")
     op.drop_index("ix_llm_usage_logs_provider", table_name="llm_usage_logs")
     op.drop_index("ix_llm_usage_logs_session_id", table_name="llm_usage_logs")
     op.drop_table("llm_usage_logs")

@@ -1,0 +1,33 @@
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    app_name: str = "rpg_demo"
+    database_url: str = "sqlite+pysqlite:///./app.db"
+    session_token_budget_total: int = 12000
+    redis_url: str = "redis://localhost:6379/0"
+
+    llm_provider_primary: str = "fake"
+    llm_provider_fallbacks: list[str] = Field(default_factory=list)
+    llm_model_classify: str = "fake-classify-v1"
+    llm_model_generate: str = "fake-generate-v1"
+    llm_model_summarize: str = "fake-summarize-v1"
+    llm_timeout_s: float = 8.0
+    llm_max_retries: int = 2
+
+    llm_doubao_base_url: str = "https://ark.cn-beijing.volces.com/api/v3"
+    llm_doubao_api_key: str = ""
+
+    llm_price_table: dict[str, dict[str, float]] = Field(
+        default_factory=lambda: {
+            "fake": {"input_per_1k": 0.0, "output_per_1k": 0.0},
+            "doubao": {"input_per_1k": 0.008, "output_per_1k": 0.02},
+            "default": {"input_per_1k": 0.0, "output_per_1k": 0.0},
+        }
+    )
+
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+
+settings = Settings()

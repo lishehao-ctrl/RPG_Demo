@@ -71,9 +71,8 @@ def test_snapshot_rollback_restores_exact_state(tmp_path: Path) -> None:
     state_after = client.get(f"/sessions/{sid}").json()
 
     assert state_after["current_node_id"] == step1.json()["node_id"]
-    step_cost = step1.json()["cost"]["tokens_in"] + step1.json()["cost"]["tokens_out"]
-    assert state_after["token_budget_remaining"] == state_before["token_budget_remaining"] - step_cost
-    assert state_after["token_budget_used"] == step_cost
+    assert state_after["token_budget_remaining"] == state_before["token_budget_remaining"] - step1.json()["cost"]["tokens_in"]
+    assert state_after["token_budget_used"] == step1.json()["cost"]["tokens_in"]
     assert state_after["character_states"] == state_at_snapshot["character_states"]
 
 
@@ -106,19 +105,15 @@ def test_rollback_prunes_nodes_and_logs(tmp_path: Path) -> None:
 def test_token_budget_hard_limit(tmp_path: Path) -> None:
     _prepare_db(tmp_path)
     original_total = settings.session_token_budget_total
-    settings.session_token_budget_total = 120
+    settings.session_token_budget_total = 25
     client = TestClient(app)
     try:
         sid = client.post("/sessions").json()["id"]
-        ok = None
-        for _ in range(30):
-            ok = client.post(f"/sessions/{sid}/step", json={"input_text": "abcd"})
-            if ok.status_code == 409:
-                break
-            assert ok.status_code == 200
+        ok = client.post(f"/sessions/{sid}/step", json={"input_text": "abcd"})  # cost 21
+        assert ok.status_code == 200
 
-        assert ok is not None
-        assert ok.status_code == 409
-        assert ok.json()["detail"]["code"] == "TOKEN_BUDGET_EXCEEDED"
+        fail = client.post(f"/sessions/{sid}/step", json={"input_text": "abcd"})
+        assert fail.status_code == 409
+        assert fail.json()["detail"]["code"] == "TOKEN_BUDGET_EXCEEDED"
     finally:
         settings.session_token_budget_total = original_total

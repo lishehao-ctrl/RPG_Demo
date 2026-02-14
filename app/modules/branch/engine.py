@@ -1,4 +1,4 @@
-from app.modules.branch.dsl import eval_expr_trace
+from app.modules.branch.dsl import eval_expr
 
 
 def build_branch_context(session_obj, char_states: list) -> dict:
@@ -7,55 +7,34 @@ def build_branch_context(session_obj, char_states: list) -> dict:
     flags.update(session_obj.route_flags or {})
 
     characters = {}
-    for cs in sorted(char_states, key=lambda c: str(c.character_id)):
-        char_id = str(cs.character_id)
-        relation = cs.relation_vector or {}
-        characters[char_id] = {
-            'score_visible': cs.score_visible,
-            'relation': relation,
-            'trust': relation.get('trust', 0.0),
-            'attraction': relation.get('attraction', 0.0),
-            'fear': relation.get('fear', 0.0),
-            'respect': relation.get('respect', 0.0),
+    for cs in char_states:
+        key = str(cs.character_id)
+        characters[key] = {
+            "score_visible": cs.score_visible,
+            "relation": cs.relation_vector or {},
         }
 
-    return {'flags': flags, 'characters': characters}
+    return {"flags": flags, "characters": characters}
 
 
 def resolve_branch(branches: list, ctx: dict):
     if not branches:
         return None, []
 
-    evaluations = []
-    for branch in sorted(branches, key=lambda b: (b.priority, str(b.id)), reverse=True):
-        matched, trace = eval_expr_trace(branch.rule_expr, ctx)
-        evaluations.append(
-            {
-                'branch_id': str(branch.id),
-                'route_type': branch.route_type,
-                'priority': branch.priority,
-                'is_exclusive': bool(branch.is_exclusive),
-                'is_default': bool(branch.is_default),
-                'matched': matched,
-                'trace': trace,
-            }
-        )
+    hits = []
+    for b in branches:
+        matched = eval_expr(b.rule_expr, ctx)
+        hits.append({"branch_id": str(b.id), "matched": matched, "priority": b.priority})
 
-    matched = [b for b in evaluations if b['matched']]
-    chosen_eval = None
+    matched = [b for b in branches if eval_expr(b.rule_expr, ctx)]
+    matched.sort(key=lambda x: x.priority, reverse=True)
+
     if matched:
-        chosen_eval = sorted(matched, key=lambda x: (x['priority'], x['branch_id']), reverse=True)[0]
-    else:
-        defaults = [b for b in evaluations if b['is_default']]
-        if defaults:
-            chosen_eval = sorted(defaults, key=lambda x: (x['priority'], x['branch_id']), reverse=True)[0]
+        top = matched[0]
+        if top.is_exclusive:
+            return top, hits
+        return top, hits
 
-    chosen_branch = None
-    if chosen_eval:
-        chosen_id = chosen_eval['branch_id']
-        for branch in branches:
-            if str(branch.id) == chosen_id:
-                chosen_branch = branch
-                break
-
-    return chosen_branch, evaluations
+    defaults = [b for b in branches if b.is_default]
+    defaults.sort(key=lambda x: x.priority, reverse=True)
+    return (defaults[0] if defaults else None), hits

@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from app.config import settings
 from app.modules.auth.router import router as auth_router
 from app.modules.session.router import router as session_router
+from app.modules.webdemo.router import router as webdemo_router
 
 app = FastAPI(title="RPG Demo Backend")
 
@@ -20,3 +21,4 @@ async def health() -> dict[str, str]:
 
 app.include_router(auth_router)
 app.include_router(session_router)
+app.include_router(webdemo_router)

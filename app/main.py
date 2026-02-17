@@ -1,12 +1,15 @@
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.modules.auth.router import router as auth_router
+from app.modules.demo.router import STATIC_DIR as DEMO_STATIC_DIR
+from app.modules.demo.router import router as demo_router
 from app.modules.session.router import router as session_router
 from app.modules.story.router import router as story_router
-from app.modules.webdemo.router import router as webdemo_router
 
 app = FastAPI(title="RPG Demo Backend")
+app.mount("/demo/static", StaticFiles(directory=str(DEMO_STATIC_DIR)), name="demo_static")
 
 
 @app.on_event("startup")
@@ -23,4 +26,4 @@ async def health() -> dict[str, str]:
 app.include_router(auth_router)
 app.include_router(session_router)
 app.include_router(story_router)
-app.include_router(webdemo_router)
+app.include_router(demo_router)

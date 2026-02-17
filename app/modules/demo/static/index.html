@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RPG Demo</title>
+  <link rel="stylesheet" href="/demo/static/demo.css" />
+</head>
+<body>
+  <header class="header">
+    <div class="header__title">
+      <h1>RPG Demo UI</h1>
+      <p>Manual testing dashboard for sessions, story packs, and replay</p>
+    </div>
+    <div class="header__session">
+      <div class="session-line">
+        <span class="label">Session</span>
+        <span id="sessionId" class="value">(none)</span>
+        <button id="copySessionBtn" class="btn btn--ghost">Copy</button>
+      </div>
+      <div class="session-line">
+        <span class="label">Token Totals</span>
+        <span id="tokenTotals" class="value">in: 0, out: 0, cost: 0</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="panel panel--left">
+      <div class="section">
+        <h2>Session</h2>
+        <div class="grid">
+          <label class="field">
+            <span>Story ID</span>
+            <input id="storyId" type="text" placeholder="optional" />
+          </label>
+          <label class="field">
+            <span>Story Version</span>
+            <input id="storyVersion" type="number" min="1" placeholder="optional" />
+          </label>
+        </div>
+        <div class="row">
+          <button id="createSessionBtn" class="btn">Create</button>
+          <button id="refreshSessionBtn" class="btn btn--ghost">Refresh</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>Auth</h2>
+        <div class="grid">
+          <label class="field">
+            <span>Auth Mode</span>
+            <select id="authMode">
+              <option value="x-user-id">X-User-Id</option>
+              <option value="bearer">Bearer</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Auth Value</span>
+            <input id="authValue" type="text" placeholder="UUID or token" />
+          </label>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>Play</h2>
+        <div id="narrativeCard" class="card card--narrative">
+          <div class="card__title">Narrative</div>
+          <div id="narrativeText" class="card__body">No response yet.</div>
+          <div id="choiceButtons" class="choice-grid"></div>
+        </div>
+        <label class="field">
+          <span>Player Input</span>
+          <textarea id="playerInput" rows="3" placeholder="Type free input or select a choice"></textarea>
+        </label>
+        <div class="row">
+          <button id="sendInputBtn" class="btn">Send Input</button>
+          <label class="toggle">
+            <input id="useInputText" type="checkbox" />
+            <span>Send as input_text</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>Tools</h2>
+        <div class="grid">
+          <label class="field">
+            <span>Snapshot Name</span>
+            <input id="snapshotName" type="text" placeholder="optional" />
+          </label>
+          <label class="field">
+            <span>Rollback Snapshot</span>
+            <select id="snapshotSelect">
+              <option value="">(none)</option>
+            </select>
+          </label>
+        </div>
+        <div class="row">
+          <button id="snapshotBtn" class="btn btn--ghost">Snapshot</button>
+          <button id="rollbackBtn" class="btn btn--ghost">Rollback</button>
+          <button id="endBtn" class="btn btn--ghost">End</button>
+          <button id="replayBtn" class="btn btn--ghost">Replay</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>Replay Highlights</h2>
+        <div id="replayHighlights" class="card card--compact">
+          <div class="card__body">No replay yet.</div>
+        </div>
+        <details class="raw-json">
+          <summary>View raw replay JSON</summary>
+          <pre id="replayRaw">{}</pre>
+        </details>
+      </div>
+    </section>
+
+    <section class="panel panel--right">
+      <div class="section">
+        <h2>Step Timeline</h2>
+        <div id="stepTimeline" class="timeline"></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/demo/static/demo.js"></script>
+</body>
+</html>

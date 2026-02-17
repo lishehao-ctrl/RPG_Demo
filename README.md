@@ -16,6 +16,12 @@ pip install -e "./client[pretty]"
 uvicorn app.main:app --reload
 ```
 
+Demo UI:
+
+```bash
+open http://localhost:8000/demo
+```
+
 Or via Makefile:
 
 ```bash
@@ -46,6 +52,6 @@ DATABASE_URL=sqlite:///./app.db alembic upgrade head
 ## Test
 
 ```bash
-pytest -q
-pytest -q client/tests
+python -m pytest -q
+python -m pytest client/tests -q
 ```

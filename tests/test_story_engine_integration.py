@@ -5,8 +5,11 @@ import uuid
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
+from app.config import settings
 from app.db import session as db_session
+from app.db.models import ActionLog, LLMUsageLog
 from app.main import app
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -134,3 +137,104 @@ def test_replay_includes_story_path_and_key_decisions(tmp_path: Path) -> None:
     assert payload["story_path"]
     assert payload["story_path"][0]["choice_id"] == "c2"
     assert payload["key_decisions"]
+
+
+def test_story_step_returns_story_node_id(tmp_path: Path) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    pack = _make_pack("s_story_node", 1)
+    _publish_pack(client, pack)
+
+    sid = client.post("/sessions", json={"story_id": "s_story_node"}).json()["id"]
+    step = client.post(f"/sessions/{sid}/step", json={"choice_id": "c1"})
+    assert step.status_code == 200
+
+    body = step.json()
+    assert "story_node_id" in body
+    assert body["story_node_id"] == pack["nodes"][1]["node_id"]
+    assert body["node_id"]
+
+
+def test_story_step_cost_reflects_narration_usage(tmp_path: Path) -> None:
+    _prepare_db(tmp_path)
+    original_table = {k: dict(v) for k, v in settings.llm_price_table.items()}
+    original_primary = settings.llm_provider_primary
+    settings.llm_provider_primary = "fake"
+    settings.llm_price_table = {
+        **settings.llm_price_table,
+        "fake": {"input_per_1k": 1.0, "output_per_1k": 2.0},
+    }
+
+    try:
+        client = TestClient(app)
+        pack = _make_pack("s_story_cost", 1)
+        _publish_pack(client, pack)
+
+        sid = uuid.UUID(client.post("/sessions", json={"story_id": "s_story_cost"}).json()["id"])
+        step = client.post(f"/sessions/{sid}/step", json={"choice_id": "c1"})
+        assert step.status_code == 200
+        cost = step.json()["cost"]
+
+        with db_session.SessionLocal() as db:
+            rows = db.execute(
+                select(LLMUsageLog).where(LLMUsageLog.session_id == sid)
+            ).scalars().all()
+            assert rows
+            expected_tokens_in = sum(int(r.prompt_tokens or 0) for r in rows)
+            expected_tokens_out = sum(int(r.completion_tokens or 0) for r in rows)
+            expected_total_cost = round(sum(float(r.cost_estimate or 0.0) for r in rows), 6)
+            latest_generate = db.execute(
+                select(LLMUsageLog)
+                .where(
+                    LLMUsageLog.session_id == sid,
+                    LLMUsageLog.operation == "generate",
+                    LLMUsageLog.status == "success",
+                )
+                .order_by(LLMUsageLog.created_at.desc())
+            ).scalars().first()
+
+        assert latest_generate is not None
+        assert cost["provider"] == latest_generate.provider
+        assert cost["tokens_in"] == expected_tokens_in
+        assert cost["tokens_out"] == expected_tokens_out
+        assert round(float(cost["total_cost"]), 6) == expected_total_cost
+    finally:
+        settings.llm_provider_primary = original_primary
+        settings.llm_price_table = original_table
+
+
+def test_story_step_budget_skip_cost_is_zero_and_provider_none(tmp_path: Path) -> None:
+    _prepare_db(tmp_path)
+    original_total = settings.session_token_budget_total
+    settings.session_token_budget_total = 1
+
+    try:
+        client = TestClient(app)
+        pack = _make_pack("s_story_budget", 1)
+        _publish_pack(client, pack)
+
+        sid = uuid.UUID(client.post("/sessions", json={"story_id": "s_story_budget"}).json()["id"])
+        step = client.post(f"/sessions/{sid}/step", json={"choice_id": "c1"})
+        assert step.status_code == 200
+        assert step.json()["cost"] == {
+            "provider": "none",
+            "tokens_in": 0,
+            "tokens_out": 0,
+            "total_cost": 0,
+        }
+
+        with db_session.SessionLocal() as db:
+            usage_rows = db.execute(
+                select(LLMUsageLog).where(LLMUsageLog.session_id == sid)
+            ).scalars().all()
+            assert usage_rows == []
+            log = db.execute(
+                select(ActionLog)
+                .where(ActionLog.session_id == sid)
+                .order_by(ActionLog.created_at.desc(), ActionLog.id.desc())
+            ).scalars().first()
+            assert log is not None
+            assert log.fallback_used is True
+            assert "LLM_SKIPPED_BUDGET" in (log.fallback_reasons or [])
+    finally:
+        settings.session_token_budget_total = original_total

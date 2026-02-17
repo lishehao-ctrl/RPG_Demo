@@ -288,6 +288,42 @@ def _sum_step_tokens(db: Session, session_id: uuid.UUID, step_id: uuid.UUID) -> 
     return int(prompt_tokens), int(completion_tokens)
 
 
+def _sum_step_total_cost(db: Session, session_id: uuid.UUID, step_id: uuid.UUID) -> float:
+    total_cost = (
+        db.execute(
+            select(func.coalesce(func.sum(LLMUsageLog.cost_estimate), 0)).where(
+                LLMUsageLog.session_id == session_id,
+                LLMUsageLog.step_id == step_id,
+            )
+        ).scalar_one()
+        or 0
+    )
+    return round(float(total_cost), 6)
+
+
+def _sum_step_usage(db: Session, session_id: uuid.UUID, step_id: uuid.UUID) -> tuple[int, int, float]:
+    tokens_in, tokens_out = _sum_step_tokens(db, session_id, step_id)
+    return tokens_in, tokens_out, _sum_step_total_cost(db, session_id, step_id)
+
+
+def _step_provider(db: Session, session_id: uuid.UUID, step_id: uuid.UUID) -> str:
+    latest_usage = db.execute(
+        select(LLMUsageLog)
+        .where(
+            LLMUsageLog.session_id == session_id,
+            LLMUsageLog.step_id == step_id,
+            LLMUsageLog.operation == "generate",
+            LLMUsageLog.status == "success",
+        )
+        .order_by(LLMUsageLog.created_at.desc())
+    ).scalars().first()
+    return latest_usage.provider if latest_usage else "none"
+
+
+def _zero_step_cost() -> dict:
+    return {"tokens_in": 0, "tokens_out": 0, "provider": "none", "total_cost": 0}
+
+
 def step_session(db: Session, session_id: uuid.UUID, user_id: uuid.UUID, input_text: str | None, choice_id: str | None, player_input: str | None = None):
     with db.begin():
         sess = _require_session(db, session_id, user_id)
@@ -350,10 +386,11 @@ def step_session(db: Session, session_id: uuid.UUID, user_id: uuid.UUID, input_t
                     db.add(log)
                     return {
                         "node_id": uuid.uuid4(),
+                        "story_node_id": current_node_id,
                         "narrative_text": "Please pick one of the available choices.",
                         "choices": response_choices,
                         "affection_delta": [],
-                        "cost": {"tokens_in": 0, "tokens_out": 0, "provider": "none"},
+                        "cost": _zero_step_cost(),
                     }
             else:
                 raise HTTPException(status_code=400, detail={"code": "CHOICE_OR_PLAYER_INPUT_REQUIRED"})
@@ -363,14 +400,72 @@ def step_session(db: Session, session_id: uuid.UUID, user_id: uuid.UUID, input_t
             if not next_node:
                 raise HTTPException(status_code=400, detail={"code": "INVALID_NEXT_NODE"})
 
-            llm_runtime = get_llm_runtime()
-            llm_narrative, _ = llm_runtime.narrative_with_fallback(
-                db,
-                prompt=f"Story node transition: {node.get('scene_brief','')} -> {next_node.get('scene_brief','')}",
-                session_id=sess.id,
-                step_id=uuid.uuid4(),
+            resolved_story_input = input_text if input_text is not None else player_input
+            reserve_budget = _preflight_required_budget(resolved_story_input)
+            reserve_update = db.execute(
+                update(StorySession)
+                .where(StorySession.id == sess.id, StorySession.token_budget_remaining >= reserve_budget)
+                .values(
+                    token_budget_used=StorySession.token_budget_used + reserve_budget,
+                    token_budget_remaining=StorySession.token_budget_remaining - reserve_budget,
+                    updated_at=datetime.utcnow(),
+                )
             )
-            narrative_text = llm_narrative.narrative_text
+
+            llm_skipped_budget = reserve_update.rowcount != 1
+            fallback_reasons = list(compiled_action.reasons if compiled_action else [])
+            tokens_in = 0
+            tokens_out = 0
+            total_cost = 0.0
+            provider_name = "none"
+
+            if llm_skipped_budget:
+                narrative_text = "[fallback] The scene advances quietly. Choose the next move."
+                if "LLM_SKIPPED_BUDGET" not in fallback_reasons:
+                    fallback_reasons.append("LLM_SKIPPED_BUDGET")
+            else:
+                db.refresh(sess)
+                step_id = uuid.uuid4()
+                llm_runtime = get_llm_runtime()
+                llm_narrative, _ = llm_runtime.narrative_with_fallback(
+                    db,
+                    prompt=f"Story node transition: {node.get('scene_brief','')} -> {next_node.get('scene_brief','')}",
+                    session_id=sess.id,
+                    step_id=step_id,
+                )
+                narrative_text = llm_narrative.narrative_text
+
+                db.refresh(sess, attribute_names=["token_budget_used", "token_budget_remaining"])
+                db.flush()
+                tokens_in, tokens_out, total_cost = _sum_step_usage(db, sess.id, step_id)
+                actual_total = tokens_in + tokens_out
+                budget_delta = reserve_budget - actual_total
+                if budget_delta >= 0:
+                    budget_update = db.execute(
+                        update(StorySession)
+                        .where(StorySession.id == sess.id)
+                        .values(
+                            token_budget_used=StorySession.token_budget_used - budget_delta,
+                            token_budget_remaining=StorySession.token_budget_remaining + budget_delta,
+                            updated_at=datetime.utcnow(),
+                        )
+                    )
+                else:
+                    additional_charge = -budget_delta
+                    budget_update = db.execute(
+                        update(StorySession)
+                        .where(StorySession.id == sess.id, StorySession.token_budget_remaining >= additional_charge)
+                        .values(
+                            token_budget_used=StorySession.token_budget_used + additional_charge,
+                            token_budget_remaining=StorySession.token_budget_remaining - additional_charge,
+                            updated_at=datetime.utcnow(),
+                        )
+                    )
+                if budget_update.rowcount != 1:
+                    raise HTTPException(status_code=409, detail={"code": "TOKEN_BUDGET_EXCEEDED"})
+                db.refresh(sess)
+                provider_name = _step_provider(db, sess.id, step_id)
+
             response_choices = _story_choices_for_response(next_node)
 
             try:
@@ -388,8 +483,8 @@ def step_session(db: Session, session_id: uuid.UUID, user_id: uuid.UUID, input_t
                 user_raw_input=(compiled_action.user_raw_input if compiled_action else None),
                 proposed_action=(compiled_action.proposed_action if compiled_action else {}),
                 final_action=((selected_choice.get("action") or {}) if compiled_action is None else compiled_action.final_action),
-                fallback_used=(compiled_action.fallback_used if compiled_action else False),
-                fallback_reasons=(compiled_action.reasons if compiled_action else []),
+                fallback_used=(bool(compiled_action and compiled_action.fallback_used) or llm_skipped_budget),
+                fallback_reasons=fallback_reasons,
                 action_confidence=(compiled_action.confidence if compiled_action else 1.0),
                 key_decision=bool(selected_choice.get("is_key_decision", False)),
                 classification={},
@@ -401,10 +496,11 @@ def step_session(db: Session, session_id: uuid.UUID, user_id: uuid.UUID, input_t
 
             return {
                 "node_id": uuid.uuid4(),
+                "story_node_id": next_node_id,
                 "narrative_text": narrative_text,
                 "choices": response_choices,
                 "affection_delta": [],
-                "cost": {"tokens_in": 0, "tokens_out": 0, "provider": "none"},
+                "cost": {"tokens_in": tokens_in, "tokens_out": tokens_out, "provider": provider_name, "total_cost": total_cost},
             }
 
         conservative_cost = 20 + (len((input_text if input_text is not None else player_input) or "") // 4)
@@ -550,7 +646,7 @@ def step_session(db: Session, session_id: uuid.UUID, user_id: uuid.UUID, input_t
 
         db.refresh(sess, attribute_names=["token_budget_used", "token_budget_remaining"])
         db.flush()
-        tokens_in, tokens_out = _sum_step_tokens(db, sess.id, step_id)
+        tokens_in, tokens_out, total_cost = _sum_step_usage(db, sess.id, step_id)
         actual_total = tokens_in + tokens_out
         deterministic_cost = actual_total if actual_total > 0 else conservative_cost
 
@@ -616,24 +712,14 @@ def step_session(db: Session, session_id: uuid.UUID, user_id: uuid.UUID, input_t
         sess.current_node_id = node.id
         sess.updated_at = datetime.utcnow()
 
-        latest_usage = db.execute(
-            select(LLMUsageLog)
-            .where(
-                LLMUsageLog.session_id == sess.id,
-                LLMUsageLog.step_id == step_id,
-                LLMUsageLog.operation == "generate",
-                LLMUsageLog.status == "success",
-            )
-            .order_by(LLMUsageLog.created_at.desc())
-        ).scalars().first()
-        provider_name = latest_usage.provider if latest_usage else "none"
+        provider_name = _step_provider(db, sess.id, step_id)
 
     return {
         "node_id": node.id,
         "narrative_text": narrative_text,
         "choices": choices,
         "affection_delta": affection_delta,
-        "cost": {"tokens_in": tokens_in, "tokens_out": tokens_out, "provider": provider_name},
+        "cost": {"tokens_in": tokens_in, "tokens_out": tokens_out, "provider": provider_name, "total_cost": total_cost},
     }
 
 

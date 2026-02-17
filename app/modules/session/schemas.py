@@ -77,6 +77,7 @@ class SnapshotOut(BaseModel):
 
 class StepResponse(BaseModel):
     node_id: uuid.UUID
+    story_node_id: str | None = None
     narrative_text: str
     choices: list[ChoiceOut]
     affection_delta: list = Field(default_factory=list)

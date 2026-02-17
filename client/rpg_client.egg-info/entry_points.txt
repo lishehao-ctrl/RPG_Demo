@@ -1,0 +1,2 @@
+[console_scripts]
+rpg = rpg_cli:app

@@ -1,5 +1,11 @@
+import os
+from collections.abc import Iterable
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy import create_engine, inspect
+
+DEV_DEFAULT_DB_URL = "sqlite:///./dev.db"
 
 
 class Settings(BaseSettings):
@@ -43,4 +49,49 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
+def _is_sqlite_memory_url(db_url: str) -> bool:
+    candidate = (db_url or "").strip().lower()
+    if not candidate.startswith("sqlite"):
+        return False
+    if ":memory:" in candidate:
+        return True
+    return candidate in {
+        "sqlite://",
+        "sqlite:///",
+        "sqlite+pysqlite://",
+        "sqlite+pysqlite:///",
+    }
+
+
+def validate_database_url(env: str, db_url: str | None) -> str:
+    env_value = (env or "").strip().lower()
+    if env_value != "dev":
+        return db_url or ""
+
+    if not db_url or not db_url.strip():
+        return DEV_DEFAULT_DB_URL
+
+    if _is_sqlite_memory_url(db_url):
+        raise RuntimeError(
+            "DATABASE_URL cannot be sqlite :memory: when ENV=dev because sessions will disappear. "
+            f"Set DATABASE_URL={DEV_DEFAULT_DB_URL} or another file-based sqlite url."
+        )
+    return db_url
+
+
+def ensure_dev_database_schema(db_url: str, required_tables: Iterable[str] = ("alembic_version", "users")) -> None:
+    if not db_url:
+        return
+    engine = create_engine(db_url, future=True)
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+    if not set(required_tables).intersection(tables):
+        raise RuntimeError(f"Run alembic upgrade head for DATABASE_URL={db_url}")
+
+
 settings = Settings()
+_raw_db_url = os.getenv("DATABASE_URL")
+if settings.env == "dev":
+    settings.database_url = validate_database_url(settings.env, _raw_db_url)
+else:
+    settings.database_url = validate_database_url(settings.env, _raw_db_url or settings.database_url)

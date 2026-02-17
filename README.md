@@ -16,6 +16,14 @@ pip install -e "./client[pretty]"
 uvicorn app.main:app --reload
 ```
 
+## Local Dev Quickstart
+
+```bash
+./scripts/dev.sh
+```
+
+This sets `ENV=dev`, defaults `DATABASE_URL` to `sqlite:///./dev.db` when unset, runs `alembic upgrade head`, and starts the server with `--reload`.
+
 Demo UI:
 
 ```bash

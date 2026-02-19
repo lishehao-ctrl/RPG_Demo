@@ -1,64 +1,31 @@
 # Verification
 
-## Migration verification
-
+## Compile Check
 ```bash
-DATABASE_URL=sqlite:///./manual_auth.db alembic upgrade head
+python -m compileall app
 ```
 
-Expected: command exits 0 and creates all required tables.
-
-## Test suite
-
+## Test Suite
 ```bash
 pytest -q
 pytest -q client/tests
 ```
 
-## OAuth + JWT local manual steps
-
-Required env vars:
-- `GOOGLE_CLIENT_ID`
-- `GOOGLE_CLIENT_SECRET`
-- `GOOGLE_REDIRECT_URI`
-- `JWT_SECRET`
-- `ENV=dev`
-
-Run server:
-
+## Story Runtime Focused Checks
 ```bash
-uvicorn app.main:app --host 127.0.0.1 --port 8000
+pytest -q tests/test_story_pack_api.py tests/test_story_engine_integration.py tests/test_story_runtime_decisions.py tests/test_fallback_narration.py
 ```
 
-Flow:
-1. Call `/auth/google/login` and open returned `auth_url` in browser.
-2. Complete Google login.
-3. Google redirects to `/auth/google/callback` and backend returns JWT.
-4. Use JWT as `Authorization: Bearer <token>` for `/sessions` endpoints.
+## Cleanup Evidence Scans
+```bash
+rg -n "input_text|ActionCompiler|modules\\.affection|modules\\.branch|classify_with_fallback|build_classification_prompt|build_narrative_prompt" app tests client
+rg -n "if sess\\.story_id|non-story|non story" app tests
+rg -n "MAP_|REQUIRES_|PACK_" app tests client
+rg -n "token_budget|TOKEN_BUDGET_EXCEEDED|BUDGET_SKIPPED|session_token_budget_total|llm_preflight|total_cost|cost_estimate" app tests client
+rg -n "\\bclassify\\(|\\bsummarize\\(|llm_model_summarize|llm_model_classify" app tests client
+rg -n "_reason_from_trace|_hint_from_trace|branch_evaluation" app tests client
+rg -n "quest_state|QuestStage|QuestStageMilestone|stage_rewards|current_stage_id|recent_events" app tests docs app/modules/demo/static
+rg -n "quest\\.milestones|milestones\\s*:\\s*list\\[QuestMilestone\\]" app tests docs
+```
 
-## Deterministic test expectations
-
-- No real Google network calls in tests.
-- OAuth tests monkeypatch token exchange + id_token verification.
-- Non-dev env rejects `X-User-Id` fallback (requires Bearer).
-- Expired OAuth state returns `400` with `STATE_EXPIRED`.
-- Callback `?error=...` returns structured `400` and writes `audit_logs` event.
-- JWT auth accepts small clock skew leeway (60s) around `exp/iat`.
-
-## Production guardrail
-
-If `ENV != dev` and `JWT_SECRET` is left as default (`change-me-in-prod`), app startup fails fast.
-
-## CI
-
-GitHub Actions workflow: `.github/workflows/ci.yml`
-- `unit-sqlite`: sqlite migration + backend pytest + client pytest
-- `integration-postgres`: postgres migration + backend pytest
-- CI sets `LLM_PROVIDER_PRIMARY=fake` to avoid external LLM calls
-
-## Debug hardening checks
-
-- Rollback trimming is snapshot-membership-based and deletes `action_logs` before `dialogue_nodes` to remain FK-safe when SQLite foreign keys are enabled per connection.
-- Step token accounting is grouped by `(session_id, step_id)` and no longer depends on `created_at` windows.
-- Token budget decrement is guarded by a single SQL `UPDATE ... WHERE token_budget_remaining >= :cost`, so failed decrements return `TOKEN_BUDGET_EXCEEDED` without negative remaining budget.
-- In `ENV=dev`, invalid `X-User-Id` now returns `400` with `detail.code == "INVALID_X_USER_ID"`.
+Use these raw outputs in PR appendix (no hand-written counts).

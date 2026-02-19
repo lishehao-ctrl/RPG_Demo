@@ -90,8 +90,13 @@ Quest runtime uses stage-based progression:
 Detailed internals remain in action logs (`fallback_reasons`, `matched_rules`).
 
 ## Replay Contract
-- Replay payload keeps `missed_routes` and `what_if` keys for stable response shape.
-- In the current story-only runtime, branch-trace derivation is removed, so both are returned as empty lists.
+- Replay payload is story-runtime only and contains:
+  - `session_id`
+  - `total_steps`
+  - `key_decisions`
+  - `fallback_summary`
+  - `story_path`
+  - `state_timeline`
 
 ## Fallback Narration and Leak Safety
 Fallback text source order:

@@ -13,12 +13,12 @@ router = APIRouter(prefix="", tags=["sessions"])
 
 @router.post("/sessions", response_model=SessionCreateOut)
 def create_session(
-    payload: SessionCreateRequest | None = None,
+    payload: SessionCreateRequest,
     db: Session = Depends(get_db),
     user: dict = Depends(get_current_user),
 ):
-    sess = service.create_session(db, user["id"], story_id=(payload.story_id if payload else None), version=(payload.version if payload else None))
-    return {"id": sess.id, "status": sess.status, "token_budget_remaining": sess.token_budget_remaining, "story_id": sess.story_id, "story_version": sess.story_version}
+    sess = service.create_session(db, user["id"], story_id=payload.story_id, version=payload.version)
+    return {"id": sess.id, "status": sess.status, "story_id": sess.story_id, "story_version": sess.story_version}
 
 
 @router.get("/sessions/{session_id}", response_model=SessionStateOut)
@@ -37,7 +37,7 @@ def step_session(
     db: Session = Depends(get_db),
     user: dict = Depends(get_current_user),
 ):
-    return service.step_session(db, session_id, user["id"], payload.input_text, payload.choice_id, payload.player_input)
+    return service.step_session(db, session_id, user["id"], payload.choice_id, payload.player_input)
 
 
 @router.post("/sessions/{session_id}/snapshot", response_model=SnapshotOut)

@@ -1,25 +1,22 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ChoiceOut(BaseModel):
     id: str
     text: str
     type: str
+    is_available: bool | None = None
+    unavailable_reason: str | None = None
 
 
 class StepRequest(BaseModel):
-    input_text: str | None = None
+    model_config = ConfigDict(extra="forbid")
+
     choice_id: str | None = None
     player_input: str | None = None
-
-    @model_validator(mode="after")
-    def validate_any_input(self):
-        if not self.input_text and not self.choice_id and not self.player_input:
-            raise ValueError("input_text, choice_id, or player_input is required")
-        return self
 
 
 class SessionCharacterStateOut(BaseModel):
@@ -49,9 +46,8 @@ class SessionStateOut(BaseModel):
     global_flags: dict = Field(default_factory=dict)
     route_flags: dict = Field(default_factory=dict)
     active_characters: list = Field(default_factory=list)
+    state_json: dict = Field(default_factory=dict)
     memory_summary: str
-    token_budget_used: int
-    token_budget_remaining: int
     created_at: datetime
     updated_at: datetime
     character_states: list[SessionCharacterStateOut]
@@ -59,14 +55,13 @@ class SessionStateOut(BaseModel):
 
 
 class SessionCreateRequest(BaseModel):
-    story_id: str | None = None
+    story_id: str = Field(min_length=1)
     version: int | None = None
 
 
 class SessionCreateOut(BaseModel):
     id: uuid.UUID
     status: str
-    token_budget_remaining: int
     story_id: str | None = None
     story_version: int | None = None
 
@@ -78,7 +73,12 @@ class SnapshotOut(BaseModel):
 class StepResponse(BaseModel):
     node_id: uuid.UUID
     story_node_id: str | None = None
+    attempted_choice_id: str | None = None
+    executed_choice_id: str | None = None
+    resolved_choice_id: str | None = None
+    fallback_used: bool | None = None
+    fallback_reason: str | None = None
+    mapping_confidence: float | None = None
     narrative_text: str
     choices: list[ChoiceOut]
-    affection_delta: list = Field(default_factory=list)
     cost: dict

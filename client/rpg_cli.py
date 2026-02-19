@@ -98,12 +98,6 @@ def _print_step(body: dict[str, Any]) -> None:
         for c in choices:
             typer.echo(f"  - {c.get('id')}: {c.get('text')} ({c.get('type')})")
 
-    aff = body.get("affection_delta", [])
-    if aff:
-        typer.echo("affection_delta:")
-        for d in aff:
-            typer.echo(f"  - char={d.get('char_id')} score_delta={d.get('score_delta')} vector_delta={d.get('vector_delta')}")
-
 
 @app.command()
 def ping() -> None:
@@ -114,8 +108,14 @@ def ping() -> None:
 
 
 @session_app.command("create")
-def session_create() -> None:
-    resp = request("POST", "/sessions")
+def session_create(
+    story_id: str = typer.Option(..., "--story-id", help="Published story id"),
+    version: int | None = typer.Option(None, "--version", help="Optional story version"),
+) -> None:
+    payload: dict[str, Any] = {"story_id": story_id}
+    if version is not None:
+        payload["version"] = version
+    resp = request("POST", "/sessions", json_body=payload)
     body = _handle_response(resp, "session create")
     if body is None:
         return
@@ -124,7 +124,6 @@ def session_create() -> None:
     save_state(state)
     typer.echo(f"session_id: {body.get('id')}")
     typer.echo(f"status: {body.get('status')}")
-    typer.echo(f"token_budget_remaining: {body.get('token_budget_remaining')}")
 
 
 @session_app.command("get")
@@ -137,7 +136,6 @@ def session_get(session_id: str | None = typer.Argument(default=None)) -> None:
     typer.echo(f"session_id: {body.get('id')}")
     typer.echo(f"status: {body.get('status')}")
     typer.echo(f"current_node_id: {body.get('current_node_id')}")
-    typer.echo(f"token_budget_remaining: {body.get('token_budget_remaining')}")
 
 
 @app.command()
@@ -148,10 +146,12 @@ def step(
 ) -> None:
     if not text and not choice_id:
         raise typer.BadParameter("Provide --text or --choice-id")
+    if text and choice_id:
+        raise typer.BadParameter("Provide exactly one of --text or --choice-id")
     sid = _resolve_session_id(session_id)
     payload: dict[str, Any] = {}
     if text:
-        payload["input_text"] = text
+        payload["player_input"] = text
     if choice_id:
         payload["choice_id"] = choice_id
 
@@ -199,7 +199,7 @@ def end(session_id: str | None = typer.Option(default=None)) -> None:
     resp = request("POST", f"/sessions/{sid}/end")
     body = _handle_response(resp, "end")
     if body is not None:
-        typer.echo(f"ended: {body.get('ended')} replay_report_id={body.get('replay_report_id')} route_type={body.get('route_type')}")
+        typer.echo(f"ended: {body.get('ended')} replay_report_id={body.get('replay_report_id')}")
 
 
 @app.command()
@@ -211,17 +211,9 @@ def replay(session_id: str | None = typer.Option(default=None)) -> None:
         return
 
     typer.echo(f"session_id: {body.get('session_id')}")
-    typer.echo(f"route_type: {body.get('route_type')}")
-    decisions = body.get("decision_points", [])
-    missed = body.get("missed_routes", [])
-    typer.echo(f"decision_points: {len(decisions)}")
-    typer.echo(f"missed_routes: {len(missed)}")
-    if missed:
-        typer.echo("missed route hints:")
-        for item in missed[:5]:
-            typer.echo(
-                f"  - step={item.get('step_index')} route={item.get('route_type')} matched={item.get('matched')} hint={item.get('unlock_hint')}"
-            )
+    typer.echo(f"total_steps: {body.get('total_steps')}")
+    typer.echo(f"story_path: {len(body.get('story_path', []))}")
+    typer.echo(f"key_decisions: {len(body.get('key_decisions', []))}")
 
 
 if __name__ == "__main__":

@@ -69,5 +69,11 @@ Session endpoints require authenticated user identity:
   - `NO_INPUT`, `BLOCKED`, `FALLBACK`, or `null` (non-fallback path).
 
 ### Replay payload contract (`GET /sessions/{id}/replay`)
-- Replay response keeps `missed_routes` and `what_if` keys for contract stability.
-- In current story-only runtime they are present as empty lists.
+- Replay response is story-runtime focused and includes:
+  - `session_id`
+  - `total_steps`
+  - `key_decisions`
+  - `fallback_summary`
+  - `story_path`
+  - `state_timeline`
+- Replay no longer includes branch/affection route-analysis keys.

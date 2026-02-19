@@ -34,9 +34,8 @@ class Session(Base):
     global_flags: Mapped[dict] = mapped_column(JSONType, default=dict)
     route_flags: Mapped[dict] = mapped_column(JSONType, default=dict)
     active_characters: Mapped[list] = mapped_column(JSONType, default=list)
+    state_json: Mapped[dict] = mapped_column(JSONType, default=dict)
     memory_summary: Mapped[str] = mapped_column(Text, default="")
-    token_budget_used: Mapped[int] = mapped_column(Integer, default=0)
-    token_budget_remaining: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow, index=True)
 
@@ -87,21 +86,6 @@ class DialogueNode(Base):
     player_input: Mapped[str | None] = mapped_column(Text, nullable=True)
     narrative_text: Mapped[str] = mapped_column(Text, default="")
     choices: Mapped[list] = mapped_column(JSONType, default=list)
-    branch_decision: Mapped[dict] = mapped_column(JSONType, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
-
-
-class Branch(Base):
-    __tablename__ = "branches"
-
-    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
-    from_node_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("dialogue_nodes.id"), index=True)
-    to_node_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("dialogue_nodes.id"), nullable=True, index=True)
-    priority: Mapped[int] = mapped_column(Integer, default=0, index=True)
-    is_exclusive: Mapped[bool] = mapped_column(Boolean, default=False)
-    rule_expr: Mapped[dict] = mapped_column(JSONType, default=dict)
-    route_type: Mapped[str] = mapped_column(String(64), default="default", index=True)
-    is_default: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
 
 
@@ -122,9 +106,10 @@ class ActionLog(Base):
     action_confidence: Mapped[float | None] = mapped_column(Numeric(4, 3), nullable=True)
     key_decision: Mapped[bool] = mapped_column(Boolean, default=False)
     classification: Mapped[dict] = mapped_column(JSONType, default=dict)
+    state_before: Mapped[dict] = mapped_column(JSONType, default=dict)
+    state_after: Mapped[dict] = mapped_column(JSONType, default=dict)
+    state_delta: Mapped[dict] = mapped_column(JSONType, default=dict)
     matched_rules: Mapped[list] = mapped_column(JSONType, default=list)
-    affection_delta: Mapped[list] = mapped_column(JSONType, default=list)
-    branch_evaluation: Mapped[list] = mapped_column(JSONType, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
 
 
@@ -168,7 +153,6 @@ class LLMUsageLog(Base):
     latency_ms: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[str] = mapped_column(String(32), index=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    cost_estimate: Mapped[float | None] = mapped_column(Numeric(10, 4), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
 
 

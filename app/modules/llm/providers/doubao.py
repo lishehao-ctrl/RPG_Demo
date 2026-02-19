@@ -38,11 +38,5 @@ class DoubaoProvider(LLMProvider):
         }
         return choice_content, usage
 
-    async def classify(self, text: str, *, request_id: str, timeout_s: float, model: str):
-        return await self._chat(text, timeout_s=timeout_s, model=model)
-
     async def generate(self, prompt: str, *, request_id: str, timeout_s: float, model: str):
         return await self._chat(prompt, timeout_s=timeout_s, model=model)
-
-    async def summarize(self, history: str, *, request_id: str, timeout_s: float, model: str):
-        return await self._chat(history, timeout_s=timeout_s, model=model)

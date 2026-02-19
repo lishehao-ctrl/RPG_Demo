@@ -949,7 +949,6 @@ def end_session(db: Session, session_id: uuid.UUID, user_id: uuid.UUID) -> dict:
     return {
         "ended": True,
         "replay_report_id": str(replay_row.id),
-        "route_type": report.get("route_type", "default"),
     }
 
 

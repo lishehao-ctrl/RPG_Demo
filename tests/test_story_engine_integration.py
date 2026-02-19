@@ -222,6 +222,7 @@ def test_story_session_advances_nodes_by_choice_id(tmp_path: Path) -> None:
     assert body["resolved_choice_id"] == "c1"
     assert body["fallback_used"] is False
     assert body["fallback_reason"] is None
+    assert "affection_delta" not in body
     assert set(body["cost"].keys()) == {"tokens_in", "tokens_out", "provider"}
 
     state1 = client.get(f"/sessions/{sid}").json()
@@ -669,7 +670,7 @@ def test_get_story_returns_raw_pack_json_wrapper_unchanged(tmp_path: Path) -> No
     assert got.json()["pack"] == raw_pack
 
 
-def test_replay_keeps_missed_routes_and_what_if_empty_lists(tmp_path: Path) -> None:
+def test_replay_story_only_payload_contract(tmp_path: Path) -> None:
     _prepare_db(tmp_path)
     client = TestClient(app)
     pack = _make_pack("s_replay_contract", 1)
@@ -682,9 +683,15 @@ def test_replay_keeps_missed_routes_and_what_if_empty_lists(tmp_path: Path) -> N
     replay = client.get(f"/sessions/{sid}/replay")
     assert replay.status_code == 200
     body = replay.json()
-    assert "missed_routes" in body
-    assert "what_if" in body
-    assert isinstance(body["missed_routes"], list)
-    assert isinstance(body["what_if"], list)
-    assert body["missed_routes"] == []
-    assert body["what_if"] == []
+    assert body["session_id"] == str(sid)
+    assert "total_steps" in body
+    assert "key_decisions" in body
+    assert "fallback_summary" in body
+    assert "story_path" in body
+    assert "state_timeline" in body
+    assert "route_type" not in body
+    assert "decision_points" not in body
+    assert "affection_timeline" not in body
+    assert "affection_attribution" not in body
+    assert "missed_routes" not in body
+    assert "what_if" not in body

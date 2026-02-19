@@ -322,8 +322,24 @@ def test_step_cost_payload_is_token_only(tmp_path: Path) -> None:
     sid = _create_story_session(client)
     step = client.post(f"/sessions/{sid}/step", json={"choice_id": "c1"})
     assert step.status_code == 200
-    cost = step.json()["cost"]
+    step_body = step.json()
+    assert "affection_delta" not in step_body
+    cost = step_body["cost"]
     assert set(cost.keys()) == {"tokens_in", "tokens_out", "provider"}
+
+
+def test_end_session_response_has_no_route_type(tmp_path: Path) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    _publish_story(client)
+
+    sid = _create_story_session(client)
+    end_resp = client.post(f"/sessions/{sid}/end")
+    assert end_resp.status_code == 200
+    body = end_resp.json()
+    assert body["ended"] is True
+    assert "replay_report_id" in body
+    assert "route_type" not in body
 
 
 def test_step_rejects_unknown_payload_field(tmp_path: Path) -> None:

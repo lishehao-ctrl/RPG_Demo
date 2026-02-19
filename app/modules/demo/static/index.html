@@ -20,7 +20,7 @@
       </div>
       <div class="session-line">
         <span class="label">Token Totals</span>
-        <span id="tokenTotals" class="value">in: 0, out: 0, cost: 0</span>
+        <span id="tokenTotals" class="value">in: 0, out: 0</span>
       </div>
     </div>
   </header>
@@ -32,7 +32,7 @@
         <div class="grid">
           <label class="field">
             <span>Story ID</span>
-            <input id="storyId" type="text" placeholder="optional" />
+            <input id="storyId" type="text" placeholder="required" />
           </label>
           <label class="field">
             <span>Story Version</span>
@@ -43,6 +43,17 @@
           <button id="createSessionBtn" class="btn">Create</button>
           <button id="refreshSessionBtn" class="btn btn--ghost">Refresh</button>
         </div>
+      </div>
+
+      <div class="section">
+        <h2>State</h2>
+        <pre id="statePanel" class="state-panel">{}</pre>
+      </div>
+
+      <div class="section">
+        <h2>Quests</h2>
+        <pre id="questSummary" class="quest-panel">(no quests)</pre>
+        <pre id="questRecent" class="quest-events">(no recent quest events)</pre>
       </div>
 
       <div class="section">
@@ -75,10 +86,6 @@
         </label>
         <div class="row">
           <button id="sendInputBtn" class="btn">Send Input</button>
-          <label class="toggle">
-            <input id="useInputText" type="checkbox" />
-            <span>Send as input_text</span>
-          </label>
         </div>
       </div>
 

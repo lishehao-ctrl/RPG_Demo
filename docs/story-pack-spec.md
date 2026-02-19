@@ -59,7 +59,7 @@ Allowed keys only:
 - `DEFAULT`
 
 Hard-cut v10:
-- legacy reason-family keys are not accepted.
+- older reason-family keys are not accepted.
 
 ## FallbackExecutor
 Pack-level fallback template:

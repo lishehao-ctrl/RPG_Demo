@@ -38,7 +38,7 @@ CLI persists lightweight state to `client/.state.json`:
 
 ```bash
 rpg ping
-rpg session create
+rpg session create --story-id campus_life
 rpg session get [SESSION_ID]
 rpg step --text "hello"
 rpg step --choice-id "c1"
@@ -54,7 +54,7 @@ If `session_id`/`snapshot_id` are omitted, the CLI uses values from `client/.sta
 
 ```bash
 rpg ping
-rpg session create
+rpg session create --story-id campus_life
 rpg step --text "hello"
 rpg snapshot --name "manual"
 rpg step --text "another input"
@@ -75,5 +75,5 @@ pytest -q client/tests
 ```bash
 # after completing /auth/google/callback and getting access_token
 export AUTH_TOKEN="<jwt>"
-rpg session create
+rpg session create --story-id campus_life
 ```

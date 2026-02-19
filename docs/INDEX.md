@@ -11,6 +11,6 @@ This is the single entry point for project documentation.
 - [Verification Commands](verification.md)
 
 ## Scope Notes
-- Runtime and docs in this repo follow strict v10 behavior with no legacy support paths.
+- Runtime and docs in this repo follow strict v10 behavior with no historical support paths.
 - Story resolver ownership remains in `app/modules/session/service.py`.
 - Quest/Goal progress is rule-based stage v1 (linear single-active) and stored in `session.state_json.quest_state`.

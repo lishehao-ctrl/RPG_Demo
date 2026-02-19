@@ -63,3 +63,7 @@ DATABASE_URL=sqlite:///./app.db alembic upgrade head
 python -m pytest -q
 python -m pytest client/tests -q
 ```
+
+## Documentation
+
+- Entry point: `docs/INDEX.md`

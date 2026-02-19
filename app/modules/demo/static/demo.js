@@ -2,7 +2,8 @@ const state = {
   sessionId: null,
   steps: [],
   snapshots: [],
-  totals: { tokensIn: 0, tokensOut: 0, totalCost: 0 },
+  currentState: {},
+  totals: { tokensIn: 0, tokensOut: 0 },
 };
 
 const el = (id) => document.getElementById(id);
@@ -14,6 +15,9 @@ const timelineEl = el("stepTimeline");
 const snapshotSelectEl = el("snapshotSelect");
 const replayHighlightsEl = el("replayHighlights");
 const replayRawEl = el("replayRaw");
+const statePanelEl = el("statePanel");
+const questSummaryEl = el("questSummary");
+const questRecentEl = el("questRecent");
 
 const nowIso = () => new Date().toISOString();
 
@@ -56,14 +60,88 @@ function setSessionId(value) {
   sessionEl.textContent = value || "(none)";
 }
 
+function cloneState(input) {
+  return JSON.parse(JSON.stringify(input || {}));
+}
+
+function computeDelta(before, after) {
+  const out = {};
+  const keys = new Set([...Object.keys(before || {}), ...Object.keys(after || {})]);
+  keys.forEach((key) => {
+    const beforeRaw = (before || {})[key];
+    const afterRaw = (after || {})[key];
+    if (typeof beforeRaw === "number" && typeof afterRaw === "number") {
+      const diff = afterRaw - beforeRaw;
+      if (diff !== 0) out[key] = diff;
+      return;
+    }
+    if (JSON.stringify(beforeRaw) !== JSON.stringify(afterRaw)) {
+      out[key] = afterRaw;
+    }
+  });
+  return out;
+}
+
+function renderStatePanel(stats) {
+  state.currentState = cloneState(stats || {});
+  const day = state.currentState.day ?? "n/a";
+  const slot = state.currentState.slot ?? "n/a";
+  statePanelEl.textContent = `day: ${day} | slot: ${slot}\n${JSON.stringify(state.currentState, null, 2)}`;
+  renderQuestPanel(state.currentState.quest_state || {});
+}
+
+function renderQuestPanel(questState) {
+  const data = questState || {};
+  const quests = data.quests || {};
+  const active = Array.isArray(data.active_quests) ? data.active_quests : [];
+  const completed = Array.isArray(data.completed_quests) ? data.completed_quests : [];
+
+  if (!Object.keys(quests).length) {
+    questSummaryEl.textContent = "(no quests)";
+    questRecentEl.textContent = "(no recent quest events)";
+    return;
+  }
+
+  const formatQuestLine = (questId) => {
+    const entry = quests[questId] || {};
+    const stages = entry.stages || {};
+    const currentStageId = entry.current_stage_id || null;
+    const currentStage = currentStageId ? stages[currentStageId] || {} : {};
+    const milestones = currentStage.milestones || {};
+    const milestoneIds = Object.keys(milestones);
+    const doneMilestones = milestoneIds.filter((id) => milestones[id] && milestones[id].done);
+    const status = entry.status || "inactive";
+    const stageLabel = currentStageId || "-";
+    return `- ${questId} [${status}] stage: ${stageLabel} progress: ${doneMilestones.length}/${milestoneIds.length}`;
+  };
+
+  const activeLines = active.length ? active.map(formatQuestLine).join("\n") : "(none)";
+  const completedLines = completed.length ? completed.map(formatQuestLine).join("\n") : "(none)";
+  questSummaryEl.textContent = `active (${active.length})\n${activeLines}\n\ncompleted (${completed.length})\n${completedLines}`;
+
+  const recentEvents = Array.isArray(data.recent_events) ? data.recent_events.slice(-5) : [];
+  if (!recentEvents.length) {
+    questRecentEl.textContent = "(no recent quest events)";
+    return;
+  }
+  questRecentEl.textContent = recentEvents
+    .map((row) => {
+      const seq = row.seq ?? "n/a";
+      const type = row.type || "event";
+      const questId = row.quest_id || "unknown";
+      const stageId = row.stage_id ? `/${row.stage_id}` : "";
+      const milestoneId = row.milestone_id ? `/${row.milestone_id}` : "";
+      return `#${seq} ${type} ${questId}${stageId}${milestoneId}`;
+    })
+    .join("\n");
+}
+
 function updateTokenTotals(cost) {
   const tokensIn = Number(cost.tokens_in || 0);
   const tokensOut = Number(cost.tokens_out || 0);
-  const totalCost = Number(cost.total_cost || 0);
   state.totals.tokensIn += tokensIn;
   state.totals.tokensOut += tokensOut;
-  state.totals.totalCost = Number((state.totals.totalCost + totalCost).toFixed(6));
-  tokenTotalsEl.textContent = `in: ${state.totals.tokensIn}, out: ${state.totals.tokensOut}, cost: ${state.totals.totalCost}`;
+  tokenTotalsEl.textContent = `in: ${state.totals.tokensIn}, out: ${state.totals.tokensOut}`;
 }
 
 function renderNarrative(narrativeText, choices) {
@@ -71,7 +149,10 @@ function renderNarrative(narrativeText, choices) {
   choiceButtonsEl.innerHTML = "";
   (choices || []).forEach((choice) => {
     const btn = document.createElement("button");
-    btn.textContent = `${choice.text} (${choice.type})`;
+    const unavailable = choice.is_available === false;
+    const reason = choice.unavailable_reason ? ` (locked: ${choice.unavailable_reason})` : "";
+    btn.textContent = `${choice.text} (${choice.type})${reason}`;
+    btn.classList.toggle("choice--locked", unavailable);
     btn.onclick = () => sendStep({ choice_id: choice.id });
     choiceButtonsEl.appendChild(btn);
   });
@@ -80,6 +161,10 @@ function renderNarrative(narrativeText, choices) {
 function renderStepCard(step) {
   const card = document.createElement("div");
   card.className = "step-card";
+  const stateDeltaText = Object.keys(step.state_delta || {}).length ? JSON.stringify(step.state_delta) : "{}";
+  const stateAfterText = Object.keys(step.state_after || {}).length ? JSON.stringify(step.state_after) : "{}";
+  const dayText = step.state_after && step.state_after.day !== undefined ? step.state_after.day : "n/a";
+  const slotText = step.state_after && step.state_after.slot !== undefined ? step.state_after.slot : "n/a";
   card.innerHTML = `
     <header>
       <span>${step.timestamp}</span>
@@ -89,8 +174,16 @@ function renderStepCard(step) {
       <div><strong>story_node_id</strong>: ${step.story_node_id || "n/a"}</div>
       <div><strong>provider</strong>: ${step.cost.provider || "none"}</div>
       <div><strong>tokens</strong>: ${step.cost.tokens_in || 0} in / ${step.cost.tokens_out || 0} out</div>
-      <div><strong>total_cost</strong>: ${step.cost.total_cost ?? 0}</div>
-      <div><strong>fallback_reasons</strong>: ${(step.fallback_reasons && step.fallback_reasons.length) ? step.fallback_reasons.join(", ") : "n/a"}</div>
+      <div><strong>attempted_choice_id</strong>: ${step.attempted_choice_id || "n/a"}</div>
+      <div><strong>executed_choice_id</strong>: ${step.executed_choice_id || "n/a"}</div>
+      <div><strong>resolved_choice_id</strong>: ${step.resolved_choice_id || "n/a"}</div>
+      <div><strong>fallback_used</strong>: ${step.fallback_used === null ? "n/a" : String(step.fallback_used)}</div>
+      <div><strong>fallback_reason</strong>: ${step.fallback_reason || "n/a"}</div>
+      <div><strong>mapping_confidence</strong>: ${step.mapping_confidence === null ? "n/a" : step.mapping_confidence}</div>
+      <div><strong>day</strong>: ${dayText}</div>
+      <div><strong>slot</strong>: ${slotText}</div>
+      <div><strong>state_delta</strong>: ${stateDeltaText}</div>
+      <div><strong>state_after</strong>: ${stateAfterText}</div>
     </div>
     <details>
       <summary>Raw response</summary>
@@ -110,13 +203,20 @@ function updateSnapshotsDropdown() {
   });
 }
 
-function appendStep(raw) {
+function appendStep(raw, stateDelta, stateAfter) {
   const step = {
     timestamp: nowIso(),
     node_id: raw.node_id,
     story_node_id: raw.story_node_id,
-    cost: raw.cost || { provider: "none", tokens_in: 0, tokens_out: 0, total_cost: 0 },
-    fallback_reasons: raw.fallback_reasons || null,
+    cost: raw.cost || { provider: "none", tokens_in: 0, tokens_out: 0 },
+    attempted_choice_id: raw.attempted_choice_id || null,
+    executed_choice_id: raw.executed_choice_id || null,
+    resolved_choice_id: raw.resolved_choice_id || null,
+    fallback_used: raw.fallback_used ?? null,
+    fallback_reason: raw.fallback_reason || null,
+    mapping_confidence: raw.mapping_confidence ?? null,
+    state_delta: stateDelta || {},
+    state_after: stateAfter || {},
     raw,
   };
   state.steps.push(step);
@@ -126,39 +226,49 @@ function appendStep(raw) {
 
 async function createSession() {
   const storyId = el("storyId").value.trim();
+  if (!storyId) {
+    throw new Error("story_id is required");
+  }
   const versionRaw = el("storyVersion").value.trim();
-  const body = storyId ? { story_id: storyId } : {};
+  const body = { story_id: storyId };
   if (versionRaw) body.version = Number(versionRaw);
-  const out = await callApi("POST", "/sessions", Object.keys(body).length ? body : undefined);
+  const out = await callApi("POST", "/sessions", body);
   setSessionId(out.id);
   state.steps = [];
   timelineEl.innerHTML = "";
   state.snapshots = [];
   updateSnapshotsDropdown();
-  state.totals = { tokensIn: 0, tokensOut: 0, totalCost: 0 };
-  tokenTotalsEl.textContent = "in: 0, out: 0, cost: 0";
+  state.currentState = {};
+  state.totals = { tokensIn: 0, tokensOut: 0 };
+  tokenTotalsEl.textContent = "in: 0, out: 0";
+  renderQuestPanel({});
+  await refreshSession();
 }
 
 async function refreshSession() {
   if (!state.sessionId) return;
   const out = await callApi("GET", `/sessions/${state.sessionId}`);
   narrativeTextEl.textContent = out.current_node ? out.current_node.narrative_text : "(no current node narrative)";
+  renderStatePanel(out.state_json || {});
+  return out;
 }
 
 async function sendStep(payloadOverride) {
   if (!state.sessionId) return;
+  const stateBefore = cloneState(state.currentState);
   const inputText = el("playerInput").value.trim();
-  const useInputText = el("useInputText").checked;
   const payload = payloadOverride || {};
   if (!payload.choice_id && inputText) {
-    if (useInputText) payload.input_text = inputText;
-    else payload.player_input = inputText;
+    payload.player_input = inputText;
   }
   if (Object.keys(payload).length === 0) return;
 
   const out = await callApi("POST", `/sessions/${state.sessionId}/step`, payload);
+  const refreshed = await refreshSession();
+  const stateAfter = cloneState((refreshed || {}).state_json || state.currentState);
+  const stateDelta = computeDelta(stateBefore, stateAfter);
   renderNarrative(out.narrative_text, out.choices);
-  appendStep(out);
+  appendStep(out, stateDelta, stateAfter);
 }
 
 async function takeSnapshot() {
@@ -174,6 +284,7 @@ async function rollbackSession() {
   const snapshotId = snapshotSelectEl.value;
   if (!snapshotId) return;
   await callApi("POST", `/sessions/${state.sessionId}/rollback?snapshot_id=${encodeURIComponent(snapshotId)}`);
+  await refreshSession();
 }
 
 async function endSession() {
@@ -191,12 +302,14 @@ function renderReplayHighlights(payload) {
   const storyPath = (payload.story_path || []).slice(0, 6).map((row) => `#${row.step}: ${row.node_id} -> ${row.choice_id}`).join("\n");
   const keyDecisions = (payload.key_decisions || []).slice(0, 6).map((row) => `#${row.step_index}: ${JSON.stringify(row.final_action || {})}`).join("\n");
   const fallbackSummary = payload.fallback_summary ? JSON.stringify(payload.fallback_summary, null, 2) : "{}";
+  const stateTimeline = (payload.state_timeline || []).slice(0, 6).map((row) => `#${row.step}: delta=${JSON.stringify(row.delta || {})} after=${JSON.stringify(row.state_after || {})}`).join("\n");
 
   replayHighlightsEl.innerHTML = `
     <div class="card__body">
       <strong>Story Path</strong>\n${storyPath || "(none)"}\n\n
       <strong>Key Decisions</strong>\n${keyDecisions || "(none)"}\n\n
-      <strong>Fallback Summary</strong>\n${fallbackSummary}
+      <strong>Fallback Summary</strong>\n${fallbackSummary}\n\n
+      <strong>State Timeline</strong>\n${stateTimeline || "(none)"}
     </div>
   `;
   replayRawEl.textContent = JSON.stringify(payload, null, 2);

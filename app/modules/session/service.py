@@ -1,15 +1,14 @@
-import re
+import json
 import uuid
 from datetime import datetime
 
 from fastapi import HTTPException
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db.models import (
     ActionLog,
-    Branch,
     Character,
     DialogueNode,
     LLMUsageLog,
@@ -19,88 +18,23 @@ from app.db.models import (
     Story,
     User,
 )
-from app.modules.affection.engine import apply_affection
-from app.modules.branch.engine import build_branch_context, resolve_branch
 from app.modules.llm.adapter import get_llm_runtime
-from app.modules.narrative.emotion_state import DEFAULT_EMOTION_WINDOW, build_emotion_state, select_behavior_policy
-from app.modules.narrative.prompt_builder import build_step_prompt
+from app.modules.llm.prompts import build_story_selection_prompt
+from app.modules.llm.schemas import StorySelectionOutput
+from app.modules.narrative.quest_engine import advance_quest_state, init_quest_state, summarize_quest_for_narration
+from app.modules.narrative.state_engine import default_initial_state, is_run_complete, normalize_state
 from app.modules.replay.engine import ReplayEngine, upsert_replay_report
-from app.modules.session.action_compiler import ActionCompiler
 from app.modules.session.schemas import ChoiceOut, SessionStateOut
+from app.modules.session.story_choice_gating import evaluate_choice_availability
+from app.modules.session.story_runtime.models import SelectionInputSource, SelectionResult
+from app.modules.session.story_runtime.pipeline import StoryRuntimePipelineDeps, run_story_runtime_pipeline
+from app.modules.story.constants import RESERVED_CHOICE_ID_PREFIX
+from app.modules.story.fallback_narration import select_fallback_skeleton_text
+from app.modules.story.mapping import RuleBasedMappingAdapter
 
 replay_engine = ReplayEngine()
-action_compiler = ActionCompiler()
-
-
-def _story_id_for_session(sess: StorySession) -> str:
-    route_flags = sess.route_flags or {}
-    global_flags = sess.global_flags or {}
-    story_id = route_flags.get("story_id") or global_flags.get("story_id") or "default"
-    return str(story_id)
-
-
-def _resolve_active_character_state(
-    db: Session,
-    sess: StorySession,
-    choice_id: str | None,
-) -> tuple[SessionCharacterState | None, Character | None]:
-    rows = db.execute(
-        select(SessionCharacterState, Character)
-        .join(Character, Character.id == SessionCharacterState.character_id)
-        .where(SessionCharacterState.session_id == sess.id)
-        .order_by(Character.name.asc(), SessionCharacterState.character_id.asc())
-        # Stable ordering: first by name, then by id for deterministic active-character selection.
-    ).all()
-    if not rows:
-        return None, None
-
-    target_candidates = [
-        choice_id,
-        (sess.route_flags or {}).get("target_character_id"),
-        (sess.route_flags or {}).get("character_id"),
-        (sess.global_flags or {}).get("target_character_id"),
-    ]
-    for candidate in target_candidates:
-        if not candidate:
-            continue
-        candidate_text = str(candidate)
-        for cs, character in rows:
-            if str(cs.character_id) == candidate_text or str(character.name) == candidate_text:
-                return cs, character
-
-    return rows[0]
-
-
-def classify_input_stub(input_text: str | None, choice_id: str | None) -> dict:
-    text = (input_text or "").lower()
-    tags = []
-
-    if re.search(r"\b(thank|please|sorry|help)\b", text):
-        tags.append("kind")
-    if re.search(r"\b(love|date|cute|kiss)\b", text):
-        tags.append("flirt")
-    if re.search(r"\b(stupid|hate|kill|idiot|shut up)\b", text):
-        tags.append("aggressive")
-    if re.search(r"\b(respect|honor|promise)\b", text):
-        tags.append("respectful")
-    if re.search(r"\b(lie|cheat|fake)\b", text):
-        tags.append("deceptive")
-
-    if not tags:
-        tags = ["kind"]
-
-    intent = "neutral"
-    tone = "calm"
-    if "aggressive" in tags:
-        intent = "hostile"
-        tone = "harsh"
-    elif "flirt" in tags:
-        intent = "romantic"
-        tone = "warm"
-    elif "kind" in tags:
-        intent = "friendly"
-
-    return {"behavior_tags": sorted(set(tags)), "intent": intent, "tone": tone, "choice_id": choice_id, "risk_tags": [], "confidence": 0.6}
+story_mapping_adapter = RuleBasedMappingAdapter()
+_STORY_FALLBACK_BUILTIN_TEXT = "[fallback] The scene advances quietly. Choose the next move."
 
 
 def _ensure_user(db: Session, user_id: uuid.UUID) -> User:
@@ -162,9 +96,8 @@ def _serialize_state(db: Session, sess: StorySession) -> SessionStateOut:
         global_flags=sess.global_flags,
         route_flags=sess.route_flags,
         active_characters=sess.active_characters,
+        state_json=normalize_state(sess.state_json),
         memory_summary=sess.memory_summary,
-        token_budget_used=sess.token_budget_used,
-        token_budget_remaining=sess.token_budget_remaining,
         created_at=sess.created_at,
         updated_at=sess.updated_at,
         character_states=[
@@ -203,25 +136,540 @@ def _story_node(pack: dict, node_id: str) -> dict | None:
     return None
 
 
-def _story_choices_for_response(node: dict) -> list[dict]:
+def _normalize_story_choice(choice: dict) -> dict:
+    return dict(choice or {})
+
+
+def _implicit_fallback_spec() -> dict:
+    return {
+        "id": None,
+        "action": {"action_id": "clarify", "params": {}},
+        "next_node_id_policy": "stay",
+    }
+
+
+def _coerce_effect_value_to_point(value) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return int(value)
+    return None
+
+
+def _normalize_effects_to_point(effects: dict | None) -> dict:
+    if not isinstance(effects, dict):
+        return {}
+    normalized: dict[str, int] = {}
+    for key in ("energy", "money", "knowledge", "affection"):
+        point = _coerce_effect_value_to_point(effects.get(key))
+        if point is not None:
+            normalized[key] = int(point)
+    return normalized
+
+
+def _normalize_numeric_threshold_map(values: dict | None) -> dict:
+    if not isinstance(values, dict):
+        return {}
+    normalized: dict[str, int] = {}
+    for raw_key, raw_value in values.items():
+        key = str(raw_key or "").strip()
+        if not key:
+            continue
+        if raw_value is None or isinstance(raw_value, bool):
+            continue
+        if isinstance(raw_value, (int, float)):
+            normalized[key] = int(raw_value)
+    return normalized
+
+
+def _normalize_trigger_for_runtime(trigger: dict | None) -> dict:
+    if not isinstance(trigger, dict):
+        return {}
+    normalized: dict[str, object] = {}
+    if trigger.get("node_id_is") is not None:
+        normalized["node_id_is"] = str(trigger.get("node_id_is"))
+    if trigger.get("next_node_id_is") is not None:
+        normalized["next_node_id_is"] = str(trigger.get("next_node_id_is"))
+    if trigger.get("executed_choice_id_is") is not None:
+        normalized["executed_choice_id_is"] = str(trigger.get("executed_choice_id_is"))
+    if trigger.get("action_id_is") is not None:
+        normalized["action_id_is"] = str(trigger.get("action_id_is"))
+    if trigger.get("fallback_used_is") is not None:
+        normalized["fallback_used_is"] = bool(trigger.get("fallback_used_is"))
+    if isinstance(trigger.get("state_at_least"), dict):
+        normalized["state_at_least"] = _normalize_numeric_threshold_map(trigger.get("state_at_least"))
+    if isinstance(trigger.get("state_delta_at_least"), dict):
+        normalized["state_delta_at_least"] = _normalize_numeric_threshold_map(trigger.get("state_delta_at_least"))
+    return normalized
+
+
+def _normalize_quests_for_runtime(quests: list[dict] | None) -> list[dict]:
+    normalized: list[dict] = []
+    seen_quest_ids: set[str] = set()
+    for raw_quest in (quests or []):
+        if not isinstance(raw_quest, dict):
+            continue
+        quest_id = str(raw_quest.get("quest_id") or "").strip()
+        if not quest_id or quest_id in seen_quest_ids:
+            continue
+        seen_quest_ids.add(quest_id)
+
+        stages: list[dict] = []
+        seen_stage_ids: set[str] = set()
+        for raw_stage in (raw_quest.get("stages") or []):
+            if not isinstance(raw_stage, dict):
+                continue
+            stage_id = str(raw_stage.get("stage_id") or "").strip()
+            if not stage_id or stage_id in seen_stage_ids:
+                continue
+            seen_stage_ids.add(stage_id)
+
+            milestones: list[dict] = []
+            seen_milestone_ids: set[str] = set()
+            for raw_milestone in (raw_stage.get("milestones") or []):
+                if not isinstance(raw_milestone, dict):
+                    continue
+                milestone_id = str(raw_milestone.get("milestone_id") or "").strip()
+                if not milestone_id or milestone_id in seen_milestone_ids:
+                    continue
+                seen_milestone_ids.add(milestone_id)
+                milestones.append(
+                    {
+                        "milestone_id": milestone_id,
+                        "title": str(raw_milestone.get("title") or milestone_id),
+                        "description": (
+                            str(raw_milestone.get("description"))
+                            if raw_milestone.get("description") is not None
+                            else None
+                        ),
+                        "when": _normalize_trigger_for_runtime(raw_milestone.get("when")),
+                        "rewards": _normalize_effects_to_point(raw_milestone.get("rewards")),
+                    }
+                )
+
+            stages.append(
+                {
+                    "stage_id": stage_id,
+                    "title": str(raw_stage.get("title") or stage_id),
+                    "description": (
+                        str(raw_stage.get("description"))
+                        if raw_stage.get("description") is not None
+                        else None
+                    ),
+                    "stage_rewards": _normalize_effects_to_point(raw_stage.get("stage_rewards")),
+                    "milestones": milestones,
+                }
+            )
+
+        normalized.append(
+            {
+                "quest_id": quest_id,
+                "title": str(raw_quest.get("title") or quest_id),
+                "description": (
+                    str(raw_quest.get("description"))
+                    if raw_quest.get("description") is not None
+                    else None
+                ),
+                "auto_activate": bool(raw_quest.get("auto_activate", True)),
+                "completion_rewards": _normalize_effects_to_point(raw_quest.get("completion_rewards")),
+                "stages": stages,
+            }
+        )
+    return normalized
+
+
+def normalize_pack_for_runtime(pack_json: dict | None) -> dict:
+    pack = json.loads(json.dumps(pack_json or {}))
+    default_fallback = pack.get("default_fallback")
+    nodes = []
+
+    fallback_executors: list[dict] = []
+    for raw_executor in (pack.get("fallback_executors") or []):
+        if not isinstance(raw_executor, dict):
+            continue
+        executor = dict(raw_executor)
+        action = executor.get("action")
+        if not isinstance(action, dict):
+            action_id = executor.get("action_id")
+            action_params = executor.get("action_params")
+            if action_id is None:
+                action = None
+            else:
+                action = {
+                    "action_id": str(action_id),
+                    "params": dict(action_params or {}) if isinstance(action_params, dict) else {},
+                }
+        executor["action"] = dict(action) if isinstance(action, dict) else None
+        executor["effects"] = _normalize_effects_to_point(executor.get("effects"))
+        narration = executor.get("narration")
+        if not isinstance(narration, dict):
+            narration = {}
+        executor["narration"] = {
+            "skeleton": (str(narration.get("skeleton")) if narration.get("skeleton") is not None else None)
+        }
+        executor["prereq"] = dict((executor.get("prereq") or {})) if isinstance(executor.get("prereq"), dict) else None
+        executor["next_node_id"] = (
+            str(executor.get("next_node_id"))
+            if executor.get("next_node_id") is not None
+            else None
+        )
+        fallback_executors.append(executor)
+
+    for raw_node in (pack.get("nodes") or []):
+        node = dict(raw_node or {})
+        visible_choices: list[dict] = []
+
+        for raw_choice in (node.get("choices") or []):
+            choice = _normalize_story_choice(raw_choice)
+            choice["effects"] = _normalize_effects_to_point(choice.get("effects"))
+            visible_choices.append(choice)
+
+        fallback = node.get("fallback")
+        fallback_source = "node"
+        if fallback is None and default_fallback is not None:
+            fallback = dict(default_fallback)
+            fallback_source = "default"
+        elif fallback is None:
+            fallback = _implicit_fallback_spec()
+            fallback_source = "implicit"
+        else:
+            fallback = dict(fallback)
+        fallback["effects"] = _normalize_effects_to_point(fallback.get("effects"))
+        fallback["prereq"] = dict((fallback.get("prereq") or {})) if isinstance(fallback.get("prereq"), dict) else None
+
+        node["choices"] = visible_choices
+        node["intents"] = [dict(item) for item in (node.get("intents") or []) if isinstance(item, dict)]
+        node["node_fallback_choice_id"] = (
+            str(node.get("node_fallback_choice_id"))
+            if node.get("node_fallback_choice_id") is not None
+            else None
+        )
+        node["fallback"] = fallback
+        node["_fallback_source"] = fallback_source
+        nodes.append(node)
+
+    pack["nodes"] = nodes
+    pack["fallback_executors"] = fallback_executors
+    pack["global_fallback_choice_id"] = (
+        str(pack.get("global_fallback_choice_id"))
+        if pack.get("global_fallback_choice_id") is not None
+        else None
+    )
+    pack["quests"] = _normalize_quests_for_runtime(pack.get("quests"))
+    return pack
+
+
+def _is_valid_story_action(action: dict | None) -> bool:
+    if not isinstance(action, dict):
+        return False
+    action_id = str(action.get("action_id") or "")
+    params = action.get("params")
+    if not isinstance(params, dict):
+        return False
+
+    if action_id in {"study", "work", "rest", "clarify"}:
+        return params == {}
+    if action_id == "date":
+        return isinstance(params.get("target"), str) and bool(str(params.get("target")))
+    if action_id == "gift":
+        return (
+            isinstance(params.get("target"), str)
+            and bool(str(params.get("target")))
+            and isinstance(params.get("gift_type"), str)
+            and bool(str(params.get("gift_type")))
+        )
+    return False
+
+
+def _resolve_runtime_fallback(node: dict, current_node_id: str, node_ids: set[str]) -> tuple[dict, str, list[str]]:
+    fallback = dict((node.get("fallback") or {}))
+    fallback_source = str(node.get("_fallback_source") or "node")
+    markers: list[str] = []
+    if fallback_source == "implicit":
+        markers.append("FALLBACK_CONFIG_IMPLICIT")
+        markers.append("FALLBACK_CONFIG_MISSING")
+
+    fallback_id = fallback.get("id")
+    if isinstance(fallback_id, str) and fallback_id.startswith(RESERVED_CHOICE_ID_PREFIX):
+        fallback["id"] = None
+        markers.append("FALLBACK_CONFIG_RESERVED_ID_PREFIX")
+
+    malformed = False
+    if not _is_valid_story_action(fallback.get("action")):
+        malformed = True
+
+    policy = str(fallback.get("next_node_id_policy") or "")
+    next_node_id = current_node_id
+    if policy == "stay":
+        next_node_id = current_node_id
+    elif policy == "explicit_next":
+        candidate = str(fallback.get("next_node_id") or "")
+        if not candidate or candidate not in node_ids:
+            malformed = True
+        else:
+            next_node_id = candidate
+    else:
+        malformed = True
+
+    if malformed:
+        fallback = _implicit_fallback_spec()
+        next_node_id = current_node_id
+        markers.append("FALLBACK_CONFIG_INVALID")
+        if "FALLBACK_CONFIG_IMPLICIT" not in markers:
+            markers.append("FALLBACK_CONFIG_IMPLICIT")
+
+    return fallback, next_node_id, sorted(set(markers))
+
+
+def _fallback_executed_choice_id(fallback: dict, current_node_id: str) -> str:
+    fallback_id = fallback.get("id")
+    if fallback_id and not str(fallback_id).startswith(RESERVED_CHOICE_ID_PREFIX):
+        return str(fallback_id)
+    return f"__fallback__:{current_node_id}"
+
+
+def _select_fallback_text_variant(
+    fallback: dict,
+    reason_code: str | None,
+    locale: str | None = None,
+) -> str | None:
+    return select_fallback_skeleton_text(
+        text_variants=((fallback or {}).get("text_variants") if isinstance(fallback, dict) else None),
+        reason=reason_code,
+        locale=locale or settings.story_default_locale,
+    )
+
+
+def _select_story_choice(
+    *,
+    db: Session,
+    sess: StorySession,
+    player_input: str,
+    visible_choices: list[dict],
+    intents: list[dict] | None,
+    current_story_state: dict,
+) -> SelectionResult:
+    raw = str(player_input or "").strip()
+    if not raw:
+        return SelectionResult(
+            selected_visible_choice_id=None,
+            attempted_choice_id=None,
+            mapping_confidence=0.0,
+            mapping_note=None,
+            internal_reason="NO_INPUT",
+            use_fallback=True,
+            input_source=SelectionInputSource.EMPTY,
+        )
+
+    valid_choice_ids = [str(c.get("choice_id")) for c in visible_choices if c.get("choice_id") is not None]
+    normalized_intents: list[dict] = []
+    intent_aliases: dict[str, str] = {}
+    for raw_intent in (intents or []):
+        if not isinstance(raw_intent, dict):
+            continue
+        intent_id = str(raw_intent.get("intent_id") or "").strip()
+        alias_choice_id = str(raw_intent.get("alias_choice_id") or "").strip()
+        if not intent_id or alias_choice_id not in valid_choice_ids:
+            continue
+        normalized_intents.append(
+            {
+                "intent_id": intent_id,
+                "alias_choice_id": alias_choice_id,
+                "description": str(raw_intent.get("description") or ""),
+                "patterns": [
+                    str(pattern).strip()
+                    for pattern in (raw_intent.get("patterns") or [])
+                    if str(pattern).strip()
+                ],
+            }
+        )
+        intent_aliases[intent_id] = alias_choice_id
+
+    llm_runtime = get_llm_runtime()
+    selection_prompt = build_story_selection_prompt(
+        player_input=raw,
+        valid_choice_ids=valid_choice_ids,
+        visible_choices=visible_choices,
+        intents=normalized_intents,
+        state_snippet=current_story_state,
+    )
+    llm_selection = StorySelectionOutput()
+    parse_ok = True
+    if hasattr(llm_runtime, "select_story_choice_with_fallback"):
+        try:
+            llm_selection, parse_ok = llm_runtime.select_story_choice_with_fallback(
+                db,
+                prompt=selection_prompt,
+                session_id=sess.id,
+            )
+        except Exception:  # noqa: BLE001
+            llm_selection = StorySelectionOutput()
+            parse_ok = False
+    if parse_ok and llm_selection.use_fallback:
+        return SelectionResult(
+            selected_visible_choice_id=None,
+            attempted_choice_id=None,
+            mapping_confidence=float(llm_selection.confidence),
+            mapping_note=llm_selection.notes,
+            internal_reason="NO_MATCH",
+            use_fallback=True,
+            input_source=SelectionInputSource.TEXT,
+        )
+    if parse_ok and llm_selection.choice_id and llm_selection.choice_id in valid_choice_ids:
+        return SelectionResult(
+            selected_visible_choice_id=str(llm_selection.choice_id),
+            attempted_choice_id=str(llm_selection.choice_id),
+            mapping_confidence=float(llm_selection.confidence),
+            mapping_note=llm_selection.notes,
+            internal_reason=None,
+            use_fallback=False,
+            input_source=SelectionInputSource.TEXT,
+        )
+    if parse_ok and llm_selection.intent_id:
+        alias_choice_id = intent_aliases.get(str(llm_selection.intent_id))
+        if alias_choice_id:
+            return SelectionResult(
+                selected_visible_choice_id=alias_choice_id,
+                attempted_choice_id=alias_choice_id,
+                mapping_confidence=float(llm_selection.confidence),
+                mapping_note=llm_selection.notes or f"intent:{llm_selection.intent_id}",
+                internal_reason=None,
+                use_fallback=False,
+                input_source=SelectionInputSource.TEXT,
+            )
+
+    normalized_input = " ".join(raw.lower().split())
+    intent_hits: list[tuple[int, str, str]] = []
+    for intent in normalized_intents:
+        intent_id = str(intent.get("intent_id") or "")
+        alias_choice_id = str(intent.get("alias_choice_id") or "")
+        for pattern in (intent.get("patterns") or []):
+            normalized_pattern = " ".join(str(pattern).lower().split())
+            if not normalized_pattern:
+                continue
+            if normalized_pattern in normalized_input:
+                intent_hits.append((len(normalized_pattern), intent_id, alias_choice_id))
+    if intent_hits:
+        intent_hits.sort(key=lambda item: (-item[0], item[1], item[2]))
+        _, intent_id, alias_choice_id = intent_hits[0]
+        return SelectionResult(
+            selected_visible_choice_id=alias_choice_id,
+            attempted_choice_id=alias_choice_id,
+            mapping_confidence=0.8,
+            mapping_note=f"intent_pattern:{intent_id}",
+            internal_reason=None,
+            use_fallback=False,
+            input_source=SelectionInputSource.TEXT,
+        )
+
+    mapping_result = story_mapping_adapter.map_input(
+        player_input=raw,
+        choices=visible_choices,
+        state={"route_flags": (sess.route_flags or {})},
+    )
+    if mapping_result.ranked_candidates:
+        selected_choice_id = str(mapping_result.ranked_candidates[0].choice_id)
+        return SelectionResult(
+            selected_visible_choice_id=selected_choice_id,
+            attempted_choice_id=selected_choice_id,
+            mapping_confidence=float(mapping_result.confidence),
+            mapping_note=mapping_result.note,
+            internal_reason=None,
+            use_fallback=False,
+            input_source=SelectionInputSource.TEXT,
+        )
+    return SelectionResult(
+        selected_visible_choice_id=None,
+        attempted_choice_id=None,
+        mapping_confidence=0.0,
+        mapping_note=None,
+        internal_reason=("LLM_PARSE_ERROR" if not parse_ok else "NO_MATCH"),
+        use_fallback=True,
+        input_source=SelectionInputSource.TEXT,
+    )
+
+
+def _story_choices_for_response(node: dict, state_json: dict | None) -> list[dict]:
     out = []
+    state = normalize_state(state_json)
     for choice in (node.get("choices") or []):
         action_id = ((choice.get("action") or {}).get("action_id") or "action")
-        out.append({"id": str(choice.get("choice_id")), "text": str(choice.get("display_text", "")), "type": str(action_id)})
+        is_available, unavailable_reason = evaluate_choice_availability(choice, state)
+        item = {
+            "id": str(choice.get("choice_id")),
+            "text": str(choice.get("display_text", "")),
+            "type": str(action_id),
+            "is_available": bool(is_available),
+        }
+        if not is_available and unavailable_reason:
+            item["unavailable_reason"] = unavailable_reason
+        out.append(item)
     return out
 
 
-def create_session(db: Session, user_id: uuid.UUID, story_id: str | None = None, version: int | None = None) -> StorySession:
+def _apply_choice_effects(state: dict, effects: dict | None) -> dict:
+    if not effects:
+        return normalize_state(state)
+    out = dict(state)
+    for key in ("energy", "money", "knowledge", "affection"):
+        if key in effects and effects.get(key) is not None:
+            out[key] = int(out.get(key, 0)) + int(effects.get(key) or 0)
+    return normalize_state(out)
+
+
+def _compute_state_delta(before: dict, after: dict) -> dict:
+    delta: dict = {}
+    for key, before_value in before.items():
+        after_value = after.get(key)
+        if before_value == after_value:
+            continue
+        if isinstance(before_value, int) and isinstance(after_value, int):
+            delta[key] = after_value - before_value
+        else:
+            delta[key] = after_value
+    return delta
+
+
+def _format_effects_suffix(effects: dict | None) -> str:
+    if not isinstance(effects, dict):
+        return ""
+    parts: list[str] = []
+    for key in sorted(effects.keys(), key=lambda item: str(item)):
+        value = effects.get(key)
+        if value is None:
+            continue
+        try:
+            numeric = int(value)
+        except Exception:  # noqa: BLE001
+            continue
+        if numeric == 0:
+            continue
+        sign = "+" if numeric > 0 else ""
+        parts.append(f"{key} {sign}{numeric}")
+    if not parts:
+        return ""
+    return f" ({', '.join(parts)})"
+
+
+def create_session(db: Session, user_id: uuid.UUID, story_id: str, version: int | None = None) -> StorySession:
     with db.begin():
+        story_id_text = str(story_id or "").strip()
+        if not story_id_text:
+            raise HTTPException(status_code=400, detail={"code": "STORY_REQUIRED"})
         _ensure_user(db, user_id)
         char = _get_or_create_default_character(db)
-        story_row = _load_story_pack(db, story_id, version) if story_id else None
+        story_row = _load_story_pack(db, story_id_text, version)
+        runtime_pack = normalize_pack_for_runtime(story_row.pack_json or {})
         start_node = None
-        if story_row:
-            try:
-                start_node = uuid.UUID(str((story_row.pack_json or {}).get("start_node_id")))
-            except Exception as exc:  # noqa: BLE001
-                raise HTTPException(status_code=400, detail={"code": "INVALID_STORY_START_NODE"}) from exc
+        try:
+            start_node = uuid.UUID(str((story_row.pack_json or {}).get("start_node_id")))
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=400, detail={"code": "INVALID_STORY_START_NODE"}) from exc
+
+        initial_state = default_initial_state()
+        initial_state["quest_state"] = init_quest_state(runtime_pack.get("quests") or [])
 
         sess = StorySession(
             user_id=user_id,
@@ -230,11 +678,10 @@ def create_session(db: Session, user_id: uuid.UUID, story_id: str | None = None,
             global_flags={},
             route_flags={},
             active_characters=[str(char.id)],
+            state_json=normalize_state(initial_state),
             memory_summary="",
-            token_budget_used=0,
-            token_budget_remaining=settings.session_token_budget_total,
-            story_id=(story_row.story_id if story_row else None),
-            story_version=(story_row.version if story_row else None),
+            story_id=story_row.story_id,
+            story_version=story_row.version,
         )
         db.add(sess)
         db.flush()
@@ -254,16 +701,6 @@ def create_session(db: Session, user_id: uuid.UUID, story_id: str | None = None,
 def get_session_state(db: Session, session_id: uuid.UUID, user_id: uuid.UUID) -> SessionStateOut:
     sess = _require_session(db, session_id, user_id)
     return _serialize_state(db, sess)
-
-
-def _preflight_required_budget(input_text: str | None) -> int:
-    conservative_cost = 20 + (len(input_text or "") // 4)
-    return (
-        conservative_cost
-        + settings.llm_preflight_classify_max_tokens
-        + settings.llm_preflight_generate_prompt_max_tokens
-        + settings.llm_preflight_generate_completion_max_tokens
-    )
 
 
 def _sum_step_tokens(db: Session, session_id: uuid.UUID, step_id: uuid.UUID) -> tuple[int, int]:
@@ -288,22 +725,8 @@ def _sum_step_tokens(db: Session, session_id: uuid.UUID, step_id: uuid.UUID) -> 
     return int(prompt_tokens), int(completion_tokens)
 
 
-def _sum_step_total_cost(db: Session, session_id: uuid.UUID, step_id: uuid.UUID) -> float:
-    total_cost = (
-        db.execute(
-            select(func.coalesce(func.sum(LLMUsageLog.cost_estimate), 0)).where(
-                LLMUsageLog.session_id == session_id,
-                LLMUsageLog.step_id == step_id,
-            )
-        ).scalar_one()
-        or 0
-    )
-    return round(float(total_cost), 6)
-
-
-def _sum_step_usage(db: Session, session_id: uuid.UUID, step_id: uuid.UUID) -> tuple[int, int, float]:
-    tokens_in, tokens_out = _sum_step_tokens(db, session_id, step_id)
-    return tokens_in, tokens_out, _sum_step_total_cost(db, session_id, step_id)
+def _sum_step_usage(db: Session, session_id: uuid.UUID, step_id: uuid.UUID) -> tuple[int, int]:
+    return _sum_step_tokens(db, session_id, step_id)
 
 
 def _step_provider(db: Session, session_id: uuid.UUID, step_id: uuid.UUID) -> str:
@@ -320,407 +743,104 @@ def _step_provider(db: Session, session_id: uuid.UUID, step_id: uuid.UUID) -> st
     return latest_usage.provider if latest_usage else "none"
 
 
-def _zero_step_cost() -> dict:
-    return {"tokens_in": 0, "tokens_out": 0, "provider": "none", "total_cost": 0}
+def _auto_end_if_run_complete(db: Session, sess: StorySession, state_after: dict) -> None:
+    if not is_run_complete(state_after):
+        return
+
+    sess.status = "ended"
+    sess.updated_at = datetime.utcnow()
+    db.flush()
+    report = replay_engine.build_report(session_id=sess.id, db=db)
+    upsert_replay_report(db, session_id=sess.id, report=report)
 
 
-def step_session(db: Session, session_id: uuid.UUID, user_id: uuid.UUID, input_text: str | None, choice_id: str | None, player_input: str | None = None):
+def _run_story_runtime_pipeline(
+    *,
+    db: Session,
+    sess: StorySession,
+    choice_id: str | None,
+    player_input: str | None,
+) -> dict:
+    def _bound_select_story_choice(
+        *,
+        player_input: str,
+        visible_choices: list[dict],
+        intents: list[dict] | None,
+        current_story_state: dict,
+    ) -> SelectionResult:
+        return _select_story_choice(
+            db=db,
+            sess=sess,
+            player_input=player_input,
+            visible_choices=visible_choices,
+            intents=intents,
+            current_story_state=current_story_state,
+        )
+
+    deps = StoryRuntimePipelineDeps(
+        load_story_pack=_load_story_pack,
+        normalize_pack_for_runtime=normalize_pack_for_runtime,
+        story_node=_story_node,
+        resolve_runtime_fallback=_resolve_runtime_fallback,
+        select_story_choice=_bound_select_story_choice,
+        fallback_executed_choice_id=_fallback_executed_choice_id,
+        select_fallback_text_variant=_select_fallback_text_variant,
+        sum_step_usage=_sum_step_usage,
+        step_provider=_step_provider,
+        apply_choice_effects=_apply_choice_effects,
+        compute_state_delta=_compute_state_delta,
+        format_effects_suffix=_format_effects_suffix,
+        story_choices_for_response=_story_choices_for_response,
+        advance_quest_state=advance_quest_state,
+        summarize_quest_for_narration=summarize_quest_for_narration,
+        auto_end_if_run_complete=_auto_end_if_run_complete,
+        llm_runtime_getter=get_llm_runtime,
+    )
+    return run_story_runtime_pipeline(
+        db=db,
+        sess=sess,
+        choice_id=choice_id,
+        player_input=player_input,
+        fallback_builtin_text=_STORY_FALLBACK_BUILTIN_TEXT,
+        deps=deps,
+    )
+
+
+def _normalized_optional_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None
+
+
+def step_session(
+    db: Session,
+    session_id: uuid.UUID,
+    user_id: uuid.UUID,
+    choice_id: str | None,
+    player_input: str | None = None,
+):
     with db.begin():
         sess = _require_session(db, session_id, user_id)
         if sess.status != "active":
             raise HTTPException(status_code=409, detail={"code": "SESSION_NOT_ACTIVE"})
+        if not sess.story_id:
+            raise HTTPException(status_code=400, detail={"code": "STORY_REQUIRED"})
 
-        if sess.story_id:
-            story_row = _load_story_pack(db, sess.story_id, sess.story_version)
-            pack = story_row.pack_json or {}
-            if not sess.current_node_id:
-                raise HTTPException(status_code=400, detail={"code": "STORY_NODE_MISSING"})
-            current_node_id = str(sess.current_node_id)
-            node = _story_node(pack, current_node_id)
-            if not node:
-                raise HTTPException(status_code=400, detail={"code": "STORY_NODE_MISSING"})
-
-            compiled_action = None
-            selected_choice = None
-            choices = node.get("choices") or []
-            if choice_id is not None:
-                selected_choice = next((c for c in choices if str(c.get("choice_id")) == str(choice_id)), None)
-                if not selected_choice:
-                    raise HTTPException(status_code=400, detail={"code": "INVALID_CHOICE_FOR_NODE"})
-            elif player_input is not None:
-                char_lookup = {str(c.get("name", "")).lower(): str(c.get("id")) for c in (pack.get("characters") or []) if c.get("id")}
-                compiled_action = action_compiler.compile(
-                    player_input,
-                    {"active_characters": [str(c.get("id")) for c in (pack.get("characters") or []) if c.get("id")], "character_lookup": char_lookup, "route_flags": sess.route_flags or {}},
-                )
-                if not compiled_action.fallback_used:
-                    selected_choice = next(
-                        (
-                            c
-                            for c in choices
-                            if (c.get("action") or {}).get("action_id") == (compiled_action.final_action or {}).get("action_id")
-                            and (c.get("action") or {}).get("params", {}) == (compiled_action.final_action or {}).get("params", {})
-                        ),
-                        None,
-                    )
-                if selected_choice is None:
-                    response_choices = _story_choices_for_response(node)
-                    log = ActionLog(
-                        session_id=sess.id,
-                        node_id=None,
-                        story_node_id=current_node_id,
-                        story_choice_id=None,
-                        player_input=(player_input or ""),
-                        user_raw_input=(compiled_action.user_raw_input if compiled_action else player_input),
-                        proposed_action=(compiled_action.proposed_action if compiled_action else {}),
-                        final_action=(compiled_action.final_action if compiled_action else {"action_id": "clarify", "params": {}}),
-                        fallback_used=True,
-                        fallback_reasons=(compiled_action.reasons if compiled_action else ["UNMAPPED_INPUT"]),
-                        action_confidence=(compiled_action.confidence if compiled_action else 0.0),
-                        key_decision=False,
-                        classification={},
-                        matched_rules=[],
-                        affection_delta=[],
-                        branch_evaluation=[],
-                    )
-                    db.add(log)
-                    return {
-                        "node_id": uuid.uuid4(),
-                        "story_node_id": current_node_id,
-                        "narrative_text": "Please pick one of the available choices.",
-                        "choices": response_choices,
-                        "affection_delta": [],
-                        "cost": _zero_step_cost(),
-                    }
-            else:
-                raise HTTPException(status_code=400, detail={"code": "CHOICE_OR_PLAYER_INPUT_REQUIRED"})
-
-            next_node_id = str(selected_choice.get("next_node_id"))
-            next_node = _story_node(pack, next_node_id)
-            if not next_node:
-                raise HTTPException(status_code=400, detail={"code": "INVALID_NEXT_NODE"})
-
-            resolved_story_input = input_text if input_text is not None else player_input
-            reserve_budget = _preflight_required_budget(resolved_story_input)
-            reserve_update = db.execute(
-                update(StorySession)
-                .where(StorySession.id == sess.id, StorySession.token_budget_remaining >= reserve_budget)
-                .values(
-                    token_budget_used=StorySession.token_budget_used + reserve_budget,
-                    token_budget_remaining=StorySession.token_budget_remaining - reserve_budget,
-                    updated_at=datetime.utcnow(),
-                )
+        normalized_choice_id = _normalized_optional_text(choice_id)
+        normalized_player_input = _normalized_optional_text(player_input)
+        if normalized_choice_id and normalized_player_input:
+            raise HTTPException(
+                status_code=422,
+                detail={"code": "INPUT_CONFLICT", "message": "Provide exactly one of choice_id or player_input."},
             )
 
-            llm_skipped_budget = reserve_update.rowcount != 1
-            fallback_reasons = list(compiled_action.reasons if compiled_action else [])
-            tokens_in = 0
-            tokens_out = 0
-            total_cost = 0.0
-            provider_name = "none"
-
-            if llm_skipped_budget:
-                narrative_text = "[fallback] The scene advances quietly. Choose the next move."
-                if "LLM_SKIPPED_BUDGET" not in fallback_reasons:
-                    fallback_reasons.append("LLM_SKIPPED_BUDGET")
-            else:
-                db.refresh(sess)
-                step_id = uuid.uuid4()
-                llm_runtime = get_llm_runtime()
-                llm_narrative, _ = llm_runtime.narrative_with_fallback(
-                    db,
-                    prompt=f"Story node transition: {node.get('scene_brief','')} -> {next_node.get('scene_brief','')}",
-                    session_id=sess.id,
-                    step_id=step_id,
-                )
-                narrative_text = llm_narrative.narrative_text
-
-                db.refresh(sess, attribute_names=["token_budget_used", "token_budget_remaining"])
-                db.flush()
-                tokens_in, tokens_out, total_cost = _sum_step_usage(db, sess.id, step_id)
-                actual_total = tokens_in + tokens_out
-                budget_delta = reserve_budget - actual_total
-                if budget_delta >= 0:
-                    budget_update = db.execute(
-                        update(StorySession)
-                        .where(StorySession.id == sess.id)
-                        .values(
-                            token_budget_used=StorySession.token_budget_used - budget_delta,
-                            token_budget_remaining=StorySession.token_budget_remaining + budget_delta,
-                            updated_at=datetime.utcnow(),
-                        )
-                    )
-                else:
-                    additional_charge = -budget_delta
-                    budget_update = db.execute(
-                        update(StorySession)
-                        .where(StorySession.id == sess.id, StorySession.token_budget_remaining >= additional_charge)
-                        .values(
-                            token_budget_used=StorySession.token_budget_used + additional_charge,
-                            token_budget_remaining=StorySession.token_budget_remaining - additional_charge,
-                            updated_at=datetime.utcnow(),
-                        )
-                    )
-                if budget_update.rowcount != 1:
-                    raise HTTPException(status_code=409, detail={"code": "TOKEN_BUDGET_EXCEEDED"})
-                db.refresh(sess)
-                provider_name = _step_provider(db, sess.id, step_id)
-
-            response_choices = _story_choices_for_response(next_node)
-
-            try:
-                sess.current_node_id = uuid.UUID(next_node_id)
-            except Exception as exc:  # noqa: BLE001
-                raise HTTPException(status_code=400, detail={"code": "INVALID_NEXT_NODE_ID"}) from exc
-            sess.updated_at = datetime.utcnow()
-
-            log = ActionLog(
-                session_id=sess.id,
-                node_id=None,
-                story_node_id=current_node_id,
-                story_choice_id=str(selected_choice.get("choice_id")),
-                player_input=(input_text or player_input or ""),
-                user_raw_input=(compiled_action.user_raw_input if compiled_action else None),
-                proposed_action=(compiled_action.proposed_action if compiled_action else {}),
-                final_action=((selected_choice.get("action") or {}) if compiled_action is None else compiled_action.final_action),
-                fallback_used=(bool(compiled_action and compiled_action.fallback_used) or llm_skipped_budget),
-                fallback_reasons=fallback_reasons,
-                action_confidence=(compiled_action.confidence if compiled_action else 1.0),
-                key_decision=bool(selected_choice.get("is_key_decision", False)),
-                classification={},
-                matched_rules=[],
-                affection_delta=[],
-                branch_evaluation=[],
-            )
-            db.add(log)
-
-            return {
-                "node_id": uuid.uuid4(),
-                "story_node_id": next_node_id,
-                "narrative_text": narrative_text,
-                "choices": response_choices,
-                "affection_delta": [],
-                "cost": {"tokens_in": tokens_in, "tokens_out": tokens_out, "provider": provider_name, "total_cost": total_cost},
-            }
-
-        conservative_cost = 20 + (len((input_text if input_text is not None else player_input) or "") // 4)
-        reserve_budget = _preflight_required_budget(input_text if input_text is not None else player_input)
-        reserve_update = db.execute(
-            update(StorySession)
-            .where(StorySession.id == sess.id, StorySession.token_budget_remaining >= reserve_budget)
-            .values(
-                token_budget_used=StorySession.token_budget_used + reserve_budget,
-                token_budget_remaining=StorySession.token_budget_remaining - reserve_budget,
-                updated_at=datetime.utcnow(),
-            )
+        return _run_story_runtime_pipeline(
+            db=db,
+            sess=sess,
+            choice_id=normalized_choice_id,
+            player_input=normalized_player_input,
         )
-        if reserve_update.rowcount != 1:
-            raise HTTPException(status_code=409, detail={"code": "TOKEN_BUDGET_EXCEEDED"})
-        db.refresh(sess)
-
-        compiled_action = None
-        if player_input is not None:
-            char_rows = db.execute(
-                select(SessionCharacterState, Character)
-                .join(Character, Character.id == SessionCharacterState.character_id)
-                .where(SessionCharacterState.session_id == sess.id)
-                .order_by(Character.name.asc(), SessionCharacterState.character_id.asc())
-            ).all()
-            character_lookup = {str(character.name).lower(): str(cs.character_id) for cs, character in char_rows}
-            compiled_action = action_compiler.compile(
-                player_input,
-                {
-                    "active_characters": sess.active_characters or [],
-                    "character_lookup": character_lookup,
-                    "route_flags": sess.route_flags or {},
-                },
-            )
-
-        resolved_input_text = input_text if input_text is not None else player_input
-
-        step_id = uuid.uuid4()
-        llm_runtime = get_llm_runtime()
-
-        active_state, active_character = _resolve_active_character_state(db, sess, choice_id)
-        story_id = _story_id_for_session(sess)
-        if active_state and active_character:
-            emotion_state = build_emotion_state(
-                session_id=sess.id,
-                character={
-                    "id": active_state.character_id,
-                    "name": active_character.name,
-                    "baseline": active_state.score_visible,
-                },
-                story_id=story_id,
-                window=DEFAULT_EMOTION_WINDOW,
-                db_session=db,
-            )
-        else:
-            emotion_state = {
-                "character": "none",
-                "score": 0,
-                "band": "neutral",
-                "window": DEFAULT_EMOTION_WINDOW,
-                "story_id": story_id,
-            }
-
-        behavior_policy = select_behavior_policy(story_id, emotion_state["band"]).model_dump(mode="json")
-
-        llm_classification, classify_ok = llm_runtime.classify_with_fallback(db, text=resolved_input_text or "", session_id=sess.id, step_id=step_id)
-        if classify_ok:
-            cls = llm_classification.model_dump()
-        else:
-            cls = classify_input_stub(resolved_input_text, choice_id)
-
-        char_states = db.execute(
-            select(SessionCharacterState)
-            .where(SessionCharacterState.session_id == sess.id)
-            .order_by(SessionCharacterState.character_id.asc())
-        ).scalars().all()
-
-        affection_delta = []
-        rule_hits_all = []
-        for cs in char_states:
-            result = apply_affection(
-                current_score_visible=cs.score_visible,
-                relation_vector=cs.relation_vector or {},
-                drift=cs.personality_drift or {},
-                behavior_tags=cls["behavior_tags"],
-            )
-            cs.score_visible = result["new_score_visible"]
-            cs.relation_vector = result["new_relation_vector"]
-            cs.personality_drift = result["new_drift"]
-            cs.updated_at = datetime.utcnow()
-
-            affection_delta.append(
-                {
-                    "char_id": str(cs.character_id),
-                    "score_delta": result["score_delta"],
-                    "vector_delta": result["vector_delta"],
-                }
-            )
-            for hit in result["rule_hits"]:
-                hit_copy = dict(hit)
-                hit_copy["character_id"] = str(cs.character_id)
-                rule_hits_all.append(hit_copy)
-
-        ctx = build_branch_context(sess, char_states)
-        branches = []
-        if sess.current_node_id is not None:
-            branches = db.execute(
-                select(Branch).where(Branch.from_node_id == sess.current_node_id)
-            ).scalars().all()
-        chosen_branch, branch_evaluation = resolve_branch(branches, ctx)
-
-        character_compact = [
-            {
-                "character_id": str(cs.character_id),
-                "score_visible": cs.score_visible,
-                "relation_vector": cs.relation_vector or {},
-            }
-            for cs in char_states
-        ]
-
-        branch_result = {
-            "chosen_branch_id": str(chosen_branch.id) if chosen_branch else None,
-            "route_type": chosen_branch.route_type if chosen_branch else None,
-        }
-
-        narrative_prompt = build_step_prompt(
-            memory_summary=sess.memory_summary or "",
-            branch_result=branch_result,
-            character_compact=character_compact,
-            player_input=resolved_input_text or "",
-            classification={
-                "intent": cls.get("intent"),
-                "tone": cls.get("tone"),
-                "behavior_tags": cls.get("behavior_tags", []),
-            },
-            behavior_policy=behavior_policy,
-            emotion_state=emotion_state,
-        )
-
-        llm_narrative, _ = llm_runtime.narrative_with_fallback(db, prompt=narrative_prompt, session_id=sess.id, step_id=step_id)
-        narrative_text = llm_narrative.narrative_text
-        choices = [c.model_dump() for c in llm_narrative.choices]
-
-        db.refresh(sess, attribute_names=["token_budget_used", "token_budget_remaining"])
-        db.flush()
-        tokens_in, tokens_out, total_cost = _sum_step_usage(db, sess.id, step_id)
-        actual_total = tokens_in + tokens_out
-        deterministic_cost = actual_total if actual_total > 0 else conservative_cost
-
-        budget_delta = reserve_budget - deterministic_cost
-        if budget_delta >= 0:
-            budget_update = db.execute(
-                update(StorySession)
-                .where(StorySession.id == sess.id)
-                .values(
-                    token_budget_used=StorySession.token_budget_used - budget_delta,
-                    token_budget_remaining=StorySession.token_budget_remaining + budget_delta,
-                    updated_at=datetime.utcnow(),
-                )
-            )
-        else:
-            additional_charge = -budget_delta
-            budget_update = db.execute(
-                update(StorySession)
-                .where(StorySession.id == sess.id, StorySession.token_budget_remaining >= additional_charge)
-                .values(
-                    token_budget_used=StorySession.token_budget_used + additional_charge,
-                    token_budget_remaining=StorySession.token_budget_remaining - additional_charge,
-                    updated_at=datetime.utcnow(),
-                )
-            )
-        if budget_update.rowcount != 1:
-            raise HTTPException(status_code=409, detail={"code": "TOKEN_BUDGET_EXCEEDED"})
-        db.refresh(sess)
-
-        next_remaining = sess.token_budget_remaining
-        branch_result["token_budget_remaining"] = next_remaining
-
-        node = DialogueNode(
-            session_id=sess.id,
-            parent_node_id=sess.current_node_id,
-            node_type="player",
-            player_input=resolved_input_text,
-            narrative_text=narrative_text,
-            choices=choices,
-            branch_decision=branch_result,
-        )
-        db.add(node)
-        db.flush()
-
-        log = ActionLog(
-            session_id=sess.id,
-            node_id=node.id,
-            player_input=resolved_input_text or "",
-            user_raw_input=(compiled_action.user_raw_input if compiled_action else None),
-            proposed_action=(compiled_action.proposed_action if compiled_action else {}),
-            final_action=(compiled_action.final_action if compiled_action else {}),
-            fallback_used=(compiled_action.fallback_used if compiled_action else False),
-            fallback_reasons=(compiled_action.reasons if compiled_action else []),
-            action_confidence=(compiled_action.confidence if compiled_action else None),
-            key_decision=(compiled_action.key_decision if compiled_action else False),
-            classification=cls,
-            matched_rules=rule_hits_all,
-            affection_delta=affection_delta,
-            branch_evaluation=branch_evaluation,
-        )
-        db.add(log)
-
-        sess.current_node_id = node.id
-        sess.updated_at = datetime.utcnow()
-
-        provider_name = _step_provider(db, sess.id, step_id)
-
-    return {
-        "node_id": node.id,
-        "narrative_text": narrative_text,
-        "choices": choices,
-        "affection_delta": affection_delta,
-        "cost": {"tokens_in": tokens_in, "tokens_out": tokens_out, "provider": provider_name, "total_cost": total_cost},
-    }
 
 
 def create_snapshot(db: Session, session_id: uuid.UUID, user_id: uuid.UUID) -> SessionSnapshot:
@@ -742,9 +862,8 @@ def create_snapshot(db: Session, session_id: uuid.UUID, user_id: uuid.UUID) -> S
                 "global_flags": sess.global_flags,
                 "route_flags": sess.route_flags,
                 "active_characters": sess.active_characters,
+                "state_json": normalize_state(sess.state_json),
                 "memory_summary": sess.memory_summary,
-                "token_budget_used": sess.token_budget_used,
-                "token_budget_remaining": sess.token_budget_remaining,
             },
             "character_states": [
                 {
@@ -783,9 +902,8 @@ def rollback_to_snapshot(db: Session, session_id: uuid.UUID, user_id: uuid.UUID,
         sess.global_flags = s["global_flags"]
         sess.route_flags = s["route_flags"]
         sess.active_characters = s["active_characters"]
+        sess.state_json = normalize_state(s.get("state_json"))
         sess.memory_summary = s["memory_summary"]
-        sess.token_budget_used = s["token_budget_used"]
-        sess.token_budget_remaining = s["token_budget_remaining"]
         sess.updated_at = datetime.utcnow()
 
         db.execute(delete(SessionCharacterState).where(SessionCharacterState.session_id == sess.id))

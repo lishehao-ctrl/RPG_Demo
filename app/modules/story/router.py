@@ -1,12 +1,14 @@
 from datetime import datetime
+from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.db.models import Story
 from app.db.session import get_db
+from app.modules.story.validation import validate_story_pack_structural
 
 router = APIRouter(prefix="", tags=["stories"])
 
@@ -40,14 +42,161 @@ class StoryAction(BaseModel):
         return self
 
 
+class StoryChoiceRequires(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    min_money: int | None = None
+    min_energy: int | None = None
+    min_affection: int | None = None
+    day_at_least: int | None = None
+    slot_in: list[Literal["morning", "afternoon", "night"]] | None = None
+
+
+class StoryChoiceEffects(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    energy: int | float | None = None
+    money: int | float | None = None
+    knowledge: int | float | None = None
+    affection: int | float | None = None
+
+    @staticmethod
+    def _validate_effect_value(value: Any, field_name: str) -> Any:
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            raise ValueError(f"{field_name} cannot be bool")
+        if isinstance(value, (int, float)):
+            return value
+        raise ValueError(f"{field_name} has invalid effect value type")
+
+    @model_validator(mode="after")
+    def validate_effects(self):
+        for field_name in ("energy", "money", "knowledge", "affection"):
+            self._validate_effect_value(getattr(self, field_name), field_name)
+        return self
+
+
 class StoryChoice(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     choice_id: str
     display_text: str
     action: StoryAction
+    requires: StoryChoiceRequires | None = None
+    effects: StoryChoiceEffects | None = None
     next_node_id: str
     is_key_decision: bool = False
+
+
+class QuestTrigger(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    node_id_is: str | None = None
+    next_node_id_is: str | None = None
+    executed_choice_id_is: str | None = None
+    action_id_is: str | None = None
+    fallback_used_is: bool | None = None
+    state_at_least: dict[str, int | float] = Field(default_factory=dict)
+    state_delta_at_least: dict[str, int | float] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_threshold_maps(self):
+        for attr in ("state_at_least", "state_delta_at_least"):
+            data = getattr(self, attr)
+            for key, value in data.items():
+                if isinstance(value, bool) or not isinstance(value, (int, float)):
+                    raise ValueError(f"{attr}.{key} must be numeric")
+        return self
+
+
+class QuestStageMilestone(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    milestone_id: str
+    title: str
+    description: str | None = None
+    when: QuestTrigger = Field(default_factory=QuestTrigger)
+    rewards: StoryChoiceEffects | None = None
+
+
+class QuestStage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    stage_id: str
+    title: str
+    description: str | None = None
+    milestones: list[QuestStageMilestone] = Field(min_length=1)
+    stage_rewards: StoryChoiceEffects | None = None
+
+
+class StoryQuest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    quest_id: str
+    title: str
+    description: str | None = None
+    auto_activate: bool = True
+    stages: list[QuestStage] = Field(min_length=1)
+    completion_rewards: StoryChoiceEffects | None = None
+
+
+class StoryIntent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    intent_id: str
+    alias_choice_id: str
+    description: str | None = None
+    patterns: list[str] = Field(default_factory=list)
+
+
+class StoryFallbackTextVariants(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    NO_INPUT: str | None = None
+    BLOCKED: str | None = None
+    FALLBACK: str | None = None
+    DEFAULT: str | None = None
+
+
+class StoryFallback(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str | None = None
+    action: StoryAction
+    next_node_id_policy: str
+    next_node_id: str | None = None
+    effects: StoryChoiceEffects | None = None
+    text_variants: StoryFallbackTextVariants | None = None
+
+
+class FallbackExecutorNarration(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    skeleton: str | None = None
+
+
+class FallbackExecutor(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    label: str | None = None
+    action_id: str | None = None
+    action_params: dict = Field(default_factory=dict)
+    effects: StoryChoiceEffects = Field(default_factory=StoryChoiceEffects)
+    prereq: StoryChoiceRequires | None = None
+    next_node_id: str | None = None
+    narration: FallbackExecutorNarration | None = None
+
+    @model_validator(mode="after")
+    def validate_action_fields(self):
+        if self.action_id is None:
+            return self
+        if self.action_id not in {"study", "work", "rest", "date", "gift", "clarify"}:
+            raise ValueError("fallback executor action_id is invalid")
+        if not isinstance(self.action_params, dict):
+            raise ValueError("fallback executor action_params must be an object")
+        return self
 
 
 class StoryNode(BaseModel):
@@ -56,6 +205,9 @@ class StoryNode(BaseModel):
     node_id: str
     scene_brief: str
     choices: list[StoryChoice]
+    intents: list[StoryIntent] = Field(default_factory=list)
+    node_fallback_choice_id: str | None = None
+    fallback: StoryFallback | None = None
     is_end: bool = False
 
 
@@ -69,6 +221,10 @@ class StoryPack(BaseModel):
     nodes: list[StoryNode]
     characters: list[dict] = Field(default_factory=list)
     initial_state: dict = Field(default_factory=dict)
+    default_fallback: StoryFallback | None = None
+    fallback_executors: list[FallbackExecutor] = Field(default_factory=list)
+    global_fallback_choice_id: str | None = None
+    quests: list[StoryQuest] = Field(default_factory=list)
 
 
 class ValidateResponse(BaseModel):
@@ -77,25 +233,7 @@ class ValidateResponse(BaseModel):
 
 
 def _validate_story_pack(pack: StoryPack) -> list[str]:
-    errors: list[str] = []
-    node_ids = {n.node_id for n in pack.nodes}
-
-    if pack.start_node_id not in node_ids:
-        errors.append(f"MISSING_START_NODE:{pack.start_node_id}")
-
-    seen_choice_ids: set[str] = set()
-    for node in pack.nodes:
-        if not node.is_end and not (2 <= len(node.choices) <= 4):
-            errors.append(f"INVALID_CHOICE_COUNT:{node.node_id}")
-
-        for c in node.choices:
-            if c.next_node_id not in node_ids:
-                errors.append(f"DANGLING_NEXT_NODE:{c.choice_id}->{c.next_node_id}")
-            if c.choice_id in seen_choice_ids:
-                errors.append(f"DUPLICATE_CHOICE_ID:{c.choice_id}")
-            seen_choice_ids.add(c.choice_id)
-
-    return sorted(set(errors))
+    return validate_story_pack_structural(pack)
 
 
 @router.post("/stories/validate", response_model=ValidateResponse)
@@ -105,10 +243,14 @@ def validate_story_pack(pack: StoryPack):
 
 
 @router.post("/stories")
-def store_story_pack(pack: StoryPack, db: Session = Depends(get_db)):
+async def store_story_pack(pack: StoryPack, request: Request, db: Session = Depends(get_db)):
     errors = _validate_story_pack(pack)
     if errors:
         raise HTTPException(status_code=400, detail={"valid": False, "errors": errors})
+
+    raw_pack = await request.json()
+    if not isinstance(raw_pack, dict):
+        raw_pack = pack.model_dump(mode="json", exclude_none=True)
 
     with db.begin():
         existing = db.execute(
@@ -121,7 +263,7 @@ def store_story_pack(pack: StoryPack, db: Session = Depends(get_db)):
             story_id=pack.story_id,
             version=pack.version,
             is_published=False,
-            pack_json=pack.model_dump(mode="json"),
+            pack_json=raw_pack,
             created_at=datetime.utcnow(),
         )
         db.add(row)

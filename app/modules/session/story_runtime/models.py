@@ -110,3 +110,37 @@ class QuestUpdateResult:
     state_after: dict
     quest_state: dict
     matched_rules: list[dict]
+
+
+@dataclass(slots=True)
+class RuntimeEventContext:
+    session_id: str
+    step_id: int
+    story_node_id: str
+    next_node_id: str
+    executed_choice_id: str
+    action_id: str | None
+    fallback_used: bool
+
+
+@dataclass(slots=True)
+class EventResolution:
+    state_after: dict
+    state_delta: dict
+    run_state: dict
+    matched_rules: list[dict]
+    selected_event_id: str | None
+    selected_event_title: str | None
+    selected_event_narration_hint: str | None
+    selected_event_effects: dict
+
+
+@dataclass(slots=True)
+class EndingResolution:
+    run_ended: bool
+    ending_id: str | None
+    ending_outcome: str | None
+    ending_title: str | None
+    ending_epilogue: str | None
+    run_state: dict
+    matched_rules: list[dict]

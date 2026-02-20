@@ -29,8 +29,8 @@ class SessionCharacterStateOut(BaseModel):
 
 
 class CurrentNodeOut(BaseModel):
-    id: uuid.UUID
-    parent_node_id: uuid.UUID | None = None
+    id: str
+    parent_node_id: str | None = None
     narrative_text: str
     choices: list[ChoiceOut]
     created_at: datetime
@@ -38,9 +38,8 @@ class CurrentNodeOut(BaseModel):
 
 class SessionStateOut(BaseModel):
     id: uuid.UUID
-    user_id: uuid.UUID
     status: str
-    current_node_id: uuid.UUID | None = None
+    current_node_id: str | None = None
     story_id: str | None = None
     story_version: int | None = None
     global_flags: dict = Field(default_factory=dict)
@@ -82,3 +81,6 @@ class StepResponse(BaseModel):
     narrative_text: str
     choices: list[ChoiceOut]
     cost: dict
+    run_ended: bool = False
+    ending_id: str | None = None
+    ending_outcome: str | None = None

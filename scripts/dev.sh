@@ -6,4 +6,7 @@ export ENV=dev
 export DATABASE_URL
 
 python -m alembic upgrade head
+if [[ "${SKIP_SEED:-0}" != "1" ]]; then
+  python scripts/seed.py
+fi
 uvicorn app.main:app --reload

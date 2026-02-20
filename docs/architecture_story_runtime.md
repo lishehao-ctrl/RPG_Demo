@@ -9,16 +9,23 @@ This document describes the active story-mode runtime in:
 
 ## Contract Locks
 - Endpoint paths are unchanged.
-- `StepResponse` schema is unchanged.
+- `StepResponse` keeps all existing fields and adds optional run-ending fields:
+  - `run_ended`
+  - `ending_id`
+  - `ending_outcome`
 - Story step returns `200` for all non-inactive requests.
 - Only inactive sessions return `409` with `SESSION_NOT_ACTIVE`.
+- Session APIs run in single-tenant anonymous mode (no auth dependency).
 - Sessions are story-only (`POST /sessions` requires `story_id`).
 - Step input contract is strict:
   - allowed fields: `choice_id`, `player_input`
   - dual-input conflict (`choice_id` + `player_input`) is `422 INPUT_CONFLICT`
   - unknown fields are rejected with `422`
 - `GET /stories/{id}` returns `{story_id, version, is_published, pack}` with raw DB `pack_json` in `pack`.
+- `GET /stories` provides story picker data (`published_only/playable_only` filters).
 - Resolver ownership remains in `app/modules/session/service.py`.
+- Session runtime pointer truth is `sessions.story_node_id` (string StoryPack node id).
+- `route_flags.story_node_id` is maintained as a compatibility mirror.
 
 ## Runtime Model
 Internal runtime candidates use one model:
@@ -61,11 +68,30 @@ The runtime uses this typed result for pass routing and degraded execution decis
 - evaluates only the current active stage for each active quest (linear single-active stage flow),
 - appends `type=quest_progress` entries into `ActionLog.matched_rules`.
 
-5. Pass3 narration:
+5. EventPhase:
+- runs after QuestUpdate and before ending resolution,
+- builds deterministic event seed from `session_id`, `step_id`, and `story_node_id`,
+- picks one eligible event by weighted draw,
+- enforces `once_per_run` + `cooldown_steps`,
+- applies event effects into state through existing normalize/clamp path,
+- appends `type=runtime_event` entries into `ActionLog.matched_rules`.
+
+6. EndingPhase:
+- runs after EventPhase and before narration,
+- evaluates configured endings ordered by `(priority ASC, ending_id ASC)`,
+- if no ending matches, applies timeout ending policy from `run_config`:
+  - `day > max_days`, or
+  - `step_index >= max_steps`,
+- writes ending metadata into `state_json.run_state` and marks session ended.
+
+7. Pass3 narration:
 - generate narration and optionally polish fallback text.
 - LLM runtime is generate-only for both selection and narration paths.
 - token usage is logged for statistics (`tokens_in`, `tokens_out`, provider), but no budget enforcement is applied.
-- narration prompt payload includes a compact quest summary (`active_quests` titles + recent quest events).
+- narration prompt payload includes:
+  - quest summary (`active_quests` titles + recent quest events),
+  - selected runtime event summary (`event_id`, title, hint, effects),
+  - ending summary (`run_ended`, `ending_id`, outcome, epilogue).
 
 ## Quest Stage v1
 Quest runtime uses stage-based progression:
@@ -74,6 +100,16 @@ Quest runtime uses stage-based progression:
 - stage completion emits `stage_completed`, applies `stage_rewards`, then activates the next stage (emits `stage_activated`) if one exists,
 - final stage completion emits `quest_completed` and applies `completion_rewards`,
 - `recent_events` keeps only the latest 20 entries.
+
+## Run State
+`state_json.run_state` is the runtime-only progress channel for non-quest run lifecycle:
+- `step_index`
+- `triggered_event_ids`
+- `event_cooldowns`
+- `ending_id`
+- `ending_outcome`
+- `ended_at_step`
+- `fallback_count`
 
 ## using_fallback and reroute_used
 `using_fallback` is true when final executed target differs from initially selected visible choice, or no visible selection happened.
@@ -97,6 +133,12 @@ Detailed internals remain in action logs (`fallback_reasons`, `matched_rules`).
   - `fallback_summary`
   - `story_path`
   - `state_timeline`
+  - `run_summary`:
+    - `ending_id`
+    - `ending_outcome`
+    - `total_steps`
+    - `triggered_events_count`
+    - `fallback_rate`
 
 ## Fallback Narration and Leak Safety
 Fallback text source order:

@@ -1,9 +1,14 @@
+const Shared = window.DemoShared;
+
 const state = {
   sessionId: null,
   steps: [],
   snapshots: [],
   currentState: {},
   totals: { tokensIn: 0, tokensOut: 0 },
+  stepInFlight: false,
+  bootstrap: null,
+  stepController: null,
 };
 
 const el = (id) => document.getElementById(id);
@@ -18,42 +23,10 @@ const replayRawEl = el("replayRaw");
 const statePanelEl = el("statePanel");
 const questSummaryEl = el("questSummary");
 const questRecentEl = el("questRecent");
+const runStatePanelEl = el("runStatePanel");
+const pendingStatusEl = el("pendingStatus");
 
 const nowIso = () => new Date().toISOString();
-
-function authHeaders() {
-  const mode = el("authMode").value;
-  const value = el("authValue").value.trim();
-  if (!value) {
-    return { "X-User-Id": "00000000-0000-0000-0000-000000000001" };
-  }
-  if (mode === "bearer") {
-    return { Authorization: `Bearer ${value}` };
-  }
-  return { "X-User-Id": value };
-}
-
-async function callApi(method, url, body) {
-  const headers = { ...authHeaders() };
-  if (body !== undefined) headers["Content-Type"] = "application/json";
-  const resp = await fetch(url, {
-    method,
-    headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
-  const text = await resp.text();
-  let parsed;
-  try {
-    parsed = text ? JSON.parse(text) : {};
-  } catch {
-    parsed = text;
-  }
-  if (!resp.ok) {
-    const error = typeof parsed === "object" ? JSON.stringify(parsed) : parsed;
-    throw new Error(`${resp.status}: ${error}`);
-  }
-  return parsed;
-}
 
 function setSessionId(value) {
   state.sessionId = value;
@@ -82,12 +55,34 @@ function computeDelta(before, after) {
   return out;
 }
 
+function renderPendingStatus(pending, meta = {}) {
+  const maxAttempts = Number(meta.maxAttempts || state.stepController?.maxAttempts || 0);
+  if (!pending) {
+    pendingStatusEl.className = "pending-panel";
+    pendingStatusEl.textContent = "(idle)";
+    return;
+  }
+
+  const status = Number(pending.lastStatus || 0);
+  const kind = pending.uncertain ? "pending-panel pending-panel--error" : "pending-panel pending-panel--active";
+  pendingStatusEl.className = kind;
+  pendingStatusEl.textContent = [
+    `idempotency_key: ${pending.idempotencyKey}`,
+    `attempts: ${pending.attempts}${maxAttempts ? ` / ${maxAttempts}` : ""}`,
+    `last_status: ${status || "n/a"}`,
+    `last_code: ${pending.lastErrorCode || "n/a"}`,
+    `last_message: ${pending.lastErrorMessage || "n/a"}`,
+    `uncertain: ${String(Boolean(pending.uncertain))}`,
+  ].join("\n");
+}
+
 function renderStatePanel(stats) {
   state.currentState = cloneState(stats || {});
   const day = state.currentState.day ?? "n/a";
   const slot = state.currentState.slot ?? "n/a";
   statePanelEl.textContent = `day: ${day} | slot: ${slot}\n${JSON.stringify(state.currentState, null, 2)}`;
   renderQuestPanel(state.currentState.quest_state || {});
+  renderRunPanel(state.currentState.run_state || {});
 }
 
 function renderQuestPanel(questState) {
@@ -136,6 +131,29 @@ function renderQuestPanel(questState) {
     .join("\n");
 }
 
+function renderRunPanel(runState) {
+  const data = runState || {};
+  const stepIndex = Number(data.step_index || 0);
+  const triggeredEvents = Array.isArray(data.triggered_event_ids) ? data.triggered_event_ids : [];
+  const eventCooldowns = data.event_cooldowns && typeof data.event_cooldowns === "object" ? data.event_cooldowns : {};
+  const endingId = data.ending_id || "(none)";
+  const endingOutcome = data.ending_outcome || "(none)";
+  const endedAtStep = data.ended_at_step === null || data.ended_at_step === undefined ? "(none)" : data.ended_at_step;
+  const fallbackCount = Number(data.fallback_count || 0);
+  const lastEvent = triggeredEvents.length ? triggeredEvents[triggeredEvents.length - 1] : "(none)";
+
+  runStatePanelEl.textContent = [
+    `step_index: ${stepIndex}`,
+    `triggered_events_count: ${triggeredEvents.length}`,
+    `last_event: ${lastEvent}`,
+    `fallback_count: ${fallbackCount}`,
+    `ending_id: ${endingId}`,
+    `ending_outcome: ${endingOutcome}`,
+    `ended_at_step: ${endedAtStep}`,
+    `event_cooldowns: ${JSON.stringify(eventCooldowns)}`,
+  ].join("\n");
+}
+
 function updateTokenTotals(cost) {
   const tokensIn = Number(cost.tokens_in || 0);
   const tokensOut = Number(cost.tokens_out || 0);
@@ -153,7 +171,10 @@ function renderNarrative(narrativeText, choices) {
     const reason = choice.unavailable_reason ? ` (locked: ${choice.unavailable_reason})` : "";
     btn.textContent = `${choice.text} (${choice.type})${reason}`;
     btn.classList.toggle("choice--locked", unavailable);
-    btn.onclick = () => sendStep({ choice_id: choice.id });
+    btn.disabled = unavailable;
+    if (!unavailable) {
+      btn.onclick = () => sendStep({ choice_id: choice.id }).catch(alert);
+    }
     choiceButtonsEl.appendChild(btn);
   });
 }
@@ -180,10 +201,15 @@ function renderStepCard(step) {
       <div><strong>fallback_used</strong>: ${step.fallback_used === null ? "n/a" : String(step.fallback_used)}</div>
       <div><strong>fallback_reason</strong>: ${step.fallback_reason || "n/a"}</div>
       <div><strong>mapping_confidence</strong>: ${step.mapping_confidence === null ? "n/a" : step.mapping_confidence}</div>
+      <div><strong>run_ended</strong>: ${step.run_ended === null ? "n/a" : String(step.run_ended)}</div>
+      <div><strong>ending_id</strong>: ${step.ending_id || "n/a"}</div>
+      <div><strong>ending_outcome</strong>: ${step.ending_outcome || "n/a"}</div>
       <div><strong>day</strong>: ${dayText}</div>
       <div><strong>slot</strong>: ${slotText}</div>
       <div><strong>state_delta</strong>: ${stateDeltaText}</div>
       <div><strong>state_after</strong>: ${stateAfterText}</div>
+      <div><strong>idempotency_key</strong>: ${step.idempotency_key || "n/a"}</div>
+      <div><strong>attempts</strong>: ${step.attempts || "n/a"}</div>
     </div>
     <details>
       <summary>Raw response</summary>
@@ -203,7 +229,7 @@ function updateSnapshotsDropdown() {
   });
 }
 
-function appendStep(raw, stateDelta, stateAfter) {
+function appendStep(raw, stateDelta, stateAfter, meta = {}) {
   const step = {
     timestamp: nowIso(),
     node_id: raw.node_id,
@@ -215,13 +241,35 @@ function appendStep(raw, stateDelta, stateAfter) {
     fallback_used: raw.fallback_used ?? null,
     fallback_reason: raw.fallback_reason || null,
     mapping_confidence: raw.mapping_confidence ?? null,
+    run_ended: raw.run_ended ?? false,
+    ending_id: raw.ending_id ?? null,
+    ending_outcome: raw.ending_outcome ?? null,
     state_delta: stateDelta || {},
     state_after: stateAfter || {},
+    idempotency_key: meta.idempotencyKey || null,
+    attempts: meta.attempts ?? null,
     raw,
   };
   state.steps.push(step);
   renderStepCard(step);
   updateTokenTotals(step.cost);
+}
+
+async function loadBootstrap() {
+  const payload = await Shared.callApi("GET", "/demo/bootstrap");
+  state.bootstrap = payload;
+  if (!el("storyId").value.trim() && payload.default_story_id) {
+    el("storyId").value = String(payload.default_story_id);
+  }
+  if (!el("storyVersion").value.trim() && payload.default_story_version !== null && payload.default_story_version !== undefined) {
+    el("storyVersion").value = String(payload.default_story_version);
+  }
+
+  state.stepController = Shared.createStepRetryController({
+    maxAttempts: payload.step_retry_max_attempts,
+    backoffMs: payload.step_retry_backoff_ms,
+    onStatus: renderPendingStatus,
+  });
 }
 
 async function createSession() {
@@ -232,7 +280,8 @@ async function createSession() {
   const versionRaw = el("storyVersion").value.trim();
   const body = { story_id: storyId };
   if (versionRaw) body.version = Number(versionRaw);
-  const out = await callApi("POST", "/sessions", body);
+  const out = await Shared.callApi("POST", "/sessions", body);
+  state.stepController?.clearPending();
   setSessionId(out.id);
   state.steps = [];
   timelineEl.innerHTML = "";
@@ -242,39 +291,116 @@ async function createSession() {
   state.totals = { tokensIn: 0, tokensOut: 0 };
   tokenTotalsEl.textContent = "in: 0, out: 0";
   renderQuestPanel({});
+  renderRunPanel({});
   await refreshSession();
 }
 
-async function refreshSession() {
+async function refreshSession(options = {}) {
   if (!state.sessionId) return;
-  const out = await callApi("GET", `/sessions/${state.sessionId}`);
-  narrativeTextEl.textContent = out.current_node ? out.current_node.narrative_text : "(no current node narrative)";
+  const { renderNode = true } = options;
+  const out = await Shared.callApi("GET", `/sessions/${state.sessionId}`);
+  if (renderNode) {
+    if (out.current_node) {
+      renderNarrative(out.current_node.narrative_text || "(no current node narrative)", out.current_node.choices || []);
+    } else {
+      renderNarrative("(no current node narrative)", []);
+    }
+  }
   renderStatePanel(out.state_json || {});
   return out;
 }
 
-async function sendStep(payloadOverride) {
-  if (!state.sessionId) return;
-  const stateBefore = cloneState(state.currentState);
+function _stepPayloadFromInput(payloadOverride) {
   const inputText = el("playerInput").value.trim();
-  const payload = payloadOverride || {};
+  const payload = payloadOverride ? { ...payloadOverride } : {};
   if (!payload.choice_id && inputText) {
     payload.player_input = inputText;
   }
-  if (Object.keys(payload).length === 0) return;
+  return payload;
+}
 
-  const out = await callApi("POST", `/sessions/${state.sessionId}/step`, payload);
-  const refreshed = await refreshSession();
+function _throwIfTerminalStepFailure(result) {
+  if (result.reason === "LLM_UNAVAILABLE") {
+    throw new Error("LLM_UNAVAILABLE: this step was not applied.");
+  }
+  if (result.reason === "IDEMPOTENCY_KEY_REUSED") {
+    throw new Error("IDEMPOTENCY_KEY_REUSED: pending key conflicted with a different payload.");
+  }
+  const status = result.response ? result.response.status : "n/a";
+  const code = result.response ? Shared.detailCode(result.response.data) : "n/a";
+  throw new Error(`step failed (${status}) code=${code || "n/a"}`);
+}
+
+async function _executeStepPayload(payload) {
+  if (!state.stepController) {
+    throw new Error("step controller not initialized");
+  }
+  const stateBefore = cloneState(state.currentState);
+  const result = await state.stepController.submit({ sessionId: state.sessionId, payload });
+
+  if (!result.ok) {
+    if (result.retryable) {
+      throw new Error("Step request still uncertain after retries. Use Retry Pending to continue with the same key.");
+    }
+    _throwIfTerminalStepFailure(result);
+  }
+
+  const out = result.data;
+  renderNarrative(out.narrative_text, out.choices);
+  const refreshed = await refreshSession({ renderNode: false });
   const stateAfter = cloneState((refreshed || {}).state_json || state.currentState);
   const stateDelta = computeDelta(stateBefore, stateAfter);
-  renderNarrative(out.narrative_text, out.choices);
-  appendStep(out, stateDelta, stateAfter);
+  appendStep(out, stateDelta, stateAfter, result.meta || {});
+  el("playerInput").value = "";
+}
+
+async function sendStep(payloadOverride) {
+  if (!state.sessionId || state.stepInFlight) return;
+  const payload = _stepPayloadFromInput(payloadOverride);
+  if (Object.keys(payload).length === 0) return;
+
+  state.stepInFlight = true;
+  try {
+    await _executeStepPayload(payload);
+  } finally {
+    state.stepInFlight = false;
+  }
+}
+
+async function retryPendingStep() {
+  if (!state.stepController || state.stepInFlight) return;
+  const pending = state.stepController.getPending();
+  if (!pending) {
+    alert("No pending step to retry.");
+    return;
+  }
+
+  state.stepInFlight = true;
+  try {
+    const stateBefore = cloneState(state.currentState);
+    const result = await state.stepController.retryPending();
+    if (!result.ok) {
+      if (result.retryable) {
+        throw new Error("Step remains uncertain after retry. Try again or clear pending.");
+      }
+      _throwIfTerminalStepFailure(result);
+    }
+
+    const out = result.data;
+    renderNarrative(out.narrative_text, out.choices);
+    const refreshed = await refreshSession({ renderNode: false });
+    const stateAfter = cloneState((refreshed || {}).state_json || state.currentState);
+    const stateDelta = computeDelta(stateBefore, stateAfter);
+    appendStep(out, stateDelta, stateAfter, result.meta || {});
+  } finally {
+    state.stepInFlight = false;
+  }
 }
 
 async function takeSnapshot() {
   if (!state.sessionId) return;
   const name = el("snapshotName").value.trim() || "manual";
-  const out = await callApi("POST", `/sessions/${state.sessionId}/snapshot?name=${encodeURIComponent(name)}`);
+  const out = await Shared.callApi("POST", `/sessions/${state.sessionId}/snapshot?name=${encodeURIComponent(name)}`);
   state.snapshots.push({ id: out.snapshot_id, name });
   updateSnapshotsDropdown();
 }
@@ -283,18 +409,18 @@ async function rollbackSession() {
   if (!state.sessionId) return;
   const snapshotId = snapshotSelectEl.value;
   if (!snapshotId) return;
-  await callApi("POST", `/sessions/${state.sessionId}/rollback?snapshot_id=${encodeURIComponent(snapshotId)}`);
+  await Shared.callApi("POST", `/sessions/${state.sessionId}/rollback?snapshot_id=${encodeURIComponent(snapshotId)}`);
   await refreshSession();
 }
 
 async function endSession() {
   if (!state.sessionId) return;
-  await callApi("POST", `/sessions/${state.sessionId}/end`);
+  await Shared.callApi("POST", `/sessions/${state.sessionId}/end`);
 }
 
 function renderReplayHighlights(payload) {
   if (!payload) {
-    replayHighlightsEl.innerHTML = "<div class=\"card__body\">No replay yet.</div>";
+    replayHighlightsEl.innerHTML = '<div class="card__body">No replay yet.</div>';
     replayRawEl.textContent = "{}";
     return;
   }
@@ -303,12 +429,14 @@ function renderReplayHighlights(payload) {
   const keyDecisions = (payload.key_decisions || []).slice(0, 6).map((row) => `#${row.step_index}: ${JSON.stringify(row.final_action || {})}`).join("\n");
   const fallbackSummary = payload.fallback_summary ? JSON.stringify(payload.fallback_summary, null, 2) : "{}";
   const stateTimeline = (payload.state_timeline || []).slice(0, 6).map((row) => `#${row.step}: delta=${JSON.stringify(row.delta || {})} after=${JSON.stringify(row.state_after || {})}`).join("\n");
+  const runSummary = payload.run_summary || {};
 
   replayHighlightsEl.innerHTML = `
     <div class="card__body">
       <strong>Story Path</strong>\n${storyPath || "(none)"}\n\n
       <strong>Key Decisions</strong>\n${keyDecisions || "(none)"}\n\n
       <strong>Fallback Summary</strong>\n${fallbackSummary}\n\n
+      <strong>Run Summary</strong>\n${JSON.stringify(runSummary, null, 2)}\n\n
       <strong>State Timeline</strong>\n${stateTimeline || "(none)"}
     </div>
   `;
@@ -317,24 +445,33 @@ function renderReplayHighlights(payload) {
 
 async function replaySession() {
   if (!state.sessionId) return;
-  const payload = await callApi("GET", `/sessions/${state.sessionId}/replay`);
+  const payload = await Shared.callApi("GET", `/sessions/${state.sessionId}/replay`);
   renderReplayHighlights(payload);
 }
 
-el("createSessionBtn").addEventListener("click", () => createSession().catch(alert));
-el("refreshSessionBtn").addEventListener("click", () => refreshSession().catch(alert));
-el("sendInputBtn").addEventListener("click", () => sendStep().catch(alert));
-el("snapshotBtn").addEventListener("click", () => takeSnapshot().catch(alert));
-el("rollbackBtn").addEventListener("click", () => rollbackSession().catch(alert));
-el("endBtn").addEventListener("click", () => endSession().catch(alert));
-el("replayBtn").addEventListener("click", () => replaySession().catch(alert));
-el("copySessionBtn").addEventListener("click", async () => {
-  if (!state.sessionId) return;
-  try {
-    await navigator.clipboard.writeText(state.sessionId);
-  } catch {
-    alert("Copy failed");
-  }
-});
+async function init() {
+  await loadBootstrap();
+  renderReplayHighlights(null);
 
-renderReplayHighlights(null);
+  el("createSessionBtn").addEventListener("click", () => createSession().catch(alert));
+  el("refreshSessionBtn").addEventListener("click", () => refreshSession().catch(alert));
+  el("sendInputBtn").addEventListener("click", () => sendStep().catch(alert));
+  el("retryPendingBtn").addEventListener("click", () => retryPendingStep().catch(alert));
+  el("clearPendingBtn").addEventListener("click", () => state.stepController?.clearPending());
+  el("snapshotBtn").addEventListener("click", () => takeSnapshot().catch(alert));
+  el("rollbackBtn").addEventListener("click", () => rollbackSession().catch(alert));
+  el("endBtn").addEventListener("click", () => endSession().catch(alert));
+  el("replayBtn").addEventListener("click", () => replaySession().catch(alert));
+  el("copySessionBtn").addEventListener("click", async () => {
+    if (!state.sessionId) return;
+    try {
+      await navigator.clipboard.writeText(state.sessionId);
+    } catch {
+      alert("Copy failed");
+    }
+  });
+}
+
+init().catch((error) => {
+  alert(`demo init failed: ${error.message || error}`);
+});

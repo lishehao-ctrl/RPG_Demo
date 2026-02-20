@@ -21,8 +21,11 @@ from app.modules.session.story_runtime.decisions import (
     resolve_story_choice,
 )
 from app.modules.session.story_runtime.models import (
+    EndingResolution,
+    EventResolution,
     QuestStepEvent,
     QuestUpdateResult,
+    RuntimeEventContext,
     StoryChoiceResolution,
     StoryRuntimeContext,
 )
@@ -51,9 +54,11 @@ class StoryRuntimePipelineDeps:
     format_effects_suffix: Callable[[dict | None], str]
     story_choices_for_response: Callable[[dict, dict | None], list[dict]]
     advance_quest_state: Callable[..., QuestUpdateResult]
+    advance_runtime_events: Callable[..., EventResolution]
+    resolve_run_ending: Callable[..., EndingResolution]
     summarize_quest_for_narration: Callable[[list[dict], dict | None], dict]
-    auto_end_if_run_complete: Callable[[Session, StorySession, dict], None]
     llm_runtime_getter: Callable[[], Any]
+    story_node_runtime_uuid: Callable[[str | None, int | None, str], uuid.UUID]
 
 
 @dataclass(slots=True)
@@ -72,10 +77,18 @@ def _phase_load_runtime_context(
 ) -> StoryRuntimeContext:
     story_row = deps.load_story_pack(db, sess.story_id, sess.story_version)
     runtime_pack = deps.normalize_pack_for_runtime(story_row.pack_json or {})
-    if not sess.current_node_id:
+    story_node_id = str(sess.story_node_id or "").strip()
+    route_flags = dict(sess.route_flags or {})
+    current_node_override = route_flags.get("story_node_id")
+    if story_node_id:
+        current_node_id = story_node_id
+    elif current_node_override is not None and str(current_node_override).strip():
+        current_node_id = str(current_node_override).strip()
+    elif sess.current_node_id:
+        current_node_id = str(sess.current_node_id)
+    else:
         raise HTTPException(status_code=400, detail={"code": "STORY_NODE_MISSING"})
 
-    current_node_id = str(sess.current_node_id)
     node = deps.story_node(runtime_pack, current_node_id)
     if not node:
         raise HTTPException(status_code=400, detail={"code": "STORY_NODE_MISSING"})
@@ -236,6 +249,8 @@ def _phase_generate_narrative(
     state_delta: dict,
     state_after: dict,
     quest_summary: dict | None,
+    event_resolution: EventResolution | None,
+    ending_resolution: EndingResolution | None,
     fallback_narration_ctx: dict | None,
     fallback_anchor_tokens: list[str] | None,
 ) -> _NarrationPhaseResult:
@@ -256,6 +271,19 @@ def _phase_generate_narrative(
         "state_delta": state_delta,
         "state_after": state_after,
         "quest_summary": quest_summary or {},
+        "runtime_event": {
+            "event_id": (event_resolution.selected_event_id if event_resolution else None),
+            "title": (event_resolution.selected_event_title if event_resolution else None),
+            "narration_hint": (event_resolution.selected_event_narration_hint if event_resolution else None),
+            "effects": (event_resolution.selected_event_effects if event_resolution else {}),
+        },
+        "run_ending": {
+            "run_ended": bool(ending_resolution.run_ended) if ending_resolution else False,
+            "ending_id": (ending_resolution.ending_id if ending_resolution else None),
+            "ending_outcome": (ending_resolution.ending_outcome if ending_resolution else None),
+            "ending_title": (ending_resolution.ending_title if ending_resolution else None),
+            "ending_epilogue": (ending_resolution.ending_epilogue if ending_resolution else None),
+        },
     }
     llm_narrative, _ = llm_runtime.narrative_with_fallback(
         db,
@@ -287,6 +315,15 @@ def _phase_generate_narrative(
             )
     else:
         narrative_text = llm_narrative.narrative_text
+
+    if ending_resolution and ending_resolution.run_ended:
+        epilogue = str(ending_resolution.ending_epilogue or "").strip()
+        if epilogue:
+            narrative_text = f"{narrative_text}\n\n{epilogue}"
+        else:
+            narrative_text = (
+                f"{narrative_text}\n\nThe run ends with a {ending_resolution.ending_outcome or 'neutral'} outcome."
+            )
 
     db.flush()
     tokens_in, tokens_out = deps.sum_step_usage(db, sess.id, step_id)
@@ -326,6 +363,59 @@ def _phase_apply_quest_updates(
         state_before=state_before,
         state_after=state_after,
         state_delta=state_delta,
+    )
+
+
+def _phase_apply_runtime_events(
+    *,
+    sess: StorySession,
+    context: StoryRuntimeContext,
+    resolution: StoryChoiceResolution,
+    state_before: dict,
+    state_after: dict,
+    state_delta: dict,
+    deps: StoryRuntimePipelineDeps,
+) -> EventResolution:
+    run_state = (state_after or {}).get("run_state") if isinstance(state_after, dict) else {}
+    next_step_id = int((run_state or {}).get("step_index", 0)) + 1
+    event_context = RuntimeEventContext(
+        session_id=str(sess.id),
+        step_id=next_step_id,
+        story_node_id=context.current_node_id,
+        next_node_id=resolution.next_node_id,
+        executed_choice_id=resolution.executed_choice_id,
+        action_id=(
+            str((resolution.final_action_for_state or {}).get("action_id"))
+            if (resolution.final_action_for_state or {}).get("action_id") is not None
+            else None
+        ),
+        fallback_used=bool(resolution.using_fallback),
+    )
+    return deps.advance_runtime_events(
+        events_def=(context.runtime_pack.get("events") or []),
+        run_state=run_state,
+        context=event_context,
+        state_before=state_before,
+        state_after=state_after,
+        state_delta=state_delta,
+    )
+
+
+def _phase_resolve_ending(
+    *,
+    context: StoryRuntimeContext,
+    resolution: StoryChoiceResolution,
+    state_after: dict,
+    run_state: dict,
+    deps: StoryRuntimePipelineDeps,
+) -> EndingResolution:
+    return deps.resolve_run_ending(
+        endings_def=(context.runtime_pack.get("endings") or []),
+        run_config=(context.runtime_pack.get("run_config") or {}),
+        run_state=run_state,
+        next_node_id=resolution.next_node_id,
+        state_after=state_after,
+        quest_state=(state_after or {}).get("quest_state"),
     )
 
 
@@ -400,6 +490,34 @@ def run_story_runtime_pipeline(
     )
     state_after = normalize_state(quest_update.state_after)
     state_delta = deps.compute_state_delta(state_before, state_after)
+
+    event_update = _phase_apply_runtime_events(
+        sess=sess,
+        context=context,
+        resolution=resolution,
+        state_before=state_before,
+        state_after=state_after,
+        state_delta=state_delta,
+        deps=deps,
+    )
+    state_after = normalize_state(event_update.state_after)
+    run_state = dict(event_update.run_state or {})
+    if resolution.using_fallback:
+        run_state["fallback_count"] = int(run_state.get("fallback_count", 0)) + 1
+    state_after["run_state"] = run_state
+    state_after = normalize_state(state_after)
+    state_delta = deps.compute_state_delta(state_before, state_after)
+
+    ending_resolution = _phase_resolve_ending(
+        context=context,
+        resolution=resolution,
+        state_after=state_after,
+        run_state=(state_after or {}).get("run_state") or {},
+        deps=deps,
+    )
+    state_after["run_state"] = dict(ending_resolution.run_state or {})
+    state_after = normalize_state(state_after)
+    state_delta = deps.compute_state_delta(state_before, state_after)
     sess.state_json = state_after
     quest_summary = deps.summarize_quest_for_narration(
         context.runtime_pack.get("quests") or [],
@@ -440,6 +558,8 @@ def run_story_runtime_pipeline(
         state_delta=state_delta,
         state_after=state_after,
         quest_summary=quest_summary,
+        event_resolution=event_update,
+        ending_resolution=ending_resolution,
         fallback_narration_ctx=fallback_narration_ctx,
         fallback_anchor_tokens=fallback_anchor_tokens,
     )
@@ -456,12 +576,18 @@ def run_story_runtime_pipeline(
             fallback_builtin_text=fallback_builtin_text,
         )
 
-    response_choices = deps.story_choices_for_response(next_node, state_after)
+    response_choices = [] if ending_resolution.run_ended else deps.story_choices_for_response(next_node, state_after)
 
     try:
-        sess.current_node_id = uuid.UUID(resolution.next_node_id)
+        sess.current_node_id = deps.story_node_runtime_uuid(sess.story_id, sess.story_version, resolution.next_node_id)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=400, detail={"code": "INVALID_NEXT_NODE_ID"}) from exc
+    sess.story_node_id = resolution.next_node_id
+    route_flags = dict(sess.route_flags or {})
+    route_flags["story_node_id"] = resolution.next_node_id
+    sess.route_flags = route_flags
+    if ending_resolution.run_ended:
+        sess.status = "ended"
     sess.updated_at = datetime.utcnow()
 
     matched_rules = build_choice_resolution_matched_rules(
@@ -473,6 +599,8 @@ def run_story_runtime_pipeline(
         mapping_note=resolution.mapping_note,
     )
     matched_rules.extend(quest_update.matched_rules or [])
+    matched_rules.extend(event_update.matched_rules or [])
+    matched_rules.extend(ending_resolution.matched_rules or [])
 
     log = ActionLog(
         session_id=sess.id,
@@ -494,7 +622,6 @@ def run_story_runtime_pipeline(
         matched_rules=matched_rules,
     )
     db.add(log)
-    deps.auto_end_if_run_complete(db, sess, state_after)
 
     response_payload = build_story_step_response_payload(
         story_node_id=resolution.next_node_id,
@@ -509,6 +636,9 @@ def run_story_runtime_pipeline(
         tokens_in=narration_result.tokens_in,
         tokens_out=narration_result.tokens_out,
         provider_name=narration_result.provider_name,
+        run_ended=bool(ending_resolution.run_ended),
+        ending_id=ending_resolution.ending_id,
+        ending_outcome=ending_resolution.ending_outcome,
     )
     response_payload["node_id"] = uuid.uuid4()
     return response_payload

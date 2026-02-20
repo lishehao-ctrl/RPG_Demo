@@ -9,8 +9,12 @@ from sqlalchemy import create_engine, inspect, text
 
 DEV_DEFAULT_DB_URL = "sqlite:///./dev.db"
 DEV_REQUIRED_COLUMNS: dict[str, set[str]] = {
-    "sessions": {"state_json"},
+    "sessions": {"state_json", "story_node_id"},
     "action_logs": {"state_before", "state_after", "state_delta"},
+}
+DEV_FORBIDDEN_TABLES: set[str] = {"users", "audit_logs"}
+DEV_FORBIDDEN_COLUMNS: dict[str, set[str]] = {
+    "sessions": {"user_id"},
 }
 
 
@@ -20,19 +24,30 @@ class Settings(BaseSettings):
     database_url: str = "sqlite+pysqlite:///./app.db"
     redis_url: str = "redis://localhost:6379/0"
 
-    google_client_id: str = ""
-    google_client_secret: str = ""
-    google_redirect_uri: str = "http://127.0.0.1:8000/auth/google/callback"
-    google_oauth_scopes: str = "openid email profile"
-
-    jwt_secret: str = "change-me-in-prod"
-    jwt_exp_minutes: int = 60 * 24
-
     llm_provider_primary: str = "fake"
     llm_provider_fallbacks: list[str] = Field(default_factory=list)
     llm_model_generate: str = "fake-generate-v1"
     llm_timeout_s: float = 8.0
     llm_max_retries: int = 2
+    llm_total_deadline_s: float = 10.0
+    llm_connect_timeout_s: float = 2.0
+    llm_read_timeout_s: float = 8.0
+    llm_write_timeout_s: float = 8.0
+    llm_pool_timeout_s: float = 2.0
+    llm_retry_attempts_network: int = 2
+    llm_retry_backoff_base_ms: int = 150
+    llm_retry_backoff_max_ms: int = 1200
+    llm_circuit_breaker_window_s: float = 60.0
+    llm_circuit_breaker_fail_threshold: int = 3
+    llm_circuit_breaker_open_s: float = 30.0
+
+    step_idempotency_ttl_s: int = 86400
+    step_idempotency_in_progress_stale_s: int = 30
+
+    demo_default_story_id: str = "campus_week_v1"
+    demo_default_story_version: int | None = 1
+    demo_step_retry_max_attempts: int = 3
+    demo_step_retry_backoff_ms: int = 350
 
     story_map_min_confidence: float = 0.6
     story_fallback_id_unique_packwide: bool = False
@@ -95,14 +110,16 @@ def _dev_upgrade_message(db_url: str) -> str:
     return (
         "Run "
         f"ENV=dev DATABASE_URL={db_url} python -m alembic upgrade head "
-        "or ./dev.sh"
+        "or ./scripts/dev.sh"
     )
 
 
 def ensure_dev_database_schema(
     db_url: str,
-    required_tables: Iterable[str] = ("alembic_version", "users"),
+    required_tables: Iterable[str] = ("alembic_version", "sessions", "stories", "session_step_idempotency"),
     required_columns: dict[str, set[str]] = DEV_REQUIRED_COLUMNS,
+    forbidden_tables: Iterable[str] = DEV_FORBIDDEN_TABLES,
+    forbidden_columns: dict[str, set[str]] = DEV_FORBIDDEN_COLUMNS,
 ) -> None:
     if not db_url:
         return
@@ -114,6 +131,10 @@ def ensure_dev_database_schema(
     missing_tables = [name for name in required_tables if name not in tables]
     if missing_tables:
         problems.append(f"missing tables: {', '.join(sorted(missing_tables))}")
+
+    present_forbidden_tables = [name for name in forbidden_tables if name in tables]
+    if present_forbidden_tables:
+        problems.append(f"forbidden legacy tables present: {', '.join(sorted(present_forbidden_tables))}")
 
     db_revision = None
     if "alembic_version" in tables:
@@ -131,6 +152,14 @@ def ensure_dev_database_schema(
         missing_cols = sorted(col for col in expected_cols if col not in actual_cols)
         for col in missing_cols:
             problems.append(f"missing column {table_name}.{col}")
+
+    for table_name, blocked_cols in forbidden_columns.items():
+        if table_name not in tables:
+            continue
+        actual_cols = {col["name"] for col in inspector.get_columns(table_name)}
+        present_cols = sorted(col for col in blocked_cols if col in actual_cols)
+        for col in present_cols:
+            problems.append(f"forbidden legacy column present {table_name}.{col}")
 
     if problems:
         details = "; ".join(problems)

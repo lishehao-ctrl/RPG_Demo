@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
@@ -141,6 +141,90 @@ class StoryQuest(BaseModel):
     completion_rewards: StoryChoiceEffects | None = None
 
 
+class StoryRunConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    max_days: int = Field(default=7, ge=1)
+    max_steps: int = Field(default=24, ge=1)
+    default_timeout_outcome: Literal["neutral", "fail"] = "neutral"
+
+
+class StoryEventTrigger(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    node_id_is: str | None = None
+    day_in: list[int] | None = None
+    slot_in: list[Literal["morning", "afternoon", "night"]] | None = None
+    fallback_used_is: bool | None = None
+    state_at_least: dict[str, int | float] = Field(default_factory=dict)
+    state_delta_at_least: dict[str, int | float] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_trigger(self):
+        if self.day_in is not None:
+            normalized_days: list[int] = []
+            for value in self.day_in:
+                if isinstance(value, bool):
+                    raise ValueError("day_in values must be integers")
+                ivalue = int(value)
+                if ivalue < 1:
+                    raise ValueError("day_in values must be >= 1")
+                normalized_days.append(ivalue)
+            self.day_in = normalized_days
+
+        for attr in ("state_at_least", "state_delta_at_least"):
+            data = getattr(self, attr)
+            for key, value in data.items():
+                if isinstance(value, bool) or not isinstance(value, (int, float)):
+                    raise ValueError(f"{attr}.{key} must be numeric")
+        return self
+
+
+class StoryEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    event_id: str
+    title: str
+    weight: int = Field(default=1, ge=1)
+    once_per_run: bool = True
+    cooldown_steps: int = Field(default=2, ge=0)
+    trigger: StoryEventTrigger = Field(default_factory=StoryEventTrigger)
+    effects: StoryChoiceEffects | None = None
+    narration_hint: str | None = None
+
+
+class StoryEndingTrigger(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    node_id_is: str | None = None
+    day_at_least: int | None = None
+    day_at_most: int | None = None
+    energy_at_most: int | None = None
+    money_at_least: int | None = None
+    knowledge_at_least: int | None = None
+    affection_at_least: int | None = None
+    completed_quests_include: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_trigger(self):
+        for attr in ("day_at_least", "day_at_most"):
+            value = getattr(self, attr)
+            if value is not None and value < 1:
+                raise ValueError(f"{attr} must be >= 1")
+        return self
+
+
+class StoryEnding(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ending_id: str
+    title: str
+    priority: int = 100
+    outcome: Literal["success", "neutral", "fail"]
+    trigger: StoryEndingTrigger = Field(default_factory=StoryEndingTrigger)
+    epilogue: str
+
+
 class StoryIntent(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -225,6 +309,9 @@ class StoryPack(BaseModel):
     fallback_executors: list[FallbackExecutor] = Field(default_factory=list)
     global_fallback_choice_id: str | None = None
     quests: list[StoryQuest] = Field(default_factory=list)
+    events: list[StoryEvent] = Field(default_factory=list)
+    endings: list[StoryEnding] = Field(default_factory=list)
+    run_config: StoryRunConfig | None = None
 
 
 class ValidateResponse(BaseModel):
@@ -232,8 +319,35 @@ class ValidateResponse(BaseModel):
     errors: list[str] = Field(default_factory=list)
 
 
+class StoryListItem(BaseModel):
+    story_id: str
+    version: int
+    title: str
+    is_published: bool
+    is_playable: bool
+    summary: str | None = None
+
+
+class StoryListResponse(BaseModel):
+    stories: list[StoryListItem] = Field(default_factory=list)
+
+
 def _validate_story_pack(pack: StoryPack) -> list[str]:
     return validate_story_pack_structural(pack)
+
+
+def _story_pack_errors(raw_pack: dict | None) -> list[str]:
+    payload = raw_pack if isinstance(raw_pack, dict) else {}
+    try:
+        pack = StoryPack.model_validate(payload)
+    except ValidationError as exc:
+        rendered: list[str] = []
+        for item in exc.errors():
+            location = ".".join(str(part) for part in item.get("loc", ()))
+            message = str(item.get("msg") or "validation error")
+            rendered.append(f"SCHEMA:{location}:{message}")
+        return sorted(set(rendered))
+    return _validate_story_pack(pack)
 
 
 @router.post("/stories/validate", response_model=ValidateResponse)
@@ -271,6 +385,46 @@ async def store_story_pack(pack: StoryPack, request: Request, db: Session = Depe
     return {"stored": True, "story_id": pack.story_id, "version": pack.version}
 
 
+@router.get("/stories", response_model=StoryListResponse)
+def list_story_packs(
+    published_only: bool = Query(default=True),
+    playable_only: bool = Query(default=True),
+    db: Session = Depends(get_db),
+):
+    stmt = select(Story).order_by(Story.story_id.asc(), Story.version.desc())
+    if published_only:
+        stmt = stmt.where(Story.is_published.is_(True))
+
+    rows = db.execute(stmt).scalars().all()
+    stories: list[dict] = []
+    for row in rows:
+        raw_pack = row.pack_json if isinstance(row.pack_json, dict) else {}
+        title = str(raw_pack.get("title") or row.story_id).strip() or row.story_id
+        summary_value = raw_pack.get("summary") if isinstance(raw_pack, dict) else None
+        if summary_value is None and isinstance(raw_pack, dict):
+            summary_value = raw_pack.get("description")
+        summary = str(summary_value).strip() if summary_value is not None else None
+        if summary == "":
+            summary = None
+
+        errors = _story_pack_errors(raw_pack)
+        is_playable = len(errors) == 0
+        if playable_only and not is_playable:
+            continue
+
+        stories.append(
+            {
+                "story_id": row.story_id,
+                "version": int(row.version),
+                "title": title,
+                "is_published": bool(row.is_published),
+                "is_playable": is_playable,
+                "summary": summary,
+            }
+        )
+    return {"stories": stories}
+
+
 @router.get("/stories/{story_id}")
 def get_story_pack(story_id: str, version: int | None = Query(default=None), db: Session = Depends(get_db)):
     if version is not None:
@@ -294,6 +448,9 @@ def publish_story_pack(story_id: str, version: int = Query(...), db: Session = D
         target = db.execute(select(Story).where(Story.story_id == story_id, Story.version == version)).scalar_one_or_none()
         if not target:
             raise HTTPException(status_code=404, detail={"code": "STORY_NOT_FOUND"})
+        errors = _story_pack_errors(target.pack_json if isinstance(target.pack_json, dict) else {})
+        if errors:
+            raise HTTPException(status_code=400, detail={"code": "STORY_INVALID_FOR_PUBLISH", "errors": errors})
 
         db.execute(
             update(Story)

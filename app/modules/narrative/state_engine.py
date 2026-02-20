@@ -39,6 +39,61 @@ def _unique_non_empty_strings(values: Any) -> list[str]:
     return out
 
 
+def normalize_run_state(run_state: dict | None) -> dict:
+    raw = run_state if isinstance(run_state, dict) else {}
+
+    step_index = _to_int(raw.get("step_index"), 0)
+    if step_index < 0:
+        step_index = 0
+
+    triggered_event_ids: list[str] = []
+    for item in (raw.get("triggered_event_ids") or []):
+        text = str(item or "").strip()
+        if text:
+            triggered_event_ids.append(text)
+
+    cooldowns_raw = raw.get("event_cooldowns") if isinstance(raw.get("event_cooldowns"), dict) else {}
+    event_cooldowns: dict[str, int] = {}
+    for raw_event_id, raw_value in cooldowns_raw.items():
+        event_id = str(raw_event_id or "").strip()
+        if not event_id:
+            continue
+        value = _to_int(raw_value, 0)
+        if value <= 0:
+            continue
+        event_cooldowns[event_id] = value
+
+    ending_id = raw.get("ending_id")
+    ending_id = str(ending_id) if ending_id is not None else None
+
+    ending_outcome = str(raw.get("ending_outcome") or "").strip().lower() or None
+    if ending_outcome not in {None, "success", "neutral", "fail"}:
+        ending_outcome = None
+
+    ended_at_step_raw = raw.get("ended_at_step")
+    ended_at_step = (
+        _to_int(ended_at_step_raw, 0)
+        if ended_at_step_raw is not None and not isinstance(ended_at_step_raw, bool)
+        else None
+    )
+    if ended_at_step is not None and ended_at_step < 0:
+        ended_at_step = None
+
+    fallback_count = _to_int(raw.get("fallback_count"), 0)
+    if fallback_count < 0:
+        fallback_count = 0
+
+    return {
+        "step_index": step_index,
+        "triggered_event_ids": triggered_event_ids,
+        "event_cooldowns": event_cooldowns,
+        "ending_id": ending_id,
+        "ending_outcome": ending_outcome,
+        "ended_at_step": ended_at_step,
+        "fallback_count": fallback_count,
+    }
+
+
 def normalize_quest_state(quest_state: dict | None) -> dict:
     raw = quest_state if isinstance(quest_state, dict) else {}
     quests_raw = raw.get("quests") if isinstance(raw.get("quests"), dict) else {}
@@ -225,6 +280,7 @@ def normalize_state(state: dict | None) -> dict:
     if normalized["slot"] not in TIME_SLOTS:
         normalized["slot"] = defaults["slot"]
     normalized["quest_state"] = normalize_quest_state(raw.get("quest_state"))
+    normalized["run_state"] = normalize_run_state(raw.get("run_state"))
     return normalized
 
 

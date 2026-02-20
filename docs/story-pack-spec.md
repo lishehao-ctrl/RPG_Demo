@@ -1,4 +1,4 @@
-# StoryPack Spec (v10 Stage v1)
+# StoryPack Spec (v10 Stage v1 + Run v1)
 
 ## Scope
 This is the active authoring and validation contract for story packs accepted by `/stories` APIs and executed by story runtime.
@@ -20,6 +20,9 @@ This is the active authoring and validation contract for story packs accepted by
 - `fallback_executors: FallbackExecutor[]` (optional)
 - `global_fallback_choice_id: str | null` (optional, must reference `fallback_executors[].id`)
 - `quests: StoryQuest[]` (optional)
+- `events: StoryEvent[]` (optional)
+- `endings: StoryEnding[]` (optional)
+- `run_config: StoryRunConfig | null` (optional)
 
 ## StoryNode
 - `node_id: str`
@@ -109,6 +112,49 @@ All specified fields are AND-ed:
 - `state_at_least: dict[str, number]`
 - `state_delta_at_least: dict[str, number]`
 
+## StoryRunConfig
+- `max_days: int` (default `7`)
+- `max_steps: int` (default `24`)
+- `default_timeout_outcome: "neutral" | "fail"` (default `"neutral"`)
+
+## StoryEventTrigger
+All specified fields are AND-ed:
+- `node_id_is: str | null`
+- `day_in: list[int] | null`
+- `slot_in: list["morning" | "afternoon" | "night"] | null`
+- `fallback_used_is: bool | null`
+- `state_at_least: dict[str, number]`
+- `state_delta_at_least: dict[str, number]`
+
+## StoryEvent
+- `event_id: str`
+- `title: str`
+- `weight: int` (default `1`, min `1`)
+- `once_per_run: bool` (default `true`)
+- `cooldown_steps: int` (default `2`, min `0`)
+- `trigger: StoryEventTrigger`
+- `effects: StoryChoiceEffects | null`
+- `narration_hint: str | null`
+
+## StoryEndingTrigger
+All specified fields are AND-ed:
+- `node_id_is: str | null`
+- `day_at_least: int | null`
+- `day_at_most: int | null`
+- `energy_at_most: int | null`
+- `money_at_least: int | null`
+- `knowledge_at_least: int | null`
+- `affection_at_least: int | null`
+- `completed_quests_include: list[str]`
+
+## StoryEnding
+- `ending_id: str`
+- `title: str`
+- `priority: int` (default `100`, smaller first)
+- `outcome: "success" | "neutral" | "fail"`
+- `trigger: StoryEndingTrigger`
+- `epilogue: str`
+
 ## Structural Validation
 Structural validator enforces:
 - start node existence,
@@ -122,6 +168,10 @@ Structural validator enforces:
 - milestone id uniqueness within each stage,
 - quest trigger node references (`node_id_is`, `next_node_id_is`) must exist,
 - quest trigger executed choice reference (`executed_choice_id_is`) must reference visible choice ids.
+- event id uniqueness (`event_id`) pack-wide,
+- ending id uniqueness (`ending_id`) pack-wide,
+- event trigger `node_id_is` must reference an existing node,
+- ending trigger `node_id_is` must reference an existing node.
 
 ## Runtime Routing Summary
 1. Pass0 hard no-input -> direct fallback.
@@ -131,7 +181,19 @@ Structural validator enforces:
    - updates `state_json.quest_state`,
    - applies milestone/stage/completion rewards once,
    - writes quest progress markers into action log matched rules.
-5. Pass3 narration -> narration generation + fallback narrative safety checks.
+5. EventPhase (after QuestUpdate):
+   - evaluates eligible events with deterministic weighted selection,
+   - evaluates `trigger.node_id_is` against the current node (pre-transition `story_node_id`),
+   - evaluates `day_in` / `slot_in` / state thresholds against post-transition state (`state_after`),
+   - seed: `sha256(f"{session_id}:{step_id}:{story_node_id}")`,
+   - enforces `once_per_run` and `cooldown_steps`,
+   - applies event effects through normal state clamp,
+   - writes `type=runtime_event` markers into action log matched rules.
+6. EndingPhase (after EventPhase):
+   - evaluates configured endings ordered by `(priority ASC, ending_id ASC)`,
+   - if none matched, checks timeout by `run_config.max_days` and `run_config.max_steps`,
+   - on ending, session is marked ended and ending metadata is written to run state.
+7. Pass3 narration -> narration generation + fallback narrative safety checks.
 
 ## Outward Fallback Reason
 Story step outward `fallback_reason` values:
@@ -158,3 +220,17 @@ Stage v1 runtime rules:
 - on stage complete: apply `stage_rewards`,
 - if next stage exists: activate next stage,
 - if final stage completes: apply `completion_rewards` once and mark quest completed.
+
+## Runtime Run State (`state_json.run_state`)
+- `step_index: int`
+- `triggered_event_ids: list[str]`
+- `event_cooldowns: dict[event_id, int]`
+- `ending_id: str | null`
+- `ending_outcome: "success" | "neutral" | "fail" | null`
+- `ended_at_step: int | null`
+- `fallback_count: int`
+
+Step response adds ending metadata without breaking old fields:
+- `run_ended: bool`
+- `ending_id: str | null`
+- `ending_outcome: "success" | "neutral" | "fail" | null`

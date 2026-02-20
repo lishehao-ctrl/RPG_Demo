@@ -2,9 +2,11 @@ import os
 import subprocess
 import sys
 import uuid
+import json
 from datetime import datetime
 from pathlib import Path
 
+import httpx
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
@@ -12,6 +14,7 @@ from app.config import settings
 from app.db import session as db_session
 from app.db.models import ActionLog, LLMUsageLog, Story
 from app.main import app
+from app.modules.llm.adapter import LLMRuntime
 from app.modules.llm.schemas import NarrativeOutput
 from tests.support.story_narrative_assertions import (
     assert_no_internal_story_tokens,
@@ -60,6 +63,9 @@ def _make_pack(
     include_global_executor: bool = False,
     node_intents: list[dict] | None = None,
     quests: list[dict] | None = None,
+    events: list[dict] | None = None,
+    endings: list[dict] | None = None,
+    run_config: dict | None = None,
 ) -> dict:
     n1, n2, n3 = str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4())
     choice_c1 = {
@@ -176,12 +182,23 @@ def _make_pack(
         pack["global_fallback_choice_id"] = "fb_global"
     if quests is not None:
         pack["quests"] = quests
+    if events is not None:
+        pack["events"] = events
+    if endings is not None:
+        pack["endings"] = endings
+    if run_config is not None:
+        pack["run_config"] = run_config
     return pack
 
 
 def _publish_pack(client: TestClient, pack: dict) -> None:
     assert client.post("/stories", json=pack).status_code == 200
     assert client.post(f"/stories/{pack['story_id']}/publish", params={"version": pack["version"]}).status_code == 200
+
+
+def _load_example_story_pack(filename: str) -> dict:
+    path = ROOT / "examples" / "storypacks" / filename
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def _latest_action_log(session_id: str | uuid.UUID) -> ActionLog:
@@ -290,6 +307,80 @@ def test_story_step_player_input_intent_alias_executes_visible_choice(tmp_path: 
     assert body["fallback_reason"] is None
 
 
+def test_story_step_campus_week_free_input_can_progress_without_constant_fallback(tmp_path: Path) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    pack = _load_example_story_pack("campus_week_v1.json")
+    _publish_pack(client, pack)
+
+    sid = client.post("/sessions", json={"story_id": "campus_week_v1"}).json()["id"]
+
+    state_before_first = client.get(f"/sessions/{sid}").json()
+    visible_first = {item["id"] for item in (state_before_first.get("current_node") or {}).get("choices", [])}
+    first = client.post(f"/sessions/{sid}/step", json={"player_input": "study"})
+    assert first.status_code == 200
+    first_body = first.json()
+    assert first_body["fallback_used"] is False
+    assert first_body["executed_choice_id"] in visible_first
+
+    state_before_second = client.get(f"/sessions/{sid}").json()
+    visible_second = {item["id"] for item in (state_before_second.get("current_node") or {}).get("choices", [])}
+    second = client.post(f"/sessions/{sid}/step", json={"player_input": "library"})
+    assert second.status_code == 200
+    second_body = second.json()
+    assert second_body["fallback_used"] is False
+    assert second_body["executed_choice_id"] in visible_second
+
+    state_before_third = client.get(f"/sessions/{sid}").json()
+    visible_third = {item["id"] for item in (state_before_third.get("current_node") or {}).get("choices", [])}
+    third = client.post(f"/sessions/{sid}/step", json={"player_input": "push final"})
+    assert third.status_code == 200
+    third_body = third.json()
+    assert third_body["fallback_used"] is False
+    assert third_body["executed_choice_id"] in visible_third
+
+
+def test_story_step_campus_week_noise_input_still_falls_back(tmp_path: Path) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    pack = _load_example_story_pack("campus_week_v1.json")
+    _publish_pack(client, pack)
+
+    sid = client.post("/sessions", json={"story_id": "campus_week_v1"}).json()["id"]
+    resp = client.post(f"/sessions/{sid}/step", json={"player_input": "nonsense ???"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["fallback_used"] is True
+    assert body["fallback_reason"] == "FALLBACK"
+    assert_no_internal_story_tokens(body["narrative_text"])
+
+
+def test_story_step_campus_week_runtime_events_trigger_on_play_path(tmp_path: Path) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    pack = _load_example_story_pack("campus_week_v1.json")
+    _publish_pack(client, pack)
+
+    sid = client.post("/sessions", json={"story_id": "campus_week_v1"}).json()["id"]
+    # Stay on the weekly loop to reach day/slot windows where runtime events should fire.
+    path = ["c_study", "c_library", "c_sleep", "c_study", "c_library", "c_sleep"]
+
+    observed_event_ids: list[str] = []
+    for choice_id in path:
+        step = client.post(f"/sessions/{sid}/step", json={"choice_id": choice_id})
+        assert step.status_code == 200
+        state = client.get(f"/sessions/{sid}").json()
+        run_state = (state.get("state_json") or {}).get("run_state") or {}
+        observed_event_ids = [str(item) for item in (run_state.get("triggered_event_ids") or []) if str(item)]
+        if observed_event_ids:
+            break
+
+    assert observed_event_ids, "expected at least one runtime event in campus_week_v1 play path"
+    assert any(
+        event_id in {"ev_pop_quiz", "ev_side_job", "ev_recover_focus"} for event_id in observed_event_ids
+    )
+
+
 def test_story_step_usage_logs_are_generate_only(tmp_path: Path) -> None:
     _prepare_db(tmp_path)
     client = TestClient(app)
@@ -303,6 +394,165 @@ def test_story_step_usage_logs_are_generate_only(tmp_path: Path) -> None:
     operations = _usage_operations_for_session(sid)
     assert operations
     assert operations == {"generate"}
+
+
+def test_story_step_idempotency_replay_does_not_duplicate_progress(tmp_path: Path) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    pack = _make_pack("s_idem_replay", 1)
+    _publish_pack(client, pack)
+
+    sid = client.post("/sessions", json={"story_id": "s_idem_replay"}).json()["id"]
+    headers = {"X-Idempotency-Key": "story-idem-1"}
+    first = client.post(f"/sessions/{sid}/step", json={"choice_id": "c1"}, headers=headers)
+    second = client.post(f"/sessions/{sid}/step", json={"choice_id": "c1"}, headers=headers)
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert second.json() == first.json()
+
+    with db_session.SessionLocal() as db:
+        logs = db.execute(
+            select(ActionLog)
+            .where(ActionLog.session_id == uuid.UUID(sid))
+            .order_by(ActionLog.created_at.asc(), ActionLog.id.asc())
+        ).scalars().all()
+    assert len(logs) == 1
+
+
+def test_story_step_llm_network_retry_can_recover(tmp_path: Path, monkeypatch) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    pack = _make_pack("s_llm_retry_recover", 1)
+    _publish_pack(client, pack)
+
+    from app.modules.session import service as session_service
+
+    class _FlakyProvider:
+        def __init__(self):
+            self.calls = 0
+
+        async def generate(
+            self,
+            prompt: str,
+            *,
+            request_id: str,
+            timeout_s: float,
+            model: str,
+            connect_timeout_s: float | None = None,
+            read_timeout_s: float | None = None,
+            write_timeout_s: float | None = None,
+            pool_timeout_s: float | None = None,
+        ):
+            self.calls += 1
+            if self.calls == 1:
+                raise httpx.ConnectError("forced connect error", request=httpx.Request("POST", "https://example.com"))
+            return (
+                {
+                    "narrative_text": "[llm] retry recovered narration",
+                    "choices": [
+                        {"id": "c1", "text": "Reply", "type": "dialog"},
+                        {"id": "c2", "text": "Wait", "type": "action"},
+                    ],
+                },
+                {
+                    "provider": "fake",
+                    "model": model,
+                    "prompt_tokens": 10,
+                    "completion_tokens": 5,
+                    "latency_ms": 1,
+                    "status": "success",
+                    "error_message": None,
+                },
+            )
+
+    runtime = LLMRuntime()
+    flaky = _FlakyProvider()
+    runtime.providers["fake"] = flaky
+
+    original_primary = settings.llm_provider_primary
+    original_fallbacks = list(settings.llm_provider_fallbacks)
+    original_network_retries = settings.llm_retry_attempts_network
+    original_llm_retries = settings.llm_max_retries
+    original_deadline = settings.llm_total_deadline_s
+    settings.llm_provider_primary = "fake"
+    settings.llm_provider_fallbacks = []
+    settings.llm_retry_attempts_network = 2
+    settings.llm_max_retries = 1
+    settings.llm_total_deadline_s = 10.0
+    monkeypatch.setattr(session_service, "get_llm_runtime", lambda: runtime)
+    try:
+        sid = client.post("/sessions", json={"story_id": "s_llm_retry_recover"}).json()["id"]
+        step = client.post(f"/sessions/{sid}/step", json={"choice_id": "c1"})
+        assert step.status_code == 200
+        body = step.json()
+        assert body["narrative_text"] == "[llm] retry recovered narration"
+        assert flaky.calls >= 2
+    finally:
+        settings.llm_provider_primary = original_primary
+        settings.llm_provider_fallbacks = original_fallbacks
+        settings.llm_retry_attempts_network = original_network_retries
+        settings.llm_max_retries = original_llm_retries
+        settings.llm_total_deadline_s = original_deadline
+
+
+def test_story_step_llm_network_retry_exhausted_returns_503_without_progress(tmp_path: Path, monkeypatch) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    pack = _make_pack("s_llm_retry_fallback", 1)
+    _publish_pack(client, pack)
+
+    from app.modules.session import service as session_service
+
+    class _AlwaysTimeoutProvider:
+        def __init__(self):
+            self.calls = 0
+
+        async def generate(
+            self,
+            prompt: str,
+            *,
+            request_id: str,
+            timeout_s: float,
+            model: str,
+            connect_timeout_s: float | None = None,
+            read_timeout_s: float | None = None,
+            write_timeout_s: float | None = None,
+            pool_timeout_s: float | None = None,
+        ):
+            self.calls += 1
+            raise httpx.ReadTimeout("forced read timeout", request=httpx.Request("POST", "https://example.com"))
+
+    runtime = LLMRuntime()
+    provider = _AlwaysTimeoutProvider()
+    runtime.providers["fake"] = provider
+
+    original_primary = settings.llm_provider_primary
+    original_fallbacks = list(settings.llm_provider_fallbacks)
+    original_network_retries = settings.llm_retry_attempts_network
+    original_llm_retries = settings.llm_max_retries
+    original_deadline = settings.llm_total_deadline_s
+    settings.llm_provider_primary = "fake"
+    settings.llm_provider_fallbacks = []
+    settings.llm_retry_attempts_network = 2
+    settings.llm_max_retries = 1
+    settings.llm_total_deadline_s = 1.0
+    monkeypatch.setattr(session_service, "get_llm_runtime", lambda: runtime)
+    try:
+        sid = client.post("/sessions", json={"story_id": "s_llm_retry_fallback"}).json()["id"]
+        before = client.get(f"/sessions/{sid}").json()
+        step = client.post(f"/sessions/{sid}/step", json={"choice_id": "c1"})
+        assert step.status_code == 503
+        assert step.json()["detail"]["code"] == "LLM_UNAVAILABLE"
+        after = client.get(f"/sessions/{sid}").json()
+        assert after["current_node_id"] == before["current_node_id"]
+        assert after["state_json"] == before["state_json"]
+        assert provider.calls >= 1
+    finally:
+        settings.llm_provider_primary = original_primary
+        settings.llm_provider_fallbacks = original_fallbacks
+        settings.llm_retry_attempts_network = original_network_retries
+        settings.llm_max_retries = original_llm_retries
+        settings.llm_total_deadline_s = original_deadline
 
 
 def test_story_step_no_input_maps_to_fallback_with_200(tmp_path: Path) -> None:
@@ -401,7 +651,9 @@ def test_story_step_rerouted_target_prereq_fail_degrades_without_second_reroute(
     assert body["fallback_reason"] == "BLOCKED"
 
     state_after = client.get(f"/sessions/{sid}").json()
-    assert state_after["state_json"] == state_before["state_json"]
+    for key in ("energy", "money", "knowledge", "affection", "day", "slot"):
+        assert state_after["state_json"][key] == state_before["state_json"][key]
+    assert (state_after["state_json"].get("run_state") or {}).get("fallback_count") == 1
     assert state_after["current_node_id"] == state_before["current_node_id"]
 
     log = _latest_action_log(sid)
@@ -654,6 +906,143 @@ def test_story_step_inactive_session_returns_409_session_not_active(tmp_path: Pa
     assert step.json()["detail"]["code"] == "SESSION_NOT_ACTIVE"
 
 
+def test_story_runtime_event_once_per_run_applies_only_once(tmp_path: Path) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    pack = _make_pack(
+        "s_event_once",
+        1,
+        events=[
+            {
+                "event_id": "ev_once",
+                "title": "One-time encounter",
+                "weight": 1,
+                "once_per_run": True,
+                "cooldown_steps": 0,
+                "trigger": {"node_id_is": None},
+                "effects": {"affection": 2},
+            }
+        ],
+        run_config={"max_days": 30, "max_steps": 40, "default_timeout_outcome": "neutral"},
+    )
+    # Trigger only at node n3 where repeated loops are possible.
+    pack["events"][0]["trigger"]["node_id_is"] = pack["nodes"][2]["node_id"]
+    _publish_pack(client, pack)
+
+    sid = client.post("/sessions", json={"story_id": "s_event_once"}).json()["id"]
+    assert client.post(f"/sessions/{sid}/step", json={"choice_id": "c1"}).status_code == 200
+    assert client.post(f"/sessions/{sid}/step", json={"choice_id": "c3"}).status_code == 200
+    third = client.post(f"/sessions/{sid}/step", json={"choice_id": "c5"})
+    fourth = client.post(f"/sessions/{sid}/step", json={"choice_id": "c5"})
+    assert third.status_code == 200
+    assert fourth.status_code == 200
+
+    state = client.get(f"/sessions/{sid}").json()["state_json"]
+    assert state["affection"] == 2
+    run_state = state.get("run_state") or {}
+    triggered = [item for item in (run_state.get("triggered_event_ids") or []) if item == "ev_once"]
+    assert len(triggered) == 1
+
+
+def test_story_runtime_event_cooldown_blocks_immediate_retrigger(tmp_path: Path) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    pack = _make_pack(
+        "s_event_cooldown",
+        1,
+        events=[
+            {
+                "event_id": "ev_cd",
+                "title": "Repeatable encounter",
+                "weight": 1,
+                "once_per_run": False,
+                "cooldown_steps": 2,
+                "trigger": {"node_id_is": None},
+                "effects": {"money": 3},
+            }
+        ],
+        run_config={"max_days": 30, "max_steps": 40, "default_timeout_outcome": "neutral"},
+    )
+    pack["events"][0]["trigger"]["node_id_is"] = pack["nodes"][2]["node_id"]
+    _publish_pack(client, pack)
+
+    sid = client.post("/sessions", json={"story_id": "s_event_cooldown"}).json()["id"]
+    assert client.post(f"/sessions/{sid}/step", json={"choice_id": "c1"}).status_code == 200
+    assert client.post(f"/sessions/{sid}/step", json={"choice_id": "c3"}).status_code == 200
+    assert client.post(f"/sessions/{sid}/step", json={"choice_id": "c5"}).status_code == 200
+    state_after_first_hit = client.get(f"/sessions/{sid}").json()["state_json"]
+    assert state_after_first_hit["money"] == 73
+    assert client.post(f"/sessions/{sid}/step", json={"choice_id": "c5"}).status_code == 200
+    assert client.post(f"/sessions/{sid}/step", json={"choice_id": "c5"}).status_code == 200
+    state_after_cooldown = client.get(f"/sessions/{sid}").json()["state_json"]
+    assert state_after_cooldown["money"] == 73
+    assert client.post(f"/sessions/{sid}/step", json={"choice_id": "c5"}).status_code == 200
+    final_state = client.get(f"/sessions/{sid}").json()["state_json"]
+    assert final_state["money"] == 76
+
+
+def test_story_ending_priority_and_step_response_fields(tmp_path: Path) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    pack = _make_pack(
+        "s_ending_priority",
+        1,
+        endings=[
+            {
+                "ending_id": "ending_neutral",
+                "title": "Neutral Close",
+                "priority": 20,
+                "outcome": "neutral",
+                "trigger": {"node_id_is": None},
+                "epilogue": "A calm close.",
+            },
+            {
+                "ending_id": "ending_success",
+                "title": "Success Close",
+                "priority": 10,
+                "outcome": "success",
+                "trigger": {"node_id_is": None},
+                "epilogue": "A bright finish.",
+            },
+        ],
+        run_config={"max_days": 30, "max_steps": 40, "default_timeout_outcome": "neutral"},
+    )
+    pack["endings"][0]["trigger"]["node_id_is"] = pack["nodes"][1]["node_id"]
+    pack["endings"][1]["trigger"]["node_id_is"] = pack["nodes"][1]["node_id"]
+    _publish_pack(client, pack)
+
+    sid = client.post("/sessions", json={"story_id": "s_ending_priority"}).json()["id"]
+    step = client.post(f"/sessions/{sid}/step", json={"choice_id": "c1"})
+    assert step.status_code == 200
+    body = step.json()
+    assert body["run_ended"] is True
+    assert body["ending_id"] == "ending_success"
+    assert body["ending_outcome"] == "success"
+
+    blocked = client.post(f"/sessions/{sid}/step", json={"choice_id": "c3"})
+    assert blocked.status_code == 409
+    assert blocked.json()["detail"]["code"] == "SESSION_NOT_ACTIVE"
+
+
+def test_story_timeout_ending_from_run_config(tmp_path: Path) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    pack = _make_pack(
+        "s_timeout_ending",
+        1,
+        run_config={"max_days": 30, "max_steps": 1, "default_timeout_outcome": "fail"},
+    )
+    _publish_pack(client, pack)
+
+    sid = client.post("/sessions", json={"story_id": "s_timeout_ending"}).json()["id"]
+    step = client.post(f"/sessions/{sid}/step", json={"choice_id": "c1"})
+    assert step.status_code == 200
+    body = step.json()
+    assert body["run_ended"] is True
+    assert body["ending_id"] == "__timeout__"
+    assert body["ending_outcome"] == "fail"
+
+
 def test_get_story_returns_raw_pack_json_wrapper_unchanged(tmp_path: Path) -> None:
     _prepare_db(tmp_path)
     client = TestClient(app)
@@ -689,6 +1078,14 @@ def test_replay_story_only_payload_contract(tmp_path: Path) -> None:
     assert "fallback_summary" in body
     assert "story_path" in body
     assert "state_timeline" in body
+    assert "run_summary" in body
+    run_summary = body["run_summary"]
+    assert isinstance(run_summary, dict)
+    assert "ending_id" in run_summary
+    assert "ending_outcome" in run_summary
+    assert "total_steps" in run_summary
+    assert "triggered_events_count" in run_summary
+    assert "fallback_rate" in run_summary
     assert "route_type" not in body
     assert "decision_points" not in body
     assert "affection_timeline" not in body

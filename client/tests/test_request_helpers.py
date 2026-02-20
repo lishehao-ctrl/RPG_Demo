@@ -1,6 +1,12 @@
-import os
+import httpx
 
-from rpg_cli import DEFAULT_BACKEND_URL, DEFAULT_USER_ID, backend_url, user_id
+from rpg_cli import (
+    DEFAULT_BACKEND_URL,
+    STEP_IDEMPOTENCY_HEADER,
+    backend_url,
+    build_step_headers,
+    is_request_in_progress_response,
+)
 
 
 def test_backend_url_default(monkeypatch) -> None:
@@ -13,16 +19,25 @@ def test_backend_url_env(monkeypatch) -> None:
     assert backend_url() == "http://localhost:9999"
 
 
-def test_user_id_default(monkeypatch) -> None:
-    monkeypatch.delenv("X_USER_ID", raising=False)
-    assert user_id() == DEFAULT_USER_ID
+def test_build_step_headers_generates_key() -> None:
+    key, headers = build_step_headers()
+    assert isinstance(key, str) and key
+    assert headers == {STEP_IDEMPOTENCY_HEADER: key}
 
 
-def test_user_id_env(monkeypatch) -> None:
-    monkeypatch.setenv("X_USER_ID", "11111111-1111-1111-1111-111111111111")
-    assert user_id() == "11111111-1111-1111-1111-111111111111"
+def test_build_step_headers_uses_given_key() -> None:
+    key, headers = build_step_headers("abc-123")
+    assert key == "abc-123"
+    assert headers == {STEP_IDEMPOTENCY_HEADER: "abc-123"}
 
 
-def test_auth_token_env(monkeypatch) -> None:
-    monkeypatch.setenv("AUTH_TOKEN", "abc")
-    assert os.getenv("AUTH_TOKEN") == "abc"
+def test_is_request_in_progress_response_true() -> None:
+    request = httpx.Request("POST", "http://test/sessions/x/step")
+    response = httpx.Response(409, request=request, json={"detail": {"code": "REQUEST_IN_PROGRESS"}})
+    assert is_request_in_progress_response(response) is True
+
+
+def test_is_request_in_progress_response_false() -> None:
+    request = httpx.Request("POST", "http://test/sessions/x/step")
+    response = httpx.Response(409, request=request, json={"detail": {"code": "OTHER"}})
+    assert is_request_in_progress_response(response) is False

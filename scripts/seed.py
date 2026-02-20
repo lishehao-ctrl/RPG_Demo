@@ -1,60 +1,121 @@
-import uuid
+#!/usr/bin/env python3
+from __future__ import annotations
 
-from sqlalchemy import select
+import argparse
+import json
+import sys
+from datetime import datetime
+from pathlib import Path
 
-from app.db.models import Branch, Character, DialogueNode, Session, SessionCharacterState, User
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from sqlalchemy import select, update
+
+from app.db.models import Story
 from app.db.session import SessionLocal
+from app.modules.story.router import StoryPack
+from app.modules.story.validation import validate_story_pack_structural
+
+DEFAULT_STORY_FILE = Path("examples/storypacks/campus_week_v1.json")
 
 
-def run() -> None:
+def _load_pack_json(path: Path) -> dict:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError(f"story file must contain a JSON object: {path}")
+    return payload
+
+
+def _validate_pack(payload: dict, *, source_path: Path) -> StoryPack:
+    pack = StoryPack.model_validate(payload)
+    errors = validate_story_pack_structural(pack)
+    if errors:
+        joined = "; ".join(errors)
+        raise ValueError(f"story pack structural validation failed for {source_path}: {joined}")
+    return pack
+
+
+def seed_story(*, story_file: Path, publish: bool) -> dict:
+    if not story_file.exists():
+        raise FileNotFoundError(f"story file not found: {story_file}")
+
+    payload = _load_pack_json(story_file)
+    pack = _validate_pack(payload, source_path=story_file)
+    now = datetime.utcnow()
+
     with SessionLocal() as db:
         with db.begin():
-            user_id = uuid.UUID("00000000-0000-0000-0000-000000000002")
-            user = db.get(User, user_id)
-            if not user:
-                user = User(id=user_id, google_sub="seed-user", email="seed@example.com", display_name="Seed User")
-                db.add(user)
-
-            c1 = db.execute(select(Character).where(Character.name == "Alice")).scalar_one_or_none()
-            if not c1:
-                c1 = Character(
-                    name="Alice",
-                    base_personality={"kind": 0.8},
-                    initial_relation_vector={"trust": 0.4, "attraction": 0.3, "fear": 0.0, "respect": 0.4},
-                    initial_visible_score=55,
+            row = db.execute(
+                select(Story).where(
+                    Story.story_id == pack.story_id,
+                    Story.version == pack.version,
                 )
-                db.add(c1)
+            ).scalar_one_or_none()
 
-            c2 = db.execute(select(Character).where(Character.name == "Eve")).scalar_one_or_none()
-            if not c2:
-                c2 = Character(
-                    name="Eve",
-                    base_personality={"strict": 0.7},
-                    initial_relation_vector={"trust": 0.2, "attraction": 0.1, "fear": 0.1, "respect": 0.5},
-                    initial_visible_score=48,
+            if row is None:
+                row = Story(
+                    story_id=pack.story_id,
+                    version=pack.version,
+                    is_published=False,
+                    pack_json=payload,
+                    created_at=now,
                 )
-                db.add(c2)
-            db.flush()
+                db.add(row)
+            else:
+                row.pack_json = payload
 
-            sess = Session(user_id=user.id, status="active", active_characters=[str(c1.id), str(c2.id)])
-            db.add(sess)
-            db.flush()
+            if publish:
+                db.execute(
+                    update(Story)
+                    .where(Story.story_id == pack.story_id)
+                    .values(is_published=False)
+                )
+                row.is_published = True
 
-            root = DialogueNode(session_id=sess.id, node_type="system", narrative_text="root", choices=[], branch_decision={})
-            db.add(root)
-            db.flush()
-            sess.current_node_id = root.id
+    return {
+        "story_id": pack.story_id,
+        "version": pack.version,
+        "published": bool(publish),
+        "source_path": str(story_file),
+    }
 
-            db.add(SessionCharacterState(session_id=sess.id, character_id=c1.id, score_visible=55, relation_vector=c1.initial_relation_vector, personality_drift={}))
-            db.add(SessionCharacterState(session_id=sess.id, character_id=c2.id, score_visible=48, relation_vector=c2.initial_relation_vector, personality_drift={}))
 
-            b1 = Branch(from_node_id=root.id, priority=20, is_exclusive=True, is_default=False, route_type="good", rule_expr={"op": "gte", "left": f"characters.{c1.id}.score_visible", "right": 60})
-            b2 = Branch(from_node_id=root.id, priority=10, is_exclusive=True, is_default=False, route_type="danger", rule_expr={"op": "gte", "left": f"characters.{c1.id}.relation.fear", "right": 0.5})
-            b3 = Branch(from_node_id=root.id, priority=0, is_exclusive=False, is_default=True, route_type="default", rule_expr={"op": "eq", "left": "flags.always", "right": True})
-            db.add_all([b1, b2, b3])
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Seed or update a story pack into the database.")
+    parser.add_argument(
+        "--story-file",
+        default=str(DEFAULT_STORY_FILE),
+        help="Path to story pack JSON file.",
+    )
+    parser.add_argument(
+        "--publish",
+        dest="publish",
+        action="store_true",
+        help="Publish the seeded version (default).",
+    )
+    parser.add_argument(
+        "--no-publish",
+        dest="publish",
+        action="store_false",
+        help="Seed without publishing.",
+    )
+    parser.set_defaults(publish=True)
+    return parser.parse_args()
 
-    print("seed done")
+
+def main() -> int:
+    args = parse_args()
+    story_file = Path(args.story_file)
+    result = seed_story(story_file=story_file, publish=bool(args.publish))
+    print(
+        "seeded story "
+        f"story_id={result['story_id']} version={result['version']} "
+        f"published={result['published']} source={result['source_path']}"
+    )
+    return 0
 
 
 if __name__ == "__main__":
-    run()
+    raise SystemExit(main())

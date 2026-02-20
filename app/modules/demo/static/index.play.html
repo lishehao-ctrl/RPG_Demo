@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RPG Demo Play</title>
+  <link rel="stylesheet" href="/demo/static/base.css" />
+  <link rel="stylesheet" href="/demo/static/play.css" />
+</head>
+<body>
+  <header class="header play-header">
+    <div class="header__title">
+      <h1>Story Play Demo</h1>
+      <p>Pick a story and play. The interface shows only player-facing information.</p>
+      <div class="dev-nav"><a href="/demo/dev">Open Developer Demo</a></div>
+    </div>
+    <div class="play-meta">
+      <div class="play-meta__label">Current Story Time</div>
+      <div id="storyMetaPill" class="play-meta__pill">Day - • -</div>
+    </div>
+  </header>
+
+  <main class="play-layout">
+    <section id="storySelectSection" class="play-section play-section--select">
+      <h2>Choose Story</h2>
+      <p class="play-intro">
+        Select one published playable story to start. A run usually takes around 15-25 minutes.
+      </p>
+      <div class="play-toolbar">
+        <button id="refreshStoriesBtn" class="btn btn--ghost">Refresh Stories</button>
+      </div>
+      <div id="storyList" class="story-list"></div>
+      <div id="storySelectError" class="play-error hidden"></div>
+      <div class="play-toolbar">
+        <button id="startStoryBtn" class="btn" disabled>Start Selected Story</button>
+      </div>
+    </section>
+
+    <section id="playSection" class="hidden">
+      <div class="play-grid">
+        <section class="play-section play-main">
+          <div class="play-main__header">
+            <h2>Narrative</h2>
+            <div class="play-main__actions">
+              <button id="newRunBtn" class="btn btn--ghost">Back To Story Select</button>
+              <button id="refreshBtn" class="btn btn--ghost">Refresh</button>
+            </div>
+          </div>
+
+          <div id="narrativeText" class="play-narrative">Loading...</div>
+
+          <div class="play-input-area">
+            <div class="play-input-area__choices">
+              <h3>Choices</h3>
+              <div id="choiceButtons" class="choice-grid"></div>
+            </div>
+            <div class="play-input-area__free">
+              <h3>Custom Action</h3>
+              <label class="field">
+                <span>Type your action</span>
+                <textarea id="playerInput" rows="4" placeholder="Describe what you want to do"></textarea>
+              </label>
+              <div class="play-toolbar play-toolbar--compact">
+                <button id="sendInputBtn" class="btn">Send Input</button>
+                <button id="retryPendingBtn" class="btn btn--ghost">Retry Pending</button>
+              </div>
+              <div id="pendingStatus" class="play-hint">No pending action.</div>
+            </div>
+          </div>
+
+          <div id="playError" class="play-error hidden"></div>
+        </section>
+
+        <aside class="play-sidebar">
+          <section class="play-section">
+            <h2>Core Stats</h2>
+            <div class="stat-grid">
+              <article class="stat-card">
+                <div class="stat-card__head">
+                  <span>Energy</span>
+                  <strong id="energyValue">0/100</strong>
+                </div>
+                <div class="progress progress--energy"><span id="energyBar"></span></div>
+              </article>
+
+              <article class="stat-card">
+                <div class="stat-card__head">
+                  <span>Money</span>
+                  <strong id="moneyValue">0</strong>
+                </div>
+                <div id="moneyTier" class="stat-card__tag">stable</div>
+              </article>
+
+              <article class="stat-card">
+                <div class="stat-card__head">
+                  <span>Knowledge</span>
+                  <strong id="knowledgeValue">0</strong>
+                </div>
+                <div class="progress progress--knowledge"><span id="knowledgeBar"></span></div>
+                <div id="knowledgeTier" class="stat-card__tag">novice</div>
+              </article>
+
+              <article class="stat-card">
+                <div class="stat-card__head">
+                  <span>Affection</span>
+                  <strong id="affectionValue">0</strong>
+                </div>
+                <div class="progress progress--affection"><span id="affectionBar"></span></div>
+                <div id="affectionTone" class="stat-card__tag">neutral</div>
+              </article>
+            </div>
+          </section>
+
+          <section class="play-section">
+            <h2>Quest Progress</h2>
+            <div class="summary-group">
+              <h3>Active</h3>
+              <ul id="activeQuestList" class="summary-list"></ul>
+            </div>
+            <div class="summary-group">
+              <h3>Completed</h3>
+              <ul id="completedQuestList" class="summary-list"></ul>
+            </div>
+            <div class="summary-group">
+              <h3>Recent</h3>
+              <ul id="questRecentList" class="summary-list"></ul>
+            </div>
+          </section>
+
+          <section class="play-section">
+            <h2>Run Snapshot</h2>
+            <dl class="run-summary">
+              <div><dt>Step</dt><dd id="runStepValue">0</dd></div>
+              <div><dt>Fallbacks</dt><dd id="runFallbackValue">0</dd></div>
+              <div><dt>Ending</dt><dd id="runEndingValue">In progress</dd></div>
+              <div><dt>Triggered Events</dt><dd id="runEventValue">0</dd></div>
+            </dl>
+            <div class="play-toolbar play-toolbar--compact">
+              <button id="replayBtn" class="btn btn--ghost">Refresh Summary</button>
+            </div>
+          </section>
+        </aside>
+      </div>
+
+      <section class="play-section replay-panel">
+        <details id="runSummaryPanel">
+          <summary>View Run Summary</summary>
+          <div class="replay-grid">
+            <article>
+              <h3>Story Path</h3>
+              <ul id="replayStoryPath" class="summary-list"></ul>
+            </article>
+            <article>
+              <h3>Key Decisions</h3>
+              <ul id="replayKeyDecisions" class="summary-list"></ul>
+            </article>
+            <article>
+              <h3>Run Summary</h3>
+              <ul id="replayRunSummary" class="summary-list"></ul>
+            </article>
+          </div>
+        </details>
+      </section>
+    </section>
+  </main>
+
+  <script src="/demo/static/shared.js"></script>
+  <script src="/demo/static/play.js"></script>
+</body>
+</html>

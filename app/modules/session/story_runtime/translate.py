@@ -37,6 +37,9 @@ def build_story_step_response_payload(
     tokens_in: int,
     tokens_out: int,
     provider_name: str,
+    run_ended: bool,
+    ending_id: str | None,
+    ending_outcome: str | None,
 ) -> dict:
     return {
         "story_node_id": story_node_id,
@@ -49,4 +52,7 @@ def build_story_step_response_payload(
         "narrative_text": narrative_text,
         "choices": choices,
         "cost": {"tokens_in": tokens_in, "tokens_out": tokens_out, "provider": provider_name},
+        "run_ended": run_ended,
+        "ending_id": ending_id,
+        "ending_outcome": ending_outcome,
     }

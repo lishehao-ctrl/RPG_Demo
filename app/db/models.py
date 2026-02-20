@@ -12,23 +12,13 @@ def utcnow() -> datetime:
     return datetime.utcnow()
 
 
-class User(Base):
-    __tablename__ = "users"
-
-    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
-    google_sub: Mapped[str] = mapped_column(String(255), unique=True, index=True)
-    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
-    display_name: Mapped[str] = mapped_column(String(255), default="")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
-
-
 class Session(Base):
     __tablename__ = "sessions"
 
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"), index=True)
     status: Mapped[str] = mapped_column(String(32), default="active", index=True)
     current_node_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True, index=True)
+    story_node_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     story_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     story_version: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     global_flags: Mapped[dict] = mapped_column(JSONType, default=dict)
@@ -156,14 +146,22 @@ class LLMUsageLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
 
 
-class AuditLog(Base):
-    __tablename__ = "audit_logs"
+class SessionStepIdempotency(Base):
+    __tablename__ = "session_step_idempotency"
+    __table_args__ = (
+        UniqueConstraint("session_id", "idempotency_key", name="uq_session_step_idempotency_session_key"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
-    session_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("sessions.id"), nullable=True, index=True)
-    event_type: Mapped[str] = mapped_column(String(64), index=True)
-    payload: Mapped[dict] = mapped_column(JSONType, default=dict)
+    session_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("sessions.id"), index=True)
+    idempotency_key: Mapped[str] = mapped_column(String(255), index=True)
+    request_hash: Mapped[str] = mapped_column(String(64), index=True)
+    status: Mapped[str] = mapped_column(String(32), index=True)
+    response_json: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
 
 
 Index("ix_dialogue_nodes_parent_created", DialogueNode.parent_node_id, DialogueNode.created_at)

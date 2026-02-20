@@ -148,4 +148,24 @@ def validate_story_pack_structural(
                         f"{quest_id}:{stage_id}:{milestone_id}:{trigger.executed_choice_id_is}"
                     )
 
+    seen_event_ids: set[str] = set()
+    for event in (pack.events or []):
+        event_id = str(event.event_id)
+        if event_id in seen_event_ids:
+            errors.append(f"DUPLICATE_EVENT_ID:{event_id}")
+        seen_event_ids.add(event_id)
+        trigger = event.trigger
+        if trigger.node_id_is is not None and str(trigger.node_id_is) not in node_ids:
+            errors.append(f"DANGLING_EVENT_TRIGGER_NODE:{event_id}:{trigger.node_id_is}")
+
+    seen_ending_ids: set[str] = set()
+    for ending in (pack.endings or []):
+        ending_id = str(ending.ending_id)
+        if ending_id in seen_ending_ids:
+            errors.append(f"DUPLICATE_ENDING_ID:{ending_id}")
+        seen_ending_ids.add(ending_id)
+        trigger = ending.trigger
+        if trigger.node_id_is is not None and str(trigger.node_id_is) not in node_ids:
+            errors.append(f"DANGLING_ENDING_TRIGGER_NODE:{ending_id}:{trigger.node_id_is}")
+
     return sorted(set(errors))

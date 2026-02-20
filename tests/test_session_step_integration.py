@@ -132,6 +132,19 @@ def test_story_step_accepts_choice_and_text_inputs(tmp_path: Path) -> None:
         assert logs[-1].fallback_used is True
 
 
+def test_story_step_text_clear_input_maps_to_choice(tmp_path: Path) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    _publish_story(client, story_id="step_integration_story_text_map")
+
+    sid = _create_story_session(client, story_id="step_integration_story_text_map")
+    step = client.post(f"/sessions/{sid}/step", json={"player_input": "study"})
+    assert step.status_code == 200
+    body = step.json()
+    assert body["fallback_used"] is False
+    assert body["executed_choice_id"] == "c1"
+
+
 def test_story_step_empty_payload_maps_to_no_input_fallback(tmp_path: Path) -> None:
     _prepare_db(tmp_path)
     client = TestClient(app)

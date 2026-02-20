@@ -12,15 +12,32 @@ class DoubaoProvider(LLMProvider):
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
 
-    async def _chat(self, content: str, *, timeout_s: float, model: str):
+    async def _chat(
+        self,
+        content: str,
+        *,
+        timeout_s: float,
+        model: str,
+        connect_timeout_s: float | None = None,
+        read_timeout_s: float | None = None,
+        write_timeout_s: float | None = None,
+        pool_timeout_s: float | None = None,
+    ):
         started = time.perf_counter()
-        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        headers = {"authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
         payload = {
             "model": model,
             "messages": [{"role": "user", "content": content}],
             "temperature": 0.2,
         }
-        async with httpx.AsyncClient(timeout=timeout_s) as client:
+        timeout = httpx.Timeout(
+            timeout=timeout_s,
+            connect=connect_timeout_s if connect_timeout_s is not None else timeout_s,
+            read=read_timeout_s if read_timeout_s is not None else timeout_s,
+            write=write_timeout_s if write_timeout_s is not None else timeout_s,
+            pool=pool_timeout_s if pool_timeout_s is not None else timeout_s,
+        )
+        async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.post(f"{self.base_url}/chat/completions", headers=headers, json=payload)
             resp.raise_for_status()
             data = resp.json()
@@ -38,5 +55,24 @@ class DoubaoProvider(LLMProvider):
         }
         return choice_content, usage
 
-    async def generate(self, prompt: str, *, request_id: str, timeout_s: float, model: str):
-        return await self._chat(prompt, timeout_s=timeout_s, model=model)
+    async def generate(
+        self,
+        prompt: str,
+        *,
+        request_id: str,
+        timeout_s: float,
+        model: str,
+        connect_timeout_s: float | None = None,
+        read_timeout_s: float | None = None,
+        write_timeout_s: float | None = None,
+        pool_timeout_s: float | None = None,
+    ):
+        return await self._chat(
+            prompt,
+            timeout_s=timeout_s,
+            model=model,
+            connect_timeout_s=connect_timeout_s,
+            read_timeout_s=read_timeout_s,
+            write_timeout_s=write_timeout_s,
+            pool_timeout_s=pool_timeout_s,
+        )

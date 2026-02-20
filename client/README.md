@@ -27,8 +27,6 @@ pip install -e ".[pretty]"
 
 ## Environment
 - `BACKEND_URL` (default: `http://127.0.0.1:8000`)
-- `AUTH_TOKEN` (optional; if set, CLI sends `Authorization: Bearer <token>`)
-- `X_USER_ID` (default: `00000000-0000-0000-0000-000000000001`, used only when `AUTH_TOKEN` is not set)
 
 CLI persists lightweight state to `client/.state.json`:
 - `session_id`
@@ -67,13 +65,4 @@ rpg replay
 
 ```bash
 pytest -q client/tests
-```
-
-
-### OAuth/JWT example
-
-```bash
-# after completing /auth/google/callback and getting access_token
-export AUTH_TOKEN="<jwt>"
-rpg session create --story-id campus_life
 ```

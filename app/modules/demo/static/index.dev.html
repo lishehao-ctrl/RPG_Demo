@@ -3,14 +3,16 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>RPG Demo</title>
-  <link rel="stylesheet" href="/demo/static/demo.css" />
+  <title>RPG Demo Developer</title>
+  <link rel="stylesheet" href="/demo/static/base.css" />
+  <link rel="stylesheet" href="/demo/static/dev.css" />
 </head>
 <body>
   <header class="header">
     <div class="header__title">
-      <h1>RPG Demo UI</h1>
-      <p>Manual testing dashboard for sessions, story packs, and replay</p>
+      <h1>RPG Demo Developer</h1>
+      <p>Full runtime debugging panel for sessions, replay, and state internals.</p>
+      <div class="dev-nav"><a href="/demo/play">Switch to User Demo</a></div>
     </div>
     <div class="header__session">
       <div class="session-line">
@@ -26,7 +28,7 @@
   </header>
 
   <main class="layout">
-    <section class="panel panel--left">
+    <section>
       <div class="section">
         <h2>Session</h2>
         <div class="grid">
@@ -46,6 +48,15 @@
       </div>
 
       <div class="section">
+        <h2>Step Request Status</h2>
+        <pre id="pendingStatus" class="pending-panel">(idle)</pre>
+        <div class="row">
+          <button id="retryPendingBtn" class="btn btn--ghost">Retry Pending</button>
+          <button id="clearPendingBtn" class="btn btn--ghost">Clear Pending</button>
+        </div>
+      </div>
+
+      <div class="section">
         <h2>State</h2>
         <pre id="statePanel" class="state-panel">{}</pre>
       </div>
@@ -57,25 +68,13 @@
       </div>
 
       <div class="section">
-        <h2>Auth</h2>
-        <div class="grid">
-          <label class="field">
-            <span>Auth Mode</span>
-            <select id="authMode">
-              <option value="x-user-id">X-User-Id</option>
-              <option value="bearer">Bearer</option>
-            </select>
-          </label>
-          <label class="field">
-            <span>Auth Value</span>
-            <input id="authValue" type="text" placeholder="UUID or token" />
-          </label>
-        </div>
+        <h2>Run</h2>
+        <pre id="runStatePanel" class="run-panel">(run state unavailable)</pre>
       </div>
 
       <div class="section">
         <h2>Play</h2>
-        <div id="narrativeCard" class="card card--narrative">
+        <div class="card">
           <div class="card__title">Narrative</div>
           <div id="narrativeText" class="card__body">No response yet.</div>
           <div id="choiceButtons" class="choice-grid"></div>
@@ -123,7 +122,7 @@
       </div>
     </section>
 
-    <section class="panel panel--right">
+    <section>
       <div class="section">
         <h2>Step Timeline</h2>
         <div id="stepTimeline" class="timeline"></div>
@@ -131,6 +130,7 @@
     </section>
   </main>
 
-  <script src="/demo/static/demo.js"></script>
+  <script src="/demo/static/shared.js"></script>
+  <script src="/demo/static/dev.js"></script>
 </body>
 </html>

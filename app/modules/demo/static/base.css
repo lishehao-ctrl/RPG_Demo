@@ -23,6 +23,15 @@ body {
   color: var(--ink);
 }
 
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
 .header {
   display: flex;
   justify-content: space-between;
@@ -72,10 +81,6 @@ body {
   grid-template-columns: minmax(320px, 1fr) minmax(320px, 1.1fr);
   gap: 24px;
   padding: 24px 32px 40px;
-}
-
-.panel {
-  background: transparent;
 }
 
 .section {
@@ -143,8 +148,22 @@ body {
   box-shadow: none;
 }
 
+.btn--danger {
+  background: var(--danger);
+}
+
 .btn:hover {
   transform: translateY(-1px);
+}
+
+.btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.hidden {
+  display: none !important;
 }
 
 .card {
@@ -189,88 +208,43 @@ body {
   background: #f7efe6;
 }
 
-.timeline {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.step-card {
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 12px;
-  background: #ffffff;
-}
-
-.step-card header {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.step-card .meta {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 6px;
-  margin: 8px 0;
-  font-size: 13px;
-}
-
-.step-card details {
-  margin-top: 6px;
-}
-
-.raw-json pre {
-  background: #141312;
-  color: #f5f0ea;
-  padding: 10px;
-  border-radius: 10px;
-  max-height: 220px;
-  overflow: auto;
-}
-
-.card--compact {
-  background: #fdf6ec;
-}
-
-.state-panel {
+.pending-panel {
   margin: 0;
-  background: #141312;
-  color: #f5f0ea;
-  padding: 10px;
   border-radius: 10px;
-  overflow: auto;
-}
-
-.quest-panel,
-.quest-events {
-  margin: 0 0 10px;
-  background: #10242a;
-  color: #d9f1f6;
+  border: 1px solid #e7dac9;
+  background: #fff8ef;
+  color: #6a4a25;
   padding: 10px;
-  border-radius: 10px;
   overflow: auto;
   white-space: pre-wrap;
 }
 
-.quest-events {
-  margin-bottom: 0;
-  background: #13323a;
+.pending-panel.pending-panel--error {
+  border-color: #e0b2ab;
+  background: #fff0ed;
+  color: #7b2f23;
+}
+
+.pending-panel.pending-panel--active {
+  border-color: #c9d9e7;
+  background: #f2f8ff;
+  color: #1f3f68;
 }
 
 @media (max-width: 980px) {
   .layout {
     grid-template-columns: 1fr;
   }
+
   .header {
     flex-direction: column;
     text-align: left;
   }
+
   .header__session {
     text-align: left;
   }
+
   .session-line {
     justify-content: flex-start;
   }

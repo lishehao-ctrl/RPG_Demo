@@ -1,6 +1,8 @@
 import os
 import subprocess
 import sys
+import json
+from datetime import datetime
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -234,6 +236,63 @@ def test_publish_and_fetch_published_version(tmp_path: Path) -> None:
     assert got.json()["pack"]["title"] == "Campus Life v2"
 
 
+def test_list_stories_defaults_to_published_playable_only(tmp_path: Path) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+
+    pack = _pack()
+    assert client.post("/stories", json=pack).status_code == 200
+    assert client.post("/stories/campus_life/publish", params={"version": 1}).status_code == 200
+
+    with db_session.SessionLocal() as db:
+        with db.begin():
+            db.add(
+                Story(
+                    story_id="broken_story",
+                    version=1,
+                    is_published=True,
+                    pack_json={"story_id": "broken_story", "version": 1, "title": "Broken"},
+                    created_at=datetime.utcnow(),
+                )
+            )
+
+    listed = client.get("/stories")
+    assert listed.status_code == 200
+    rows = listed.json()["stories"]
+    assert any(row["story_id"] == "campus_life" for row in rows)
+    assert all(row["story_id"] != "broken_story" for row in rows)
+
+    listed_all = client.get("/stories", params={"playable_only": "false"})
+    assert listed_all.status_code == 200
+    by_id = {row["story_id"]: row for row in listed_all.json()["stories"]}
+    assert by_id["campus_life"]["is_playable"] is True
+    assert by_id["broken_story"]["is_playable"] is False
+
+
+def test_publish_rejects_invalid_story_pack(tmp_path: Path) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+
+    with db_session.SessionLocal() as db:
+        with db.begin():
+            db.add(
+                Story(
+                    story_id="invalid_publish_story",
+                    version=1,
+                    is_published=False,
+                    pack_json={"story_id": "invalid_publish_story", "version": 1},
+                    created_at=datetime.utcnow(),
+                )
+            )
+
+    publish = client.post("/stories/invalid_publish_story/publish", params={"version": 1})
+    assert publish.status_code == 400
+    detail = publish.json()["detail"]
+    assert detail["code"] == "STORY_INVALID_FOR_PUBLISH"
+    assert isinstance(detail.get("errors"), list)
+    assert detail["errors"]
+
+
 def test_validate_accepts_valid_quests_schema(tmp_path: Path) -> None:
     _prepare_db(tmp_path)
     client = TestClient(app)
@@ -382,3 +441,135 @@ def test_validate_rejects_duplicate_milestone_id_within_stage(tmp_path: Path) ->
     assert resp.status_code == 200
     assert resp.json()["valid"] is False
     assert "DUPLICATE_QUEST_STAGE_MILESTONE_ID:q_dup_milestone:s1:m1" in resp.json()["errors"]
+
+
+def test_validate_accepts_events_endings_and_run_config(tmp_path: Path) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    pack = _pack()
+    pack["run_config"] = {"max_days": 5, "max_steps": 12, "default_timeout_outcome": "fail"}
+    pack["events"] = [
+        {
+            "event_id": "ev_library_bonus",
+            "title": "Library Bonus",
+            "weight": 2,
+            "once_per_run": True,
+            "cooldown_steps": 1,
+            "trigger": {"node_id_is": "n1", "day_in": [1], "slot_in": ["morning"]},
+            "effects": {"knowledge": 1},
+            "narration_hint": "A quiet insight appears.",
+        }
+    ]
+    pack["endings"] = [
+        {
+            "ending_id": "end_success",
+            "title": "Good Ending",
+            "priority": 10,
+            "outcome": "success",
+            "trigger": {"node_id_is": "n2", "knowledge_at_least": 1},
+            "epilogue": "You close the week with confidence.",
+        }
+    ]
+
+    resp = client.post("/stories/validate", json=pack)
+    assert resp.status_code == 200
+    assert resp.json()["valid"] is True
+
+
+def test_validate_rejects_duplicate_event_id(tmp_path: Path) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    pack = _pack()
+    pack["events"] = [
+        {
+            "event_id": "ev_dup",
+            "title": "First",
+            "trigger": {"node_id_is": "n1"},
+        },
+        {
+            "event_id": "ev_dup",
+            "title": "Second",
+            "trigger": {"node_id_is": "n2"},
+        },
+    ]
+
+    resp = client.post("/stories/validate", json=pack)
+    assert resp.status_code == 200
+    assert resp.json()["valid"] is False
+    assert "DUPLICATE_EVENT_ID:ev_dup" in resp.json()["errors"]
+
+
+def test_validate_rejects_duplicate_ending_id(tmp_path: Path) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    pack = _pack()
+    pack["endings"] = [
+        {
+            "ending_id": "end_dup",
+            "title": "Ending A",
+            "outcome": "neutral",
+            "trigger": {"node_id_is": "n2"},
+            "epilogue": "A",
+        },
+        {
+            "ending_id": "end_dup",
+            "title": "Ending B",
+            "outcome": "fail",
+            "trigger": {"node_id_is": "n2"},
+            "epilogue": "B",
+        },
+    ]
+
+    resp = client.post("/stories/validate", json=pack)
+    assert resp.status_code == 200
+    assert resp.json()["valid"] is False
+    assert "DUPLICATE_ENDING_ID:end_dup" in resp.json()["errors"]
+
+
+def test_validate_rejects_dangling_event_trigger_node(tmp_path: Path) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    pack = _pack()
+    pack["events"] = [
+        {
+            "event_id": "ev_bad_node",
+            "title": "Bad Event",
+            "trigger": {"node_id_is": "missing_node"},
+        }
+    ]
+
+    resp = client.post("/stories/validate", json=pack)
+    assert resp.status_code == 200
+    assert resp.json()["valid"] is False
+    assert "DANGLING_EVENT_TRIGGER_NODE:ev_bad_node:missing_node" in resp.json()["errors"]
+
+
+def test_validate_rejects_dangling_ending_trigger_node(tmp_path: Path) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    pack = _pack()
+    pack["endings"] = [
+        {
+            "ending_id": "end_bad_node",
+            "title": "Bad Ending",
+            "outcome": "neutral",
+            "trigger": {"node_id_is": "missing_node"},
+            "epilogue": "Nope",
+        }
+    ]
+
+    resp = client.post("/stories/validate", json=pack)
+    assert resp.status_code == 200
+    assert resp.json()["valid"] is False
+    assert "DANGLING_ENDING_TRIGGER_NODE:end_bad_node:missing_node" in resp.json()["errors"]
+
+
+def test_sample_storypack_campus_week_v1_is_valid(tmp_path: Path) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    sample_path = ROOT / "examples" / "storypacks" / "campus_week_v1.json"
+    pack = json.loads(sample_path.read_text(encoding="utf-8"))
+
+    resp = client.post("/stories/validate", json=pack)
+    assert resp.status_code == 200
+    assert resp.json()["valid"] is True

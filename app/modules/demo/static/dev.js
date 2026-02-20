@@ -25,6 +25,9 @@ const questSummaryEl = el("questSummary");
 const questRecentEl = el("questRecent");
 const runStatePanelEl = el("runStatePanel");
 const pendingStatusEl = el("pendingStatus");
+const llmTraceMetaEl = el("llmTraceMeta");
+const llmTraceSummaryEl = el("llmTraceSummary");
+const llmTraceCallsEl = el("llmTraceCalls");
 
 const nowIso = () => new Date().toISOString();
 
@@ -152,6 +155,93 @@ function renderRunPanel(runState) {
     `ended_at_step: ${endedAtStep}`,
     `event_cooldowns: ${JSON.stringify(eventCooldowns)}`,
   ].join("\n");
+}
+
+function _shortErrorMessage(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  return text.slice(0, 200);
+}
+
+function renderLlmTrace(payload) {
+  if (!payload) {
+    llmTraceMetaEl.textContent = "(no trace)";
+    llmTraceSummaryEl.textContent = "(no summary)";
+    llmTraceCallsEl.textContent = "(no calls)";
+    return;
+  }
+
+  const latest = payload.latest_idempotency || null;
+  const runtime = payload.runtime_limits || {};
+  const summary = payload.summary || {};
+  llmTraceMetaEl.textContent = [
+    `session_id: ${payload.session_id || "n/a"}`,
+    `env: ${payload.env || "n/a"}`,
+    `provider_chain: ${(payload.provider_chain || []).join(" -> ") || "(empty)"}`,
+    `model_generate: ${payload.model_generate || "n/a"}`,
+    `llm_timeout_s: ${runtime.llm_timeout_s ?? "n/a"}`,
+    `llm_total_deadline_s: ${runtime.llm_total_deadline_s ?? "n/a"}`,
+    `llm_retry_attempts_network: ${runtime.llm_retry_attempts_network ?? "n/a"}`,
+    `llm_max_retries: ${runtime.llm_max_retries ?? "n/a"}`,
+    `circuit_window_s: ${runtime.circuit_window_s ?? "n/a"}`,
+    `circuit_fail_threshold: ${runtime.circuit_fail_threshold ?? "n/a"}`,
+    `circuit_open_s: ${runtime.circuit_open_s ?? "n/a"}`,
+    `latest_idempotency: ${latest ? latest.idempotency_key : "(none)"}`,
+    `latest_idempotency_status: ${latest ? latest.status : "(none)"}`,
+    `latest_error_code: ${latest ? latest.error_code || "(none)" : "(none)"}`,
+    `latest_updated_at: ${latest ? latest.updated_at : "(none)"}`,
+    `request_hash_prefix: ${latest ? latest.request_hash_prefix : "(none)"}`,
+    `response_present: ${latest ? String(Boolean(latest.response_present)) : "(none)"}`,
+  ].join("\n");
+
+  llmTraceSummaryEl.textContent = [
+    `total_calls: ${summary.total_calls ?? 0}`,
+    `success_calls: ${summary.success_calls ?? 0}`,
+    `error_calls: ${summary.error_calls ?? 0}`,
+    `providers: ${JSON.stringify(summary.providers || {})}`,
+    `errors_by_message_prefix: ${JSON.stringify(summary.errors_by_message_prefix || {})}`,
+  ].join("\n");
+
+  const calls = Array.isArray(payload.llm_calls) ? payload.llm_calls.slice(0, 20) : [];
+  if (!calls.length) {
+    llmTraceCallsEl.textContent = "(no calls)";
+    return;
+  }
+  llmTraceCallsEl.textContent = calls
+    .map((row) => {
+      const error = _shortErrorMessage(row.error_message);
+      return [
+        `${row.created_at} | ${row.status} | ${row.provider} | ${row.operation} | ${row.phase_guess}`,
+        `model=${row.model} step_id=${row.step_id || "-"} tokens=${row.prompt_tokens || 0}/${row.completion_tokens || 0} latency_ms=${row.latency_ms || 0}`,
+        `error=${error || "-"}`,
+      ].join("\n");
+    })
+    .join("\n\n");
+}
+
+async function refreshLlmTrace() {
+  if (!state.sessionId) {
+    renderLlmTrace(null);
+    return null;
+  }
+  try {
+    const trace = await Shared.callApi("GET", `/sessions/${state.sessionId}/debug/llm-trace`);
+    renderLlmTrace(trace);
+    return trace;
+  } catch (error) {
+    const status = Number(error?.response?.status || 0);
+    const code = Shared.detailCode(error?.response?.data);
+    if (status === 404 && code === "DEBUG_DISABLED") {
+      llmTraceMetaEl.textContent = "LLM trace debug is disabled outside ENV=dev.";
+      llmTraceSummaryEl.textContent = "(debug disabled)";
+      llmTraceCallsEl.textContent = "(debug disabled)";
+      return null;
+    }
+    llmTraceMetaEl.textContent = `Failed to load trace: ${error.message || error}`;
+    llmTraceSummaryEl.textContent = "(trace unavailable)";
+    llmTraceCallsEl.textContent = "(trace unavailable)";
+    return null;
+  }
 }
 
 function updateTokenTotals(cost) {
@@ -293,6 +383,7 @@ async function createSession() {
   renderQuestPanel({});
   renderRunPanel({});
   await refreshSession();
+  await refreshLlmTrace();
 }
 
 async function refreshSession(options = {}) {
@@ -321,7 +412,7 @@ function _stepPayloadFromInput(payloadOverride) {
 
 function _throwIfTerminalStepFailure(result) {
   if (result.reason === "LLM_UNAVAILABLE") {
-    throw new Error("LLM_UNAVAILABLE: this step was not applied.");
+    throw new Error("LLM_UNAVAILABLE: this step was not applied. Check LLM Debug Trace panel.");
   }
   if (result.reason === "IDEMPOTENCY_KEY_REUSED") {
     throw new Error("IDEMPOTENCY_KEY_REUSED: pending key conflicted with a different payload.");
@@ -342,6 +433,7 @@ async function _executeStepPayload(payload) {
     if (result.retryable) {
       throw new Error("Step request still uncertain after retries. Use Retry Pending to continue with the same key.");
     }
+    await refreshLlmTrace();
     _throwIfTerminalStepFailure(result);
   }
 
@@ -351,6 +443,7 @@ async function _executeStepPayload(payload) {
   const stateAfter = cloneState((refreshed || {}).state_json || state.currentState);
   const stateDelta = computeDelta(stateBefore, stateAfter);
   appendStep(out, stateDelta, stateAfter, result.meta || {});
+  await refreshLlmTrace();
   el("playerInput").value = "";
 }
 
@@ -383,6 +476,7 @@ async function retryPendingStep() {
       if (result.retryable) {
         throw new Error("Step remains uncertain after retry. Try again or clear pending.");
       }
+      await refreshLlmTrace();
       _throwIfTerminalStepFailure(result);
     }
 
@@ -392,6 +486,7 @@ async function retryPendingStep() {
     const stateAfter = cloneState((refreshed || {}).state_json || state.currentState);
     const stateDelta = computeDelta(stateBefore, stateAfter);
     appendStep(out, stateDelta, stateAfter, result.meta || {});
+    await refreshLlmTrace();
   } finally {
     state.stepInFlight = false;
   }
@@ -452,9 +547,11 @@ async function replaySession() {
 async function init() {
   await loadBootstrap();
   renderReplayHighlights(null);
+  renderLlmTrace(null);
 
   el("createSessionBtn").addEventListener("click", () => createSession().catch(alert));
   el("refreshSessionBtn").addEventListener("click", () => refreshSession().catch(alert));
+  el("refreshLlmTraceBtn").addEventListener("click", () => refreshLlmTrace().catch(alert));
   el("sendInputBtn").addEventListener("click", () => sendStep().catch(alert));
   el("retryPendingBtn").addEventListener("click", () => retryPendingStep().catch(alert));
   el("clearPendingBtn").addEventListener("click", () => state.stepController?.clearPending());

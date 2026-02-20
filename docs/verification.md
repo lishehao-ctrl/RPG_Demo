@@ -17,6 +17,12 @@ python scripts/seed.py
 pytest -q tests/test_demo_routes.py tests/test_seed_script.py
 ```
 
+## LLM Debug Trace (Dev Mode)
+```bash
+pytest -q tests/test_session_api.py -k "llm_trace or llm_unavailable"
+curl "http://127.0.0.1:8000/sessions/<session_id>/debug/llm-trace"
+```
+
 ## Story Runtime Focused Checks
 ```bash
 pytest -q tests/test_story_pack_api.py tests/test_story_engine_integration.py tests/test_story_runtime_decisions.py tests/test_fallback_narration.py tests/test_event_engine.py tests/test_ending_engine.py

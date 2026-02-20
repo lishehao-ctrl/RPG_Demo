@@ -45,6 +45,7 @@
 ## Session
 - `POST /sessions`
 - `GET /sessions/{id}`
+- `GET /sessions/{id}/debug/llm-trace` (dev only)
 - `POST /sessions/{id}/step`
 - `POST /sessions/{id}/snapshot`
 - `POST /sessions/{id}/rollback?snapshot_id=...`
@@ -54,6 +55,48 @@
 Session endpoints are anonymous in single-tenant mode:
 - no auth headers are required,
 - legacy auth headers are ignored by API runtime.
+
+### `GET /sessions/{id}/debug/llm-trace` (Developer Debug)
+- Purpose:
+  - structured trace for LLM runtime diagnostics in `/demo/dev`.
+- Availability:
+  - only when `ENV=dev`.
+  - if `ENV!=dev`, returns `404` with `detail.code="DEBUG_DISABLED"`.
+- Query:
+  - `limit: int` (optional, default `50`, bounded by backend).
+- Response shape:
+  - `session_id`
+  - `env`
+  - `provider_chain`
+  - `model_generate`
+  - `runtime_limits`:
+    - `llm_timeout_s`
+    - `llm_total_deadline_s`
+    - `llm_retry_attempts_network`
+    - `llm_max_retries`
+    - `circuit_window_s`
+    - `circuit_fail_threshold`
+    - `circuit_open_s`
+  - `latest_idempotency` (nullable):
+    - `idempotency_key`
+    - `status`
+    - `error_code`
+    - `updated_at`
+    - `request_hash_prefix` (first 12 chars only)
+    - `response_present`
+  - `summary`:
+    - `total_calls`
+    - `success_calls`
+    - `error_calls`
+    - `providers`
+    - `errors_by_message_prefix`
+  - `llm_calls[]`:
+    - `id`, `created_at`, `provider`, `model`, `operation`, `status`
+    - `step_id`, `prompt_tokens`, `completion_tokens`, `latency_ms`
+    - `error_message`, `phase_guess`
+- Security:
+  - no raw prompt/raw response
+  - no API key exposure
 
 ### `POST /sessions`
 - Request body:

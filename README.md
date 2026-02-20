@@ -1,181 +1,42 @@
-# RPG Demo Backend Scaffold
+# RPG Demo - Run Server
 
-[![CI](https://github.com/OWNER/REPO/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/REPO/actions/workflows/ci.yml)
+## Prerequisites
 
-## Requirements
-- Python **>= 3.11** (recommended: `3.11.9`, see `.python-version`)
+- Python `>=3.11`
+- `pip`
 
-## Run locally
+## Quick Start (Recommended)
 
 ```bash
 python3.11 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 pip install -e "./client[pretty]"
-uvicorn app.main:app --reload
-```
-
-## Local Dev Quickstart
-
-```bash
 ./scripts/dev.sh
 ```
 
-This sets `ENV=dev`, defaults `DATABASE_URL` to `sqlite:///./dev.db` when unset, runs `alembic upgrade head`, and starts the server with `--reload`.
-By default it also seeds `examples/storypacks/campus_week_v1.json` (set `SKIP_SEED=1` to skip seeding).
+`./scripts/dev.sh` will:
+- set `ENV=dev`
+- run `alembic upgrade head`
+- run `python scripts/seed.py` by default
+- start server with reload enabled
 
-Demo UIs:
+Server URL:
+- `http://127.0.0.1:8000`
 
-```bash
-open http://localhost:8000/demo/play
-open http://localhost:8000/demo/dev
-```
+Demo URLs:
+- `http://127.0.0.1:8000/demo/play`
+- `http://127.0.0.1:8000/demo/dev`
+- `/demo/dev` now includes an **LLM Debug Trace** panel for diagnosing `LLM_UNAVAILABLE`.
 
-- `/demo/play` is the user mode. It starts with a story selection screen and only lists published + playable stories.
-- `/demo/play` is intentionally player-facing: it hides debug-heavy backend fields and shows summarized gameplay UI.
-- `/demo/dev` is the full debugging surface (manual story/version, timeline, snapshots, rollback, raw replay).
-
-Manual seed:
-
-```bash
-python scripts/seed.py
-```
-
-Or via Makefile:
+## Manual Start
 
 ```bash
-make venv
-make install
-make migrate
-make test
-```
-
-Health:
-
-```bash
-curl http://localhost:8000/health
-```
-
-## Docker
-
-```bash
-docker-compose up --build
-```
-
-## Migration
-
-```bash
-DATABASE_URL=sqlite:///./app.db alembic upgrade head
-```
-
-## Database Rebase (local)
-
-When DB schema changes (especially baseline hard-cut updates), rebuild local DB from migrations:
-
-```bash
-# rebase dev.db
-rm -f dev.db
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+pip install -e "./client[pretty]"
 ENV=dev DATABASE_URL=sqlite:///./dev.db python -m alembic upgrade head
 python scripts/seed.py
-```
-
-```bash
-# rebase app.db (if you use app.db locally)
-rm -f app.db
-DATABASE_URL=sqlite:///./app.db python -m alembic upgrade head
-```
-
-Or run:
-
-```bash
-./scripts/dev.sh
-```
-
-Auth hard-cut note:
-- This baseline removed legacy auth tables/columns.
-- Recreate old local DB files before upgrading (for example, delete `dev.db` / `app.db` and run migration again).
-
-## Test
-
-```bash
-python -m pytest -q
-python -m pytest client/tests -q
-```
-
-## Documentation
-
-- Entry point: `docs/INDEX.md`
-
-## Sample StoryPack + Simulation
-
-Sample pack:
-- `examples/storypacks/campus_week_v1.json`
-- `examples/storypacks/quick_demo_v1.json`
-
-Load and publish it:
-
-```bash
-curl -X POST http://127.0.0.1:8000/stories \
-  -H "Content-Type: application/json" \
-  --data @examples/storypacks/campus_week_v1.json
-
-curl -X POST "http://127.0.0.1:8000/stories/campus_week_v1/publish?version=1"
-```
-
-Run deterministic balance simulation:
-
-```bash
-python scripts/simulate_runs.py --story-id campus_week_v1 --runs 200 --policy balanced --seed 42
-```
-
-Distribution acceptance gates (`playable_v1` profile):
-
-```bash
-python scripts/simulate_runs.py --story-id campus_week_v1 --runs 200 --policy balanced --seed 42 --assert-profile playable_v1
-python scripts/simulate_runs.py --story-id campus_week_v1 --runs 300 --policy random --seed 42 --assert-profile playable_v1 --assert-runs-min 200
-```
-
-`playable_v1` checks:
-- balanced: success `0.40-0.55`, neutral `0.30-0.45`, fail `0.10-0.20`, timeout `<=0.05`, average steps `14-22`, events/run `>=0.50`
-- random: timeout `<=0.12`, success `>=0.08`, fail `>=0.15`, average steps `10-22`, events/run `>=0.40`
-
-## Release Benchmark (200 LLM Calls Budget)
-
-This benchmark gates rollout quality under a strict budget:
-- hard stop on `200` successful `generate` LLM calls
-- absolute kill switch at `1,000,000` tokens
-- warning at `500,000` tokens
-
-Token estimate for 200 calls (based on historical `llm_usage_logs`):
-- average envelope: about `207k - 218k`
-- conservative p95: about `299k`
-- conservative p99: about `366k`
-- observed max envelope cap: about `464k`
-
-Run benchmark:
-
-```bash
-python scripts/benchmark_release.py --target both --seed 42
-```
-
-Generated reports:
-- `artifacts/benchmark_release.json`
-- `artifacts/benchmark_release.md`
-
-Optional toxiproxy profile prep (for remote jitter scenarios):
-
-```bash
-python scripts/benchmark_toxiproxy.py status
-python scripts/benchmark_toxiproxy.py jitter_mild
-python scripts/benchmark_toxiproxy.py clean
-```
-
-Notes:
-- `--target both` uses 4 fixed buckets: local fake `40`, remote clean `60`, remote jitter mild `50`, remote jitter severe `50`.
-- Release gate fails with exit code `1` when thresholds are not met.
-
-Quick import to DB with one curl command:
-
-```bash
-curl -X POST http://127.0.0.1:8000/stories -H "Content-Type: application/json" --data @examples/storypacks/quick_demo_v1.json
+uvicorn app.main:app --reload
 ```

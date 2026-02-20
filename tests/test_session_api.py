@@ -13,7 +13,7 @@ from sqlalchemy import event, func, select, text
 
 from app.config import settings
 from app.db import session as db_session
-from app.db.models import ActionLog, Session as StorySession, SessionSnapshot, SessionStepIdempotency
+from app.db.models import ActionLog, LLMUsageLog, Session as StorySession, SessionSnapshot, SessionStepIdempotency
 from app.modules.llm.adapter import LLMRuntime
 from app.main import app
 
@@ -661,6 +661,125 @@ def test_step_idempotency_failed_llm_unavailable_can_retry_same_key(tmp_path: Pa
                 select(func.count()).select_from(ActionLog).where(ActionLog.session_id == uuid.UUID(sid))
             ).scalar_one()
             assert log_count == 1
+    finally:
+        settings.llm_provider_primary = original_primary
+        settings.llm_provider_fallbacks = original_fallbacks
+        settings.llm_retry_attempts_network = original_network_retries
+        settings.llm_max_retries = original_llm_retries
+        settings.llm_total_deadline_s = original_deadline
+
+
+def test_llm_trace_dev_only(tmp_path: Path) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    _publish_story(client)
+    sid = _create_story_session(client)
+
+    trace = client.get(f"/sessions/{sid}/debug/llm-trace")
+    assert trace.status_code == 200
+    body = trace.json()
+
+    assert body["session_id"] == sid
+    assert body["env"] == "dev"
+    assert isinstance(body["provider_chain"], list)
+    assert isinstance(body["model_generate"], str)
+    assert set(body["runtime_limits"].keys()) == {
+        "llm_timeout_s",
+        "llm_total_deadline_s",
+        "llm_retry_attempts_network",
+        "llm_max_retries",
+        "circuit_window_s",
+        "circuit_fail_threshold",
+        "circuit_open_s",
+    }
+    assert set(body["summary"].keys()) == {
+        "total_calls",
+        "success_calls",
+        "error_calls",
+        "providers",
+        "errors_by_message_prefix",
+    }
+    assert isinstance(body["llm_calls"], list)
+    assert "api_key" not in json.dumps(body).lower()
+
+
+def test_llm_trace_disabled_outside_dev(tmp_path: Path) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    _publish_story(client)
+    sid = _create_story_session(client)
+
+    original_env = settings.env
+    settings.env = "prod"
+    try:
+        trace = client.get(f"/sessions/{sid}/debug/llm-trace")
+        assert trace.status_code == 404
+        assert trace.json()["detail"]["code"] == "DEBUG_DISABLED"
+    finally:
+        settings.env = original_env
+
+
+def test_llm_trace_records_llm_unavailable_path(tmp_path: Path, monkeypatch) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    _publish_story(client)
+
+    from app.modules.session import service as session_service
+
+    class _AlwaysTimeoutProvider:
+        async def generate(
+            self,
+            prompt: str,
+            *,
+            request_id: str,
+            timeout_s: float,
+            model: str,
+            connect_timeout_s: float | None = None,
+            read_timeout_s: float | None = None,
+            write_timeout_s: float | None = None,
+            pool_timeout_s: float | None = None,
+        ):
+            raise httpx.ReadTimeout("forced read timeout", request=httpx.Request("POST", "https://example.com"))
+
+    runtime = LLMRuntime()
+    runtime.providers["fake"] = _AlwaysTimeoutProvider()
+
+    original_primary = settings.llm_provider_primary
+    original_fallbacks = list(settings.llm_provider_fallbacks)
+    original_network_retries = settings.llm_retry_attempts_network
+    original_llm_retries = settings.llm_max_retries
+    original_deadline = settings.llm_total_deadline_s
+    settings.llm_provider_primary = "fake"
+    settings.llm_provider_fallbacks = []
+    settings.llm_retry_attempts_network = 1
+    settings.llm_max_retries = 1
+    settings.llm_total_deadline_s = 1.0
+    monkeypatch.setattr(session_service, "get_llm_runtime", lambda: runtime)
+    try:
+        sid = _create_story_session(client)
+        step = client.post(
+            f"/sessions/{sid}/step",
+            json={"choice_id": "c1"},
+            headers={"X-Idempotency-Key": "idem-step-trace"},
+        )
+        assert step.status_code == 503
+        assert step.json()["detail"]["code"] == "LLM_UNAVAILABLE"
+
+        trace = client.get(f"/sessions/{sid}/debug/llm-trace")
+        assert trace.status_code == 200
+        body = trace.json()
+
+        assert (body.get("latest_idempotency") or {}).get("error_code") == "LLM_UNAVAILABLE"
+        assert body["summary"]["error_calls"] >= 1
+        assert any(str(item.get("status")) == "error" for item in (body.get("llm_calls") or []))
+        assert any(item.get("phase_guess") == "narrative_phase_or_narrative_repair" for item in body["llm_calls"])
+
+        with db_session.SessionLocal() as db:
+            rows = db.execute(
+                select(LLMUsageLog).where(LLMUsageLog.session_id == uuid.UUID(sid)).order_by(LLMUsageLog.created_at.desc())
+            ).scalars().all()
+            assert rows
+            assert any(r.status == "error" for r in rows)
     finally:
         settings.llm_provider_primary = original_primary
         settings.llm_provider_fallbacks = original_fallbacks

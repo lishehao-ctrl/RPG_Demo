@@ -5,7 +5,15 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.modules.session import service
-from app.modules.session.schemas import SessionCreateOut, SessionCreateRequest, SessionStateOut, SnapshotOut, StepRequest, StepResponse
+from app.modules.session.schemas import (
+    LLMTraceOut,
+    SessionCreateOut,
+    SessionCreateRequest,
+    SessionStateOut,
+    SnapshotOut,
+    StepRequest,
+    StepResponse,
+)
 
 router = APIRouter(prefix="", tags=["sessions"])
 
@@ -25,6 +33,15 @@ def get_session(
     db: Session = Depends(get_db),
 ):
     return service.get_session_state(db, session_id)
+
+
+@router.get("/sessions/{session_id}/debug/llm-trace", response_model=LLMTraceOut)
+def get_llm_trace(
+    session_id: uuid.UUID,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+):
+    return service.get_llm_trace(db, session_id, limit=limit)
 
 
 @router.post("/sessions/{session_id}/step", response_model=StepResponse)

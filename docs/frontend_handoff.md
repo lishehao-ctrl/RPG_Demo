@@ -28,6 +28,20 @@ Frontend clients (internal demo or outsourced app) should be thin:
 3. create session via `POST /sessions`,
 4. enter gameplay loop.
 
+## Developer LLM Trace Panel (`/demo/dev`)
+- `/demo/dev` includes a structured `LLM Debug Trace` panel.
+- Data source:
+  - `GET /sessions/{id}/debug/llm-trace`
+- Designed for diagnosing `LLM_UNAVAILABLE` without exposing raw prompt/response.
+- Panel highlights:
+  - active `provider_chain`
+  - runtime retry/deadline/circuit settings
+  - latest idempotency status/error
+  - recent LLM call timeline with `phase_guess`
+- Guardrail:
+  - endpoint is available only when `ENV=dev`.
+  - non-dev returns `404` with `detail.code="DEBUG_DISABLED"`.
+
 ## User UI Presentation Rules (`/demo/play`)
 Use these rules for player-facing UI. Keep debug-heavy details in `/demo/dev`.
 

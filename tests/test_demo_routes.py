@@ -29,6 +29,12 @@ def test_demo_dev_and_play_pages_are_available() -> None:
     assert "id=\"sessionId\"" not in html
     assert "id=\"tokenTotals\"" not in html
 
+    dev_html = dev.text
+    assert "id=\"llmTraceMeta\"" in dev_html
+    assert "id=\"llmTraceSummary\"" in dev_html
+    assert "id=\"llmTraceCalls\"" in dev_html
+    assert "id=\"refreshLlmTraceBtn\"" in dev_html
+
 
 def test_demo_bootstrap_has_required_fields() -> None:
     client = TestClient(app)

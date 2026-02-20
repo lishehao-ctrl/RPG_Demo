@@ -1,6 +1,7 @@
 import json
 import hashlib
 import uuid
+from collections import Counter
 from datetime import datetime, timedelta
 
 from fastapi import HTTPException
@@ -954,6 +955,102 @@ def get_session_state(db: Session, session_id: uuid.UUID) -> SessionStateOut:
     return _serialize_state(db, sess)
 
 
+def _phase_guess_for_llm_call(call: LLMUsageLog) -> str:
+    if call.step_id is None:
+        return "selection_phase_or_selector_repair"
+    return "narrative_phase_or_narrative_repair"
+
+
+def get_llm_trace(db: Session, session_id: uuid.UUID, limit: int = 50) -> dict:
+    _require_session(db, session_id)
+    if str(settings.env).lower() != "dev":
+        raise HTTPException(status_code=404, detail={"code": "DEBUG_DISABLED"})
+
+    bounded_limit = max(1, min(int(limit), 200))
+    calls = db.execute(
+        select(LLMUsageLog)
+        .where(LLMUsageLog.session_id == session_id)
+        .order_by(LLMUsageLog.created_at.desc(), LLMUsageLog.id.desc())
+        .limit(bounded_limit)
+    ).scalars().all()
+    latest_idem = db.execute(
+        select(SessionStepIdempotency)
+        .where(SessionStepIdempotency.session_id == session_id)
+        .order_by(SessionStepIdempotency.updated_at.desc(), SessionStepIdempotency.created_at.desc())
+    ).scalars().first()
+
+    providers_counter: Counter[str] = Counter()
+    error_prefix_counter: Counter[str] = Counter()
+    success_calls = 0
+    error_calls = 0
+    llm_calls: list[dict] = []
+    for call in calls:
+        providers_counter[str(call.provider)] += 1
+        if str(call.status) == "success":
+            success_calls += 1
+        else:
+            error_calls += 1
+            if call.error_message:
+                prefix = str(call.error_message).strip()[:80]
+                if prefix:
+                    error_prefix_counter[prefix] += 1
+        llm_calls.append(
+            {
+                "id": str(call.id),
+                "created_at": call.created_at.isoformat(),
+                "provider": str(call.provider),
+                "model": str(call.model),
+                "operation": str(call.operation),
+                "status": str(call.status),
+                "step_id": (str(call.step_id) if call.step_id else None),
+                "prompt_tokens": int(call.prompt_tokens or 0),
+                "completion_tokens": int(call.completion_tokens or 0),
+                "latency_ms": int(call.latency_ms or 0),
+                "error_message": call.error_message,
+                "phase_guess": _phase_guess_for_llm_call(call),
+            }
+        )
+
+    idempotency = None
+    if latest_idem is not None:
+        idempotency = {
+            "idempotency_key": str(latest_idem.idempotency_key),
+            "status": str(latest_idem.status),
+            "error_code": latest_idem.error_code,
+            "updated_at": latest_idem.updated_at.isoformat(),
+            "request_hash_prefix": str(latest_idem.request_hash or "")[:12],
+            "response_present": isinstance(latest_idem.response_json, dict),
+        }
+
+    provider_chain = [settings.llm_provider_primary] + list(settings.llm_provider_fallbacks)
+    provider_chain = [str(item) for item in provider_chain if str(item).strip()]
+
+    return {
+        "session_id": str(session_id),
+        "env": str(settings.env),
+        "provider_chain": provider_chain,
+        "model_generate": str(settings.llm_model_generate),
+        "runtime_limits": {
+            "llm_timeout_s": float(settings.llm_timeout_s),
+            "llm_total_deadline_s": float(settings.llm_total_deadline_s),
+            "llm_retry_attempts_network": int(settings.llm_retry_attempts_network),
+            "llm_max_retries": int(settings.llm_max_retries),
+            "circuit_window_s": float(settings.llm_circuit_breaker_window_s),
+            "circuit_fail_threshold": int(settings.llm_circuit_breaker_fail_threshold),
+            "circuit_open_s": float(settings.llm_circuit_breaker_open_s),
+        },
+        "latest_idempotency": idempotency,
+        "summary": {
+            "total_calls": len(calls),
+            "success_calls": success_calls,
+            "error_calls": error_calls,
+            "providers": dict(providers_counter),
+            "errors_by_message_prefix": dict(error_prefix_counter),
+        },
+        "llm_calls": llm_calls,
+    }
+
+
 def _sum_step_tokens(db: Session, session_id: uuid.UUID, step_id: uuid.UUID) -> tuple[int, int]:
     prompt_tokens = (
         db.execute(
@@ -1052,7 +1149,7 @@ def _run_story_runtime_pipeline(
             deps=deps,
         )
     except LLMUnavailableError as exc:
-        raise HTTPException(status_code=503, detail={"code": "LLM_UNAVAILABLE"}) from exc
+        raise HTTPException(status_code=503, detail={"code": "LLM_UNAVAILABLE", "message": str(exc)}) from exc
 
 
 def _normalized_optional_text(value: str | None) -> str | None:
@@ -1105,6 +1202,15 @@ def _extract_http_error_code(exc: HTTPException) -> str:
     return f"HTTP_{int(exc.status_code)}"
 
 
+def _extract_http_error_message(exc: HTTPException) -> str | None:
+    detail = exc.detail
+    if isinstance(detail, dict):
+        message = detail.get("message")
+        if isinstance(message, str) and message.strip():
+            return message.strip()
+    return None
+
+
 def _require_step_preconditions(sess: StorySession) -> None:
     if sess.status != "active":
         raise HTTPException(status_code=409, detail={"code": "SESSION_NOT_ACTIVE"})
@@ -1119,6 +1225,7 @@ def _persist_idempotency_failed(
     idempotency_key: str,
     request_hash: str,
     error_code: str,
+    error_message: str | None = None,
 ) -> None:
     db.rollback()
     with db.begin():
@@ -1151,6 +1258,22 @@ def _persist_idempotency_failed(
         row.error_code = error_code
         row.updated_at = now
         row.expires_at = expiry
+        if error_code == "LLM_UNAVAILABLE":
+            db.add(
+                LLMUsageLog(
+                    session_id=session_id,
+                    provider=str(settings.llm_provider_primary),
+                    model=str(settings.llm_model_generate),
+                    operation="generate",
+                    step_id=uuid.uuid4(),
+                    prompt_tokens=0,
+                    completion_tokens=0,
+                    latency_ms=0,
+                    status="error",
+                    error_message=(error_message or error_code)[:500],
+                    created_at=now,
+                )
+            )
 
 
 def step_session(
@@ -1270,6 +1393,7 @@ def step_session(
                 idempotency_key=normalized_idempotency_key,
                 request_hash=request_hash,
                 error_code=_extract_http_error_code(exc),
+                error_message=_extract_http_error_message(exc),
             )
         raise
     except Exception:

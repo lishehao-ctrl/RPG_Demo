@@ -2,6 +2,8 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .venv/
+.env
+.env.*
 app.db
 dev.db
 client/.state.json

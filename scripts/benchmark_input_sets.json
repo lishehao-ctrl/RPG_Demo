@@ -1,0 +1,27 @@
+{
+  "free_input_clear": [
+    "study",
+    "work",
+    "date",
+    "library",
+    "push final",
+    "review notes",
+    "sleep early",
+    "meet alice"
+  ],
+  "free_input_ambiguous": [
+    "maybe",
+    "not sure",
+    "something useful",
+    "help me decide",
+    "what should i do",
+    "anything"
+  ],
+  "free_input_noise": [
+    "nonsense ???",
+    "asdjklqwe",
+    "123 ### ???",
+    "",
+    "......"
+  ]
+}

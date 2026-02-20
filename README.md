@@ -139,6 +139,41 @@ python scripts/simulate_runs.py --story-id campus_week_v1 --runs 300 --policy ra
 - balanced: success `0.40-0.55`, neutral `0.30-0.45`, fail `0.10-0.20`, timeout `<=0.05`, average steps `14-22`, events/run `>=0.50`
 - random: timeout `<=0.12`, success `>=0.08`, fail `>=0.15`, average steps `10-22`, events/run `>=0.40`
 
+## Release Benchmark (200 LLM Calls Budget)
+
+This benchmark gates rollout quality under a strict budget:
+- hard stop on `200` successful `generate` LLM calls
+- absolute kill switch at `1,000,000` tokens
+- warning at `500,000` tokens
+
+Token estimate for 200 calls (based on historical `llm_usage_logs`):
+- average envelope: about `207k - 218k`
+- conservative p95: about `299k`
+- conservative p99: about `366k`
+- observed max envelope cap: about `464k`
+
+Run benchmark:
+
+```bash
+python scripts/benchmark_release.py --target both --seed 42
+```
+
+Generated reports:
+- `artifacts/benchmark_release.json`
+- `artifacts/benchmark_release.md`
+
+Optional toxiproxy profile prep (for remote jitter scenarios):
+
+```bash
+python scripts/benchmark_toxiproxy.py status
+python scripts/benchmark_toxiproxy.py jitter_mild
+python scripts/benchmark_toxiproxy.py clean
+```
+
+Notes:
+- `--target both` uses 4 fixed buckets: local fake `40`, remote clean `60`, remote jitter mild `50`, remote jitter severe `50`.
+- Release gate fails with exit code `1` when thresholds are not met.
+
 Quick import to DB with one curl command:
 
 ```bash

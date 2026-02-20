@@ -28,6 +28,20 @@ python scripts/simulate_runs.py --story-id campus_week_v1 --runs 200 --policy ba
 python scripts/simulate_runs.py --story-id campus_week_v1 --runs 300 --policy random --seed 42 --assert-profile playable_v1 --assert-runs-min 200
 ```
 
+## Release Benchmark (200 LLM Calls Budget Gate)
+```bash
+python scripts/benchmark_release.py --target both --seed 42
+pytest -q tests/test_benchmark_release_smoke.py
+```
+
+Optional toxiproxy profile setup/check:
+```bash
+python scripts/benchmark_toxiproxy.py status
+python scripts/benchmark_toxiproxy.py jitter_mild
+python scripts/benchmark_toxiproxy.py jitter_severe
+python scripts/benchmark_toxiproxy.py clean
+```
+
 ## Cleanup Evidence Scans
 ```bash
 rg -n "modules\\.auth|/auth/|google_|jwt_|X-User-Id|AUTH_TOKEN|DEFAULT_USER_ID|get_current_user" app tests client README.md docs --glob '!docs/verification.md'

@@ -1,4 +1,10 @@
 const Shared = window.DemoShared;
+const {
+  mustEl,
+  cloneJson,
+  formatStoryPathLines,
+  bindAsyncClick,
+} = Shared;
 
 const state = {
   sessionId: null,
@@ -11,65 +17,99 @@ const state = {
   stepController: null,
 };
 
-const el = (id) => document.getElementById(id);
-const sessionEl = el("sessionId");
-const tokenTotalsEl = el("tokenTotals");
-const narrativeTextEl = el("narrativeText");
-const choiceButtonsEl = el("choiceButtons");
-const timelineEl = el("stepTimeline");
-const snapshotSelectEl = el("snapshotSelect");
-const replayHighlightsEl = el("replayHighlights");
-const replayRawEl = el("replayRaw");
-const statePanelEl = el("statePanel");
-const questSummaryEl = el("questSummary");
-const questRecentEl = el("questRecent");
-const runStatePanelEl = el("runStatePanel");
-const pendingStatusEl = el("pendingStatus");
-const llmTraceMetaEl = el("llmTraceMeta");
-const llmTraceSummaryEl = el("llmTraceSummary");
-const llmTraceCallsEl = el("llmTraceCalls");
+const refs = {
+  sessionEl: mustEl("sessionId"),
+  tokenTotalsEl: mustEl("tokenTotals"),
+  narrativeTextEl: mustEl("narrativeText"),
+  choiceButtonsEl: mustEl("choiceButtons"),
+  timelineEl: mustEl("stepTimeline"),
+  snapshotSelectEl: mustEl("snapshotSelect"),
+  replayHighlightsEl: mustEl("replayHighlights"),
+  replayRawEl: mustEl("replayRaw"),
+  statePanelEl: mustEl("statePanel"),
+  questSummaryEl: mustEl("questSummary"),
+  questRecentEl: mustEl("questRecent"),
+  runStatePanelEl: mustEl("runStatePanel"),
+  pendingStatusEl: mustEl("pendingStatus"),
+  llmTraceMetaEl: mustEl("llmTraceMeta"),
+  llmTraceSummaryEl: mustEl("llmTraceSummary"),
+  llmTraceCallsEl: mustEl("llmTraceCalls"),
+  refreshLlmTraceBtnEl: mustEl("refreshLlmTraceBtn"),
+  layerInspectorSummaryEl: mustEl("layerInspectorSummary"),
+  layerInspectorStepsEl: mustEl("layerInspectorSteps"),
+  refreshLayerInspectorBtnEl: mustEl("refreshLayerInspectorBtn"),
+  noticeEl: mustEl("devNotice"),
+
+  storyIdEl: mustEl("storyId"),
+  storyVersionEl: mustEl("storyVersion"),
+  createSessionBtnEl: mustEl("createSessionBtn"),
+  refreshSessionBtnEl: mustEl("refreshSessionBtn"),
+  sendInputBtnEl: mustEl("sendInputBtn"),
+  playerInputEl: mustEl("playerInput"),
+  retryPendingBtnEl: mustEl("retryPendingBtn"),
+  clearPendingBtnEl: mustEl("clearPendingBtn"),
+  snapshotNameEl: mustEl("snapshotName"),
+  snapshotBtnEl: mustEl("snapshotBtn"),
+  rollbackBtnEl: mustEl("rollbackBtn"),
+  endBtnEl: mustEl("endBtn"),
+  replayBtnEl: mustEl("replayBtn"),
+  copySessionBtnEl: mustEl("copySessionBtn"),
+};
+
+const hasLlmTracePanel = Boolean(refs.llmTraceMetaEl && refs.llmTraceSummaryEl && refs.llmTraceCallsEl);
+const hasLayerInspectorPanel = Boolean(refs.layerInspectorSummaryEl && refs.layerInspectorStepsEl);
 
 const nowIso = () => new Date().toISOString();
 
-function setSessionId(value) {
-  state.sessionId = value;
-  sessionEl.textContent = value || "(none)";
+function setNotice(message, type = "info") {
+  const text = String(message || "").trim();
+  refs.noticeEl.textContent = text;
+  refs.noticeEl.classList.toggle("hidden", !text);
+  refs.noticeEl.classList.toggle("dev-notice--error", type === "error");
 }
 
-function cloneState(input) {
-  return JSON.parse(JSON.stringify(input || {}));
+function clearNotice() {
+  setNotice("");
+}
+
+function setSessionId(value) {
+  state.sessionId = value;
+  refs.sessionEl.textContent = value || "(none)";
 }
 
 function computeDelta(before, after) {
   const out = {};
   const keys = new Set([...Object.keys(before || {}), ...Object.keys(after || {})]);
+
   keys.forEach((key) => {
     const beforeRaw = (before || {})[key];
     const afterRaw = (after || {})[key];
+
     if (typeof beforeRaw === "number" && typeof afterRaw === "number") {
       const diff = afterRaw - beforeRaw;
       if (diff !== 0) out[key] = diff;
       return;
     }
+
     if (JSON.stringify(beforeRaw) !== JSON.stringify(afterRaw)) {
       out[key] = afterRaw;
     }
   });
+
   return out;
 }
 
 function renderPendingStatus(pending, meta = {}) {
   const maxAttempts = Number(meta.maxAttempts || state.stepController?.maxAttempts || 0);
   if (!pending) {
-    pendingStatusEl.className = "pending-panel";
-    pendingStatusEl.textContent = "(idle)";
+    refs.pendingStatusEl.className = "pending-panel";
+    refs.pendingStatusEl.textContent = "(idle)";
     return;
   }
 
   const status = Number(pending.lastStatus || 0);
-  const kind = pending.uncertain ? "pending-panel pending-panel--error" : "pending-panel pending-panel--active";
-  pendingStatusEl.className = kind;
-  pendingStatusEl.textContent = [
+  refs.pendingStatusEl.className = pending.uncertain ? "pending-panel pending-panel--error" : "pending-panel pending-panel--active";
+  refs.pendingStatusEl.textContent = [
     `idempotency_key: ${pending.idempotencyKey}`,
     `attempts: ${pending.attempts}${maxAttempts ? ` / ${maxAttempts}` : ""}`,
     `last_status: ${status || "n/a"}`,
@@ -80,10 +120,10 @@ function renderPendingStatus(pending, meta = {}) {
 }
 
 function renderStatePanel(stats) {
-  state.currentState = cloneState(stats || {});
+  state.currentState = cloneJson(stats || {});
   const day = state.currentState.day ?? "n/a";
   const slot = state.currentState.slot ?? "n/a";
-  statePanelEl.textContent = `day: ${day} | slot: ${slot}\n${JSON.stringify(state.currentState, null, 2)}`;
+  refs.statePanelEl.textContent = `day: ${day} | slot: ${slot}\n${JSON.stringify(state.currentState, null, 2)}`;
   renderQuestPanel(state.currentState.quest_state || {});
   renderRunPanel(state.currentState.run_state || {});
 }
@@ -95,8 +135,8 @@ function renderQuestPanel(questState) {
   const completed = Array.isArray(data.completed_quests) ? data.completed_quests : [];
 
   if (!Object.keys(quests).length) {
-    questSummaryEl.textContent = "(no quests)";
-    questRecentEl.textContent = "(no recent quest events)";
+    refs.questSummaryEl.textContent = "(no quests)";
+    refs.questRecentEl.textContent = "(no recent quest events)";
     return;
   }
 
@@ -115,23 +155,23 @@ function renderQuestPanel(questState) {
 
   const activeLines = active.length ? active.map(formatQuestLine).join("\n") : "(none)";
   const completedLines = completed.length ? completed.map(formatQuestLine).join("\n") : "(none)";
-  questSummaryEl.textContent = `active (${active.length})\n${activeLines}\n\ncompleted (${completed.length})\n${completedLines}`;
+
+  refs.questSummaryEl.textContent = `active (${active.length})\n${activeLines}\n\ncompleted (${completed.length})\n${completedLines}`;
 
   const recentEvents = Array.isArray(data.recent_events) ? data.recent_events.slice(-5) : [];
   if (!recentEvents.length) {
-    questRecentEl.textContent = "(no recent quest events)";
+    refs.questRecentEl.textContent = "(no recent quest events)";
     return;
   }
-  questRecentEl.textContent = recentEvents
-    .map((row) => {
-      const seq = row.seq ?? "n/a";
-      const type = row.type || "event";
-      const questId = row.quest_id || "unknown";
-      const stageId = row.stage_id ? `/${row.stage_id}` : "";
-      const milestoneId = row.milestone_id ? `/${row.milestone_id}` : "";
-      return `#${seq} ${type} ${questId}${stageId}${milestoneId}`;
-    })
-    .join("\n");
+
+  refs.questRecentEl.textContent = recentEvents.map((row) => {
+    const seq = row.seq ?? "n/a";
+    const type = row.type || "event";
+    const questId = row.quest_id || "unknown";
+    const stageId = row.stage_id ? `/${row.stage_id}` : "";
+    const milestoneId = row.milestone_id ? `/${row.milestone_id}` : "";
+    return `#${seq} ${type} ${questId}${stageId}${milestoneId}`;
+  }).join("\n");
 }
 
 function renderRunPanel(runState) {
@@ -145,7 +185,7 @@ function renderRunPanel(runState) {
   const fallbackCount = Number(data.fallback_count || 0);
   const lastEvent = triggeredEvents.length ? triggeredEvents[triggeredEvents.length - 1] : "(none)";
 
-  runStatePanelEl.textContent = [
+  refs.runStatePanelEl.textContent = [
     `step_index: ${stepIndex}`,
     `triggered_events_count: ${triggeredEvents.length}`,
     `last_event: ${lastEvent}`,
@@ -157,24 +197,27 @@ function renderRunPanel(runState) {
   ].join("\n");
 }
 
-function _shortErrorMessage(value) {
-  const text = String(value || "").trim();
+function shortText(value, limit = 200) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
   if (!text) return "";
-  return text.slice(0, 200);
+  return text.slice(0, limit);
 }
 
 function renderLlmTrace(payload) {
+  if (!hasLlmTracePanel) return;
+
   if (!payload) {
-    llmTraceMetaEl.textContent = "(no trace)";
-    llmTraceSummaryEl.textContent = "(no summary)";
-    llmTraceCallsEl.textContent = "(no calls)";
+    refs.llmTraceMetaEl.textContent = "(no trace)";
+    refs.llmTraceSummaryEl.textContent = "(no summary)";
+    refs.llmTraceCallsEl.textContent = "(no calls)";
     return;
   }
 
   const latest = payload.latest_idempotency || null;
   const runtime = payload.runtime_limits || {};
   const summary = payload.summary || {};
-  llmTraceMetaEl.textContent = [
+
+  refs.llmTraceMetaEl.textContent = [
     `session_id: ${payload.session_id || "n/a"}`,
     `env: ${payload.env || "n/a"}`,
     `provider_chain: ${(payload.provider_chain || []).join(" -> ") || "(empty)"}`,
@@ -194,36 +237,41 @@ function renderLlmTrace(payload) {
     `response_present: ${latest ? String(Boolean(latest.response_present)) : "(none)"}`,
   ].join("\n");
 
-  llmTraceSummaryEl.textContent = [
+  refs.llmTraceSummaryEl.textContent = [
     `total_calls: ${summary.total_calls ?? 0}`,
     `success_calls: ${summary.success_calls ?? 0}`,
     `error_calls: ${summary.error_calls ?? 0}`,
     `providers: ${JSON.stringify(summary.providers || {})}`,
+    `errors_by_kind: ${JSON.stringify(summary.errors_by_kind || {})}`,
     `errors_by_message_prefix: ${JSON.stringify(summary.errors_by_message_prefix || {})}`,
   ].join("\n");
 
   const calls = Array.isArray(payload.llm_calls) ? payload.llm_calls.slice(0, 20) : [];
   if (!calls.length) {
-    llmTraceCallsEl.textContent = "(no calls)";
+    refs.llmTraceCallsEl.textContent = "(no calls)";
     return;
   }
-  llmTraceCallsEl.textContent = calls
-    .map((row) => {
-      const error = _shortErrorMessage(row.error_message);
-      return [
-        `${row.created_at} | ${row.status} | ${row.provider} | ${row.operation} | ${row.phase_guess}`,
-        `model=${row.model} step_id=${row.step_id || "-"} tokens=${row.prompt_tokens || 0}/${row.completion_tokens || 0} latency_ms=${row.latency_ms || 0}`,
-        `error=${error || "-"}`,
-      ].join("\n");
-    })
-    .join("\n\n");
+
+  refs.llmTraceCallsEl.textContent = calls.map((row) => {
+    const error = shortText(row.error_message);
+    const rawSnippet = shortText(row.raw_snippet);
+    return [
+      `${row.created_at} | ${row.status} | ${row.provider} | ${row.operation} | ${row.phase_guess}`,
+      `model=${row.model} step_id=${row.step_id || "-"} tokens=${row.prompt_tokens || 0}/${row.completion_tokens || 0} latency_ms=${row.latency_ms || 0}`,
+      `error_kind=${row.error_kind || "-"} raw_snippet=${rawSnippet || "-"}`,
+      `error=${error || "-"}`,
+    ].join("\n");
+  }).join("\n\n");
 }
 
 async function refreshLlmTrace() {
+  if (!hasLlmTracePanel) return null;
+
   if (!state.sessionId) {
     renderLlmTrace(null);
     return null;
   }
+
   try {
     const trace = await Shared.callApi("GET", `/sessions/${state.sessionId}/debug/llm-trace`);
     renderLlmTrace(trace);
@@ -231,15 +279,111 @@ async function refreshLlmTrace() {
   } catch (error) {
     const status = Number(error?.response?.status || 0);
     const code = Shared.detailCode(error?.response?.data);
+
     if (status === 404 && code === "DEBUG_DISABLED") {
-      llmTraceMetaEl.textContent = "LLM trace debug is disabled outside ENV=dev.";
-      llmTraceSummaryEl.textContent = "(debug disabled)";
-      llmTraceCallsEl.textContent = "(debug disabled)";
+      refs.llmTraceMetaEl.textContent = "LLM trace debug is disabled outside ENV=dev.";
+      refs.llmTraceSummaryEl.textContent = "(debug disabled)";
+      refs.llmTraceCallsEl.textContent = "(debug disabled)";
       return null;
     }
-    llmTraceMetaEl.textContent = `Failed to load trace: ${error.message || error}`;
-    llmTraceSummaryEl.textContent = "(trace unavailable)";
-    llmTraceCallsEl.textContent = "(trace unavailable)";
+
+    refs.llmTraceMetaEl.textContent = `Failed to load trace: ${error.message || error}`;
+    refs.llmTraceSummaryEl.textContent = "(trace unavailable)";
+    refs.llmTraceCallsEl.textContent = "(trace unavailable)";
+    setNotice(`LLM trace failed: ${error.message || error}`, "error");
+    return null;
+  }
+}
+
+function renderLayerStepCard(step) {
+  const card = document.createElement("article");
+  card.className = "layer-step-card";
+  const stepIndex = Number(step?.step_index || 0);
+  const rawRefs = step?.raw_refs || {};
+  const consequence = step?.consequence_layer || {};
+  const guardNotes = [];
+  if (consequence.all_blocked_guard_triggered) guardNotes.push("all-blocked-guard");
+  if (consequence.stall_guard_triggered) guardNotes.push("stall-guard");
+  const layers = [
+    ["world_layer", step?.world_layer || {}],
+    ["characters_layer", step?.characters_layer || {}],
+    ["plot_layer", step?.plot_layer || {}],
+    ["scene_layer", step?.scene_layer || {}],
+    ["action_layer", step?.action_layer || {}],
+    ["consequence_layer", step?.consequence_layer || {}],
+    ["ending_layer", step?.ending_layer || {}],
+  ];
+  const layerBlocks = layers.map(([name, payload]) => {
+    return `<div><strong>${name}</strong><pre>${JSON.stringify(payload, null, 2)}</pre></div>`;
+  }).join("");
+  card.innerHTML = `
+    <header>
+      <span>step_index: ${stepIndex}</span>
+      <span>action_log_id: ${rawRefs.action_log_id || "n/a"}</span>
+      <span>guards: ${guardNotes.length ? guardNotes.join(", ") : "none"}</span>
+    </header>
+    <div class="layer-step-grid">
+      ${layerBlocks}
+    </div>
+  `;
+  return card;
+}
+
+function renderLayerInspector(payload) {
+  if (!hasLayerInspectorPanel) return;
+  if (!payload) {
+    refs.layerInspectorSummaryEl.textContent = "(no layer summary)";
+    refs.layerInspectorStepsEl.textContent = "(no layer steps)";
+    return;
+  }
+
+  const summary = payload.summary || {};
+  refs.layerInspectorSummaryEl.textContent = [
+    `session_id: ${payload.session_id || "n/a"}`,
+    `env: ${payload.env || "n/a"}`,
+    `fallback_rate: ${summary.fallback_rate ?? 0}`,
+    `mismatch_count: ${summary.mismatch_count ?? 0}`,
+    `event_turns: ${summary.event_turns ?? 0}`,
+    `guard_all_blocked_turns: ${summary.guard_all_blocked_turns ?? 0}`,
+    `guard_stall_turns: ${summary.guard_stall_turns ?? 0}`,
+    `ending_state: ${summary.ending_state || "in_progress"}`,
+  ].join("\n");
+
+  refs.layerInspectorStepsEl.innerHTML = "";
+  const steps = Array.isArray(payload.steps) ? payload.steps : [];
+  if (!steps.length) {
+    refs.layerInspectorStepsEl.textContent = "(no layer steps)";
+    return;
+  }
+  steps.forEach((step) => {
+    refs.layerInspectorStepsEl.appendChild(renderLayerStepCard(step));
+  });
+}
+
+async function refreshLayerInspector() {
+  if (!hasLayerInspectorPanel) return null;
+  if (!state.sessionId) {
+    renderLayerInspector(null);
+    return null;
+  }
+
+  try {
+    const payload = await Shared.callApi("GET", `/sessions/${state.sessionId}/debug/layer-inspector`);
+    renderLayerInspector(payload);
+    return payload;
+  } catch (error) {
+    const status = Number(error?.response?.status || 0);
+    const code = Shared.detailCode(error?.response?.data);
+
+    if (status === 404 && code === "DEBUG_DISABLED") {
+      refs.layerInspectorSummaryEl.textContent = "Layer inspector debug is disabled outside ENV=dev.";
+      refs.layerInspectorStepsEl.textContent = "(debug disabled)";
+      return null;
+    }
+
+    refs.layerInspectorSummaryEl.textContent = `Failed to load layer inspector: ${error.message || error}`;
+    refs.layerInspectorStepsEl.textContent = "(layer inspector unavailable)";
+    setNotice(`Layer inspector failed: ${error.message || error}`, "error");
     return null;
   }
 }
@@ -249,12 +393,13 @@ function updateTokenTotals(cost) {
   const tokensOut = Number(cost.tokens_out || 0);
   state.totals.tokensIn += tokensIn;
   state.totals.tokensOut += tokensOut;
-  tokenTotalsEl.textContent = `in: ${state.totals.tokensIn}, out: ${state.totals.tokensOut}`;
+  refs.tokenTotalsEl.textContent = `in: ${state.totals.tokensIn}, out: ${state.totals.tokensOut}`;
 }
 
 function renderNarrative(narrativeText, choices) {
-  narrativeTextEl.textContent = narrativeText || "(empty)";
-  choiceButtonsEl.innerHTML = "";
+  refs.narrativeTextEl.textContent = narrativeText || "(empty)";
+  refs.choiceButtonsEl.innerHTML = "";
+
   (choices || []).forEach((choice) => {
     const btn = document.createElement("button");
     const unavailable = choice.is_available === false;
@@ -263,9 +408,13 @@ function renderNarrative(narrativeText, choices) {
     btn.classList.toggle("choice--locked", unavailable);
     btn.disabled = unavailable;
     if (!unavailable) {
-      btn.onclick = () => sendStep({ choice_id: choice.id }).catch(alert);
+      btn.addEventListener("click", () => {
+        sendStep({ choice_id: choice.id }).catch((error) => {
+          setNotice(error.message || String(error), "error");
+        });
+      });
     }
-    choiceButtonsEl.appendChild(btn);
+    refs.choiceButtonsEl.appendChild(btn);
   });
 }
 
@@ -276,10 +425,11 @@ function renderStepCard(step) {
   const stateAfterText = Object.keys(step.state_after || {}).length ? JSON.stringify(step.state_after) : "{}";
   const dayText = step.state_after && step.state_after.day !== undefined ? step.state_after.day : "n/a";
   const slotText = step.state_after && step.state_after.slot !== undefined ? step.state_after.slot : "n/a";
+
   card.innerHTML = `
     <header>
       <span>${step.timestamp}</span>
-      <span>node: ${step.node_id || "n/a"}</span>
+      <span>story node: ${step.story_node_id || "n/a"}</span>
     </header>
     <div class="meta">
       <div><strong>story_node_id</strong>: ${step.story_node_id || "n/a"}</div>
@@ -306,23 +456,23 @@ function renderStepCard(step) {
       <pre>${JSON.stringify(step.raw, null, 2)}</pre>
     </details>
   `;
-  timelineEl.prepend(card);
+
+  refs.timelineEl.prepend(card);
 }
 
 function updateSnapshotsDropdown() {
-  snapshotSelectEl.innerHTML = '<option value="">(none)</option>';
+  refs.snapshotSelectEl.innerHTML = '<option value="">(none)</option>';
   state.snapshots.forEach((snap) => {
     const option = document.createElement("option");
     option.value = snap.id;
     option.textContent = `${snap.name} (${snap.id})`;
-    snapshotSelectEl.appendChild(option);
+    refs.snapshotSelectEl.appendChild(option);
   });
 }
 
 function appendStep(raw, stateDelta, stateAfter, meta = {}) {
   const step = {
     timestamp: nowIso(),
-    node_id: raw.node_id,
     story_node_id: raw.story_node_id,
     cost: raw.cost || { provider: "none", tokens_in: 0, tokens_out: 0 },
     attempted_choice_id: raw.attempted_choice_id || null,
@@ -340,6 +490,7 @@ function appendStep(raw, stateDelta, stateAfter, meta = {}) {
     attempts: meta.attempts ?? null,
     raw,
   };
+
   state.steps.push(step);
   renderStepCard(step);
   updateTokenTotals(step.cost);
@@ -348,11 +499,12 @@ function appendStep(raw, stateDelta, stateAfter, meta = {}) {
 async function loadBootstrap() {
   const payload = await Shared.callApi("GET", "/demo/bootstrap");
   state.bootstrap = payload;
-  if (!el("storyId").value.trim() && payload.default_story_id) {
-    el("storyId").value = String(payload.default_story_id);
+
+  if (!refs.storyIdEl.value.trim() && payload.default_story_id) {
+    refs.storyIdEl.value = String(payload.default_story_id);
   }
-  if (!el("storyVersion").value.trim() && payload.default_story_version !== null && payload.default_story_version !== undefined) {
-    el("storyVersion").value = String(payload.default_story_version);
+  if (!refs.storyVersionEl.value.trim() && payload.default_story_version !== null && payload.default_story_version !== undefined) {
+    refs.storyVersionEl.value = String(payload.default_story_version);
   }
 
   state.stepController = Shared.createStepRetryController({
@@ -362,33 +514,45 @@ async function loadBootstrap() {
   });
 }
 
-async function createSession() {
-  const storyId = el("storyId").value.trim();
-  if (!storyId) {
-    throw new Error("story_id is required");
-  }
-  const versionRaw = el("storyVersion").value.trim();
-  const body = { story_id: storyId };
-  if (versionRaw) body.version = Number(versionRaw);
-  const out = await Shared.callApi("POST", "/sessions", body);
-  state.stepController?.clearPending();
-  setSessionId(out.id);
+function resetSessionPanels() {
   state.steps = [];
-  timelineEl.innerHTML = "";
+  refs.timelineEl.innerHTML = "";
   state.snapshots = [];
   updateSnapshotsDropdown();
   state.currentState = {};
   state.totals = { tokensIn: 0, tokensOut: 0 };
-  tokenTotalsEl.textContent = "in: 0, out: 0";
+  refs.tokenTotalsEl.textContent = "in: 0, out: 0";
   renderQuestPanel({});
   renderRunPanel({});
+  renderReplayHighlights(null);
+  renderLlmTrace(null);
+  renderLayerInspector(null);
+}
+
+async function createSession() {
+  const storyId = refs.storyIdEl.value.trim();
+  if (!storyId) {
+    throw new Error("story_id is required");
+  }
+
+  const versionRaw = refs.storyVersionEl.value.trim();
+  const body = { story_id: storyId };
+  if (versionRaw) body.version = Number(versionRaw);
+
+  const out = await Shared.callApi("POST", "/sessions", body);
+  state.stepController?.clearPending();
+  setSessionId(out.id);
+  resetSessionPanels();
   await refreshSession();
   await refreshLlmTrace();
+  await refreshLayerInspector();
+  setNotice(`Session ready: ${out.id}`);
 }
 
 async function refreshSession(options = {}) {
   if (!state.sessionId) return;
   const { renderNode = true } = options;
+
   const out = await Shared.callApi("GET", `/sessions/${state.sessionId}`);
   if (renderNode) {
     if (out.current_node) {
@@ -397,12 +561,13 @@ async function refreshSession(options = {}) {
       renderNarrative("(no current node narrative)", []);
     }
   }
+
   renderStatePanel(out.state_json || {});
   return out;
 }
 
-function _stepPayloadFromInput(payloadOverride) {
-  const inputText = el("playerInput").value.trim();
+function stepPayloadFromInput(payloadOverride) {
+  const inputText = refs.playerInputEl.value.trim();
   const payload = payloadOverride ? { ...payloadOverride } : {};
   if (!payload.choice_id && inputText) {
     payload.player_input = inputText;
@@ -410,23 +575,25 @@ function _stepPayloadFromInput(payloadOverride) {
   return payload;
 }
 
-function _throwIfTerminalStepFailure(result) {
+function throwIfTerminalStepFailure(result) {
   if (result.reason === "LLM_UNAVAILABLE") {
     throw new Error("LLM_UNAVAILABLE: this step was not applied. Check LLM Debug Trace panel.");
   }
   if (result.reason === "IDEMPOTENCY_KEY_REUSED") {
     throw new Error("IDEMPOTENCY_KEY_REUSED: pending key conflicted with a different payload.");
   }
+
   const status = result.response ? result.response.status : "n/a";
   const code = result.response ? Shared.detailCode(result.response.data) : "n/a";
   throw new Error(`step failed (${status}) code=${code || "n/a"}`);
 }
 
-async function _executeStepPayload(payload) {
+async function executeStepPayload(payload) {
   if (!state.stepController) {
     throw new Error("step controller not initialized");
   }
-  const stateBefore = cloneState(state.currentState);
+
+  const stateBefore = cloneJson(state.currentState);
   const result = await state.stepController.submit({ sessionId: state.sessionId, payload });
 
   if (!result.ok) {
@@ -434,27 +601,31 @@ async function _executeStepPayload(payload) {
       throw new Error("Step request still uncertain after retries. Use Retry Pending to continue with the same key.");
     }
     await refreshLlmTrace();
-    _throwIfTerminalStepFailure(result);
+    throwIfTerminalStepFailure(result);
   }
 
   const out = result.data;
   renderNarrative(out.narrative_text, out.choices);
+
   const refreshed = await refreshSession({ renderNode: false });
-  const stateAfter = cloneState((refreshed || {}).state_json || state.currentState);
+  const stateAfter = cloneJson((refreshed || {}).state_json || state.currentState);
   const stateDelta = computeDelta(stateBefore, stateAfter);
   appendStep(out, stateDelta, stateAfter, result.meta || {});
   await refreshLlmTrace();
-  el("playerInput").value = "";
+  await refreshLayerInspector();
+
+  refs.playerInputEl.value = "";
 }
 
 async function sendStep(payloadOverride) {
   if (!state.sessionId || state.stepInFlight) return;
-  const payload = _stepPayloadFromInput(payloadOverride);
+  const payload = stepPayloadFromInput(payloadOverride);
   if (Object.keys(payload).length === 0) return;
 
   state.stepInFlight = true;
   try {
-    await _executeStepPayload(payload);
+    await executeStepPayload(payload);
+    clearNotice();
   } finally {
     state.stepInFlight = false;
   }
@@ -464,29 +635,31 @@ async function retryPendingStep() {
   if (!state.stepController || state.stepInFlight) return;
   const pending = state.stepController.getPending();
   if (!pending) {
-    alert("No pending step to retry.");
-    return;
+    throw new Error("No pending step to retry.");
   }
 
   state.stepInFlight = true;
   try {
-    const stateBefore = cloneState(state.currentState);
+    const stateBefore = cloneJson(state.currentState);
     const result = await state.stepController.retryPending();
+
     if (!result.ok) {
       if (result.retryable) {
         throw new Error("Step remains uncertain after retry. Try again or clear pending.");
       }
       await refreshLlmTrace();
-      _throwIfTerminalStepFailure(result);
+      throwIfTerminalStepFailure(result);
     }
 
     const out = result.data;
     renderNarrative(out.narrative_text, out.choices);
     const refreshed = await refreshSession({ renderNode: false });
-    const stateAfter = cloneState((refreshed || {}).state_json || state.currentState);
+    const stateAfter = cloneJson((refreshed || {}).state_json || state.currentState);
     const stateDelta = computeDelta(stateBefore, stateAfter);
     appendStep(out, stateDelta, stateAfter, result.meta || {});
     await refreshLlmTrace();
+    await refreshLayerInspector();
+    clearNotice();
   } finally {
     state.stepInFlight = false;
   }
@@ -494,39 +667,45 @@ async function retryPendingStep() {
 
 async function takeSnapshot() {
   if (!state.sessionId) return;
-  const name = el("snapshotName").value.trim() || "manual";
+  const name = refs.snapshotNameEl.value.trim() || "manual";
   const out = await Shared.callApi("POST", `/sessions/${state.sessionId}/snapshot?name=${encodeURIComponent(name)}`);
   state.snapshots.push({ id: out.snapshot_id, name });
   updateSnapshotsDropdown();
+  setNotice(`Snapshot created: ${out.snapshot_id}`);
 }
 
 async function rollbackSession() {
   if (!state.sessionId) return;
-  const snapshotId = snapshotSelectEl.value;
+  const snapshotId = refs.snapshotSelectEl.value;
   if (!snapshotId) return;
   await Shared.callApi("POST", `/sessions/${state.sessionId}/rollback?snapshot_id=${encodeURIComponent(snapshotId)}`);
   await refreshSession();
+  await refreshLayerInspector();
+  setNotice(`Rolled back to: ${snapshotId}`);
 }
 
 async function endSession() {
   if (!state.sessionId) return;
   await Shared.callApi("POST", `/sessions/${state.sessionId}/end`);
+  setNotice("Session marked as ended.");
 }
 
 function renderReplayHighlights(payload) {
   if (!payload) {
-    replayHighlightsEl.innerHTML = '<div class="card__body">No replay yet.</div>';
-    replayRawEl.textContent = "{}";
+    refs.replayHighlightsEl.innerHTML = '<div class="card__body">No replay yet.</div>';
+    refs.replayRawEl.textContent = "{}";
     return;
   }
 
-  const storyPath = (payload.story_path || []).slice(0, 6).map((row) => `#${row.step}: ${row.node_id} -> ${row.choice_id}`).join("\n");
+  const storyPath = formatStoryPathLines(payload.story_path, 6).join("\n");
   const keyDecisions = (payload.key_decisions || []).slice(0, 6).map((row) => `#${row.step_index}: ${JSON.stringify(row.final_action || {})}`).join("\n");
   const fallbackSummary = payload.fallback_summary ? JSON.stringify(payload.fallback_summary, null, 2) : "{}";
-  const stateTimeline = (payload.state_timeline || []).slice(0, 6).map((row) => `#${row.step}: delta=${JSON.stringify(row.delta || {})} after=${JSON.stringify(row.state_after || {})}`).join("\n");
+  const stateTimeline = (payload.state_timeline || []).slice(0, 6).map((row) => {
+    return `#${row.step}: delta=${JSON.stringify(row.delta || {})} after=${JSON.stringify(row.state_after || {})}`;
+  }).join("\n");
   const runSummary = payload.run_summary || {};
 
-  replayHighlightsEl.innerHTML = `
+  refs.replayHighlightsEl.innerHTML = `
     <div class="card__body">
       <strong>Story Path</strong>\n${storyPath || "(none)"}\n\n
       <strong>Key Decisions</strong>\n${keyDecisions || "(none)"}\n\n
@@ -535,40 +714,67 @@ function renderReplayHighlights(payload) {
       <strong>State Timeline</strong>\n${stateTimeline || "(none)"}
     </div>
   `;
-  replayRawEl.textContent = JSON.stringify(payload, null, 2);
+  refs.replayRawEl.textContent = JSON.stringify(payload, null, 2);
 }
 
 async function replaySession() {
   if (!state.sessionId) return;
   const payload = await Shared.callApi("GET", `/sessions/${state.sessionId}/replay`);
   renderReplayHighlights(payload);
+  setNotice("Replay refreshed.");
+}
+
+function bindAsync(button, handler) {
+  bindAsyncClick(button, handler, (error) => {
+    setNotice(error.message || String(error), "error");
+  });
 }
 
 async function init() {
   await loadBootstrap();
   renderReplayHighlights(null);
   renderLlmTrace(null);
+  renderLayerInspector(null);
 
-  el("createSessionBtn").addEventListener("click", () => createSession().catch(alert));
-  el("refreshSessionBtn").addEventListener("click", () => refreshSession().catch(alert));
-  el("refreshLlmTraceBtn").addEventListener("click", () => refreshLlmTrace().catch(alert));
-  el("sendInputBtn").addEventListener("click", () => sendStep().catch(alert));
-  el("retryPendingBtn").addEventListener("click", () => retryPendingStep().catch(alert));
-  el("clearPendingBtn").addEventListener("click", () => state.stepController?.clearPending());
-  el("snapshotBtn").addEventListener("click", () => takeSnapshot().catch(alert));
-  el("rollbackBtn").addEventListener("click", () => rollbackSession().catch(alert));
-  el("endBtn").addEventListener("click", () => endSession().catch(alert));
-  el("replayBtn").addEventListener("click", () => replaySession().catch(alert));
-  el("copySessionBtn").addEventListener("click", async () => {
+  bindAsync(refs.createSessionBtnEl, createSession);
+  bindAsync(refs.refreshSessionBtnEl, async () => {
+    await refreshSession();
+    await refreshLlmTrace();
+    await refreshLayerInspector();
+    setNotice("Session refreshed.");
+  });
+  bindAsync(refs.refreshLlmTraceBtnEl, async () => {
+    await refreshLlmTrace();
+    setNotice("LLM trace refreshed.");
+  });
+  bindAsync(refs.refreshLayerInspectorBtnEl, async () => {
+    await refreshLayerInspector();
+    setNotice("Layer inspector refreshed.");
+  });
+  bindAsync(refs.sendInputBtnEl, () => sendStep());
+  bindAsync(refs.retryPendingBtnEl, () => retryPendingStep());
+
+  refs.clearPendingBtnEl.addEventListener("click", () => {
+    state.stepController?.clearPending();
+    setNotice("Pending request cleared.");
+  });
+
+  bindAsync(refs.snapshotBtnEl, takeSnapshot);
+  bindAsync(refs.rollbackBtnEl, rollbackSession);
+  bindAsync(refs.endBtnEl, endSession);
+  bindAsync(refs.replayBtnEl, replaySession);
+
+  refs.copySessionBtnEl.addEventListener("click", async () => {
     if (!state.sessionId) return;
     try {
       await navigator.clipboard.writeText(state.sessionId);
+      setNotice("Session ID copied.");
     } catch {
-      alert("Copy failed");
+      setNotice("Copy failed.", "error");
     }
   });
 }
 
 init().catch((error) => {
-  alert(`demo init failed: ${error.message || error}`);
+  setNotice(`demo init failed: ${error.message || error}`, "error");
 });

@@ -3,6 +3,154 @@
 
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+  function mustEl(id, root = document) {
+    const node = root.getElementById(id);
+    if (!node) {
+      throw new Error(`missing required element: #${id}`);
+    }
+    return node;
+  }
+
+  function cloneJson(input) {
+    return JSON.parse(JSON.stringify(input || {}));
+  }
+
+  function setElementMessage(targetEl, message, { hiddenClass = null } = {}) {
+    const text = String(message || "").trim();
+    targetEl.textContent = text;
+    if (hiddenClass) {
+      targetEl.classList.toggle(hiddenClass, !text);
+    }
+    return text;
+  }
+
+  function formatStoryPathLines(storyPath, limit = 6) {
+    const rows = Array.isArray(storyPath) ? storyPath.slice(0, Math.max(0, Number(limit || 0))) : [];
+    return rows.map((row) => `#${row.step}: ${row.node_id} -> ${row.choice_id}`);
+  }
+
+  function bindAsyncClick(button, handler, onError = null) {
+    button.addEventListener("click", () => {
+      Promise.resolve(handler()).catch((error) => {
+        if (typeof onError === "function") {
+          onError(error);
+          return;
+        }
+        console.error(error); // eslint-disable-line no-console
+      });
+    });
+  }
+
+  function runAsyncWithSignal(button, task, options = {}) {
+    if (!button || typeof button.addEventListener !== "function") {
+      throw new Error("runAsyncWithSignal requires a button element.");
+    }
+    if (typeof task !== "function") {
+      throw new Error("runAsyncWithSignal requires a task function.");
+    }
+
+    const phase2DelayMs = Math.max(0, Number(options.phase2DelayMs ?? 650));
+    const successHoldMs = Math.max(0, Number(options.successHoldMs ?? 1200));
+    const errorHoldMs = Math.max(0, Number(options.errorHoldMs ?? 900));
+    const sendingLabel = String(options.sendingLabel || "Signal sent...");
+    const waitingLabel = String(options.waitingLabel || "Model responding...");
+    const successLabel = String(options.successLabel || "Response received.");
+    const errorLabel = String(options.errorLabel || "Request failed.");
+    const defaultLabel = String(options.defaultLabel || button.textContent || "Run");
+    const onStatusChange = typeof options.onStatusChange === "function" ? options.onStatusChange : null;
+    const onError = typeof options.onError === "function" ? options.onError : null;
+
+    let waitingTimer = null;
+    let settleTimer = null;
+    let running = false;
+
+    function _clearTimers() {
+      if (waitingTimer) {
+        window.clearTimeout(waitingTimer);
+        waitingTimer = null;
+      }
+      if (settleTimer) {
+        window.clearTimeout(settleTimer);
+        settleTimer = null;
+      }
+    }
+
+    function _emit(status, label) {
+      if (!onStatusChange) return;
+      onStatusChange(status, {
+        label,
+        button,
+      });
+    }
+
+    function _applyStatus(status, label = "") {
+      button.classList.remove("btn--loading-signal", "btn--loading-wait", "btn--success-ack");
+      button.setAttribute("data-request-state", status);
+
+      if (status === "idle") {
+        button.textContent = defaultLabel;
+        button.disabled = false;
+        button.setAttribute("aria-busy", "false");
+        _emit(status, defaultLabel);
+        return;
+      }
+
+      button.textContent = String(label || "");
+      button.disabled = true;
+
+      if (status === "sending") {
+        button.classList.add("btn--loading-signal");
+        button.setAttribute("aria-busy", "true");
+      } else if (status === "waiting") {
+        button.classList.add("btn--loading-wait");
+        button.setAttribute("aria-busy", "true");
+      } else if (status === "success") {
+        button.classList.add("btn--success-ack");
+        button.setAttribute("aria-busy", "false");
+      } else if (status === "error") {
+        button.setAttribute("aria-busy", "false");
+      }
+
+      _emit(status, label);
+    }
+
+    button.addEventListener("click", () => {
+      if (running) return;
+      running = true;
+      _clearTimers();
+      _applyStatus("sending", sendingLabel);
+
+      waitingTimer = window.setTimeout(() => {
+        if (!running) return;
+        _applyStatus("waiting", waitingLabel);
+      }, phase2DelayMs);
+
+      Promise.resolve()
+        .then(() => task())
+        .then(() => {
+          running = false;
+          _clearTimers();
+          _applyStatus("success", successLabel);
+          settleTimer = window.setTimeout(() => {
+            _applyStatus("idle", defaultLabel);
+          }, successHoldMs);
+        })
+        .catch((error) => {
+          running = false;
+          _clearTimers();
+          _applyStatus("error", errorLabel);
+          settleTimer = window.setTimeout(() => {
+            _applyStatus("idle", defaultLabel);
+          }, errorHoldMs);
+          if (onError) {
+            onError(error);
+            return;
+          }
+          console.error(error); // eslint-disable-line no-console
+        });
+    });
+  }
+
   function newIdempotencyKey() {
     if (window.crypto && typeof window.crypto.randomUUID === "function") {
       return window.crypto.randomUUID();
@@ -306,6 +454,12 @@
 
   window.DemoShared = {
     sleep,
+    mustEl,
+    cloneJson,
+    setElementMessage,
+    formatStoryPathLines,
+    bindAsyncClick,
+    runAsyncWithSignal,
     newIdempotencyKey,
     detailCode,
     detailMessage,

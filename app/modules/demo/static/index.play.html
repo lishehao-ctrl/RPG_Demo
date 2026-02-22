@@ -7,72 +7,78 @@
   <link rel="stylesheet" href="/demo/static/base.css" />
   <link rel="stylesheet" href="/demo/static/play.css" />
 </head>
-<body>
+<body data-testid="play-page">
   <header class="header play-header">
     <div class="header__title">
-      <h1>Story Play Demo</h1>
-      <p>Pick a story and play. The interface shows only player-facing information.</p>
+      <h1>Story Play Console</h1>
+      <p>Choose a published story and play with a clean player-focused HUD. Debug internals stay in developer mode.</p>
       <div class="dev-nav"><a href="/demo/dev">Open Developer Demo</a></div>
     </div>
     <div class="play-meta">
-      <div class="play-meta__label">Current Story Time</div>
+      <div class="play-meta__label">Story Time</div>
       <div id="storyMetaPill" class="play-meta__pill">Day - • -</div>
     </div>
   </header>
 
   <main class="play-layout">
-    <section id="storySelectSection" class="play-section play-section--select">
-      <h2>Choose Story</h2>
-      <p class="play-intro">
-        Select one published playable story to start. A run usually takes around 15-25 minutes.
-      </p>
+    <section id="storySelectSection" class="play-section" data-testid="play-story-select">
+      <h2>Pick Your Story</h2>
+      <p class="play-intro">Start with one playable story pack. Typical run length is around 15 to 25 minutes.</p>
       <div class="play-toolbar">
-        <button id="refreshStoriesBtn" class="btn btn--ghost">Refresh Stories</button>
+        <button id="refreshStoriesBtn" class="btn btn--ghost" type="button">Refresh Stories</button>
       </div>
-      <div id="storyList" class="story-list"></div>
-      <div id="storySelectError" class="play-error hidden"></div>
+      <div id="storyList" class="story-list" data-testid="play-story-list"></div>
+      <div id="storySelectError" class="play-error hidden" role="status" aria-live="polite"></div>
       <div class="play-toolbar">
-        <button id="startStoryBtn" class="btn" disabled>Start Selected Story</button>
+        <button id="startStoryBtn" class="btn" type="button" disabled>Start Selected Story</button>
       </div>
     </section>
 
-    <section id="playSection" class="hidden">
+    <section id="playSection" class="hidden play-shell" data-testid="play-shell" aria-busy="false">
       <div class="play-grid">
-        <section class="play-section play-main">
+        <section class="play-main" data-testid="play-main">
           <div class="play-main__header">
             <h2>Narrative</h2>
             <div class="play-main__actions">
-              <button id="newRunBtn" class="btn btn--ghost">Back To Story Select</button>
-              <button id="refreshBtn" class="btn btn--ghost">Refresh</button>
+              <button id="newRunBtn" class="btn btn--ghost" type="button">Back To Story Select</button>
+              <button id="refreshBtn" class="btn btn--ghost" type="button">Refresh</button>
             </div>
           </div>
+          <div id="currentStoryTitle" class="play-current-story">Current story: <strong>-</strong></div>
 
-          <div id="narrativeText" class="play-narrative">Loading...</div>
+          <div id="narrativeText" class="play-narrative">Pick a story to start.</div>
 
           <div class="play-input-area">
             <div class="play-input-area__choices">
               <h3>Choices</h3>
               <div id="choiceButtons" class="choice-grid"></div>
             </div>
+
             <div class="play-input-area__free">
               <h3>Custom Action</h3>
-              <label class="field">
+              <label class="field" for="playerInput">
                 <span>Type your action</span>
                 <textarea id="playerInput" rows="4" placeholder="Describe what you want to do"></textarea>
               </label>
               <div class="play-toolbar play-toolbar--compact">
-                <button id="sendInputBtn" class="btn">Send Input</button>
-                <button id="retryPendingBtn" class="btn btn--ghost">Retry Pending</button>
+                <button id="sendInputBtn" class="btn" type="button">Send Input</button>
+                <button id="retryPendingBtn" class="btn btn--ghost" type="button">Retry Pending</button>
               </div>
-              <div id="pendingStatus" class="play-hint">No pending action.</div>
+              <div id="stepBusyHint" class="play-busy" data-testid="play-busy-indicator" aria-live="polite">
+                <span class="play-busy__spinner" aria-hidden="true"></span>
+                <span id="stepBusyPhase" class="play-busy__phase" aria-hidden="true"></span>
+                <span id="stepBusyText">Waiting for model response...</span>
+              </div>
+              <div id="stepAck" class="play-ack hidden" data-testid="play-llm-ack" data-state="" aria-live="polite"></div>
+              <div id="pendingStatus" class="play-hint" aria-live="polite">No pending action.</div>
             </div>
           </div>
 
-          <div id="playError" class="play-error hidden"></div>
+          <div id="playError" class="play-error hidden" role="status" aria-live="polite"></div>
         </section>
 
         <aside class="play-sidebar">
-          <section class="play-section">
+          <section class="play-section" data-testid="play-stats-panel">
             <h2>Core Stats</h2>
             <div class="stat-grid">
               <article class="stat-card">
@@ -111,7 +117,7 @@
             </div>
           </section>
 
-          <section class="play-section">
+          <section class="play-section" data-testid="play-quest-panel">
             <h2>Quest Progress</h2>
             <div class="summary-group">
               <h3>Active</h3>
@@ -127,7 +133,7 @@
             </div>
           </section>
 
-          <section class="play-section">
+          <section class="play-section" data-testid="play-run-panel">
             <h2>Run Snapshot</h2>
             <dl class="run-summary">
               <div><dt>Step</dt><dd id="runStepValue">0</dd></div>
@@ -136,14 +142,19 @@
               <div><dt>Triggered Events</dt><dd id="runEventValue">0</dd></div>
             </dl>
             <div class="play-toolbar play-toolbar--compact">
-              <button id="replayBtn" class="btn btn--ghost">Refresh Summary</button>
+              <button id="replayBtn" class="btn btn--ghost" type="button">Refresh Summary</button>
             </div>
+          </section>
+
+          <section class="play-section" data-testid="play-impact-panel">
+            <h2>Last Impact</h2>
+            <ul id="lastImpactList" class="summary-list"></ul>
           </section>
         </aside>
       </div>
 
       <section class="play-section replay-panel">
-        <details id="runSummaryPanel">
+        <details id="runSummaryPanel" data-testid="play-replay-drawer">
           <summary>View Run Summary</summary>
           <div class="replay-grid">
             <article>

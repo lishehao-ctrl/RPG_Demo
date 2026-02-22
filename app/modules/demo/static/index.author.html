@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RPG Story Author Studio v4</title>
+  <link rel="stylesheet" href="/demo/static/base.css" />
+  <link rel="stylesheet" href="/demo/static/author.css" />
+</head>
+<body data-testid="author-shell">
+  <header class="header author-header">
+    <div class="header__title">
+      <h1>Story Author Studio v4</h1>
+      <p>Focus mode keeps co-writing first: prompt, suggest, patch, and build. Structured editor remains available on demand.</p>
+      <div class="dev-nav">
+        <a href="/demo/play">Open Player Demo</a>
+        <a href="/demo/dev">Open Developer Demo</a>
+      </div>
+    </div>
+    <div class="author-meta">
+      <div class="author-meta__label">Authoring Mode</div>
+      <div class="author-meta__pill">ASF v4 -> StoryPack v10</div>
+    </div>
+  </header>
+
+  <main class="author-layout">
+    <section class="author-panel author-panel--wizard" data-testid="author-form">
+      <section class="author-topbar">
+        <div class="author-tabbar" role="tablist" aria-label="Author Studio mode tabs">
+          <button
+            id="authorTabAuthorBtn"
+            class="btn author-tab is-active"
+            type="button"
+            role="tab"
+            aria-selected="true"
+            data-testid="author-tab-author"
+          >
+            Author
+          </button>
+          <button
+            id="authorTabDebugBtn"
+            class="btn btn--ghost author-tab hidden"
+            type="button"
+            role="tab"
+            aria-selected="false"
+            data-testid="author-tab-debug"
+          >
+            Debug
+          </button>
+        </div>
+        <label class="author-debug-toggle" data-testid="author-debug-toggle">
+          <input id="authorShowDebugToggle" type="checkbox" />
+          <span>Show Debug</span>
+        </label>
+      </section>
+
+      <section id="authorMainFlow" class="author-main-flow" data-testid="author-main-flow">
+        <section class="author-focus-core" data-testid="author-focus-core">
+          <h2>Author Mode: Create First, Polish Later</h2>
+          <p class="author-note">Start from Spark or Ingest, auto-apply AI updates, then refine scenes when needed.</p>
+          <div class="author-auto-apply-hint" data-testid="author-auto-apply-hint">
+            Auto-apply enabled for all Assist actions. Undo remains available.
+          </div>
+
+          <section class="author-subpanel">
+            <div class="author-entry" data-testid="author-entry-mode">
+              <div class="author-toolbar">
+                <button id="authorEntrySparkBtn" class="btn" type="button" data-testid="author-entry-spark">Spark Mode</button>
+                <button id="authorEntryIngestBtn" class="btn btn--ghost" type="button" data-testid="author-entry-ingest">Ingest Mode</button>
+              </div>
+              <label class="field" data-testid="author-seed-input">
+                <span>Spark Seed</span>
+                <textarea id="authorSeedInput" rows="2" placeholder="One sentence idea, conflict, or emotional hook."></textarea>
+              </label>
+              <label class="field" data-testid="author-source-input">
+                <span>Ingest Source Text</span>
+                <textarea id="authorSourceInput" rows="3" placeholder="Paste a full short story/chapter to project into RPG structure."></textarea>
+              </label>
+            </div>
+            <label class="field" data-testid="author-global-brief">
+              <span>Global Brief</span>
+              <textarea id="authorGlobalBrief" rows="3" placeholder="Describe your world, conflict, and expected player fantasy."></textarea>
+            </label>
+            <div class="author-toolbar">
+              <button id="assistBootstrapBtn" class="btn" type="button">Parse All Layers</button>
+              <button id="assistRefineWorldBtn" class="btn btn--ghost" type="button">Refine This Layer</button>
+            </div>
+          </section>
+
+          <section class="author-subpanel" data-testid="author-writer-turn-feed">
+            <h3>Writer Turn Feed</h3>
+            <div id="writerTurnFeed"></div>
+          </section>
+
+          <template id="writerTurnTemplate">
+            <article class="writer-turn" data-testid="author-turn-card">
+              <header class="writer-turn__head"></header>
+              <p class="writer-turn__author"></p>
+              <p class="writer-turn__assistant"></p>
+            </article>
+          </template>
+
+          <section class="author-subpanel" data-testid="author-next-steps">
+            <h3>Next Steps</h3>
+            <div id="authorStatus" class="author-status" role="status" aria-live="polite">Ready.</div>
+            <ul id="authorNextSteps" class="summary-list"></ul>
+          </section>
+
+          <section class="author-subpanel">
+            <h3>Build Actions</h3>
+            <div class="author-toolbar">
+              <button id="validateAuthorBtn" class="btn" type="button">Validate ASF v4</button>
+              <button id="compileAuthorBtn" class="btn btn--ghost" type="button">Compile StoryPack</button>
+              <button id="loadTemplateBtn" class="btn btn--ghost" type="button">Load Quick Template</button>
+              <button id="assistConsistencyBtn" class="btn btn--ghost" type="button">Ask AI: Consistency Check</button>
+            </div>
+          </section>
+
+          <section class="author-subpanel" data-testid="author-playtest-panel">
+            <h3>Draft + Playtest</h3>
+            <div class="author-toolbar">
+              <button id="saveDraftBtn" class="btn" type="button">Save Draft</button>
+              <button id="playtestBtn" class="btn btn--ghost" type="button">Create Session + Open Play</button>
+              <button id="undoPatchBtn" class="btn btn--ghost" type="button">Undo Last Apply</button>
+            </div>
+            <div id="authorPlaytestInfo" class="author-status" role="status" aria-live="polite">No playtest session yet.</div>
+          </section>
+        </section>
+      </section>
+
+      <section id="authorDebugPanel" class="author-debug-panel hidden" data-testid="author-debug-panel">
+        <details class="author-subpanel author-subpanel--collapsible" data-testid="author-assist-panel" open>
+          <summary>AI Assist Suggestions</summary>
+          <div id="assistStatus" class="author-status" role="status" aria-live="polite">No suggestions yet.</div>
+          <div
+            id="authorLlmFeedback"
+            class="author-llm-feedback hidden"
+            data-testid="author-llm-feedback"
+            data-state="idle"
+            role="status"
+            aria-live="polite"
+          ></div>
+          <pre id="assistSuggestions">{}</pre>
+        </details>
+
+        <details class="author-subpanel author-subpanel--collapsible" data-testid="author-patch-preview" open>
+          <summary>Patch Preview</summary>
+          <div id="assistPatchPreview" class="assist-patches"></div>
+          <div class="author-toolbar">
+            <button id="applySelectedPatchBtn" class="btn btn--ghost hidden" type="button">Apply Selected</button>
+          </div>
+        </details>
+
+        <section class="author-subpanel" data-testid="author-validate-panel">
+          <h3>Validation Diagnostics</h3>
+          <div class="author-results">
+            <article class="author-results__card">
+              <h4>Errors</h4>
+              <ul id="authorErrorsList" class="summary-list"></ul>
+            </article>
+            <article class="author-results__card">
+              <h4>Warnings</h4>
+              <ul id="authorWarningsList" class="summary-list"></ul>
+            </article>
+          </div>
+        </section>
+
+        <section class="author-subpanel" data-testid="author-playability-panel">
+          <h3>Playability Gate</h3>
+          <ul id="authorPlayabilityBlocking" class="summary-list" data-testid="author-playability-blocking"></ul>
+          <details class="advanced-block">
+            <summary>Playability Metrics (Advanced)</summary>
+            <pre id="authorPlayabilityMetrics" data-testid="author-playability-metrics">No playability metrics yet.</pre>
+          </details>
+        </section>
+
+        <section class="author-subpanel" data-testid="author-compile-preview">
+          <h3>Compiled JSON Preview</h3>
+          <pre id="compiledPreview">Compile output will appear here.</pre>
+        </section>
+
+        <section class="author-subpanel" data-testid="author-layer-intent-panel">
+          <h3>Layer Intent Inspector</h3>
+          <pre id="authorLayerIntent">{}</pre>
+        </section>
+
+        <section class="author-subpanel">
+          <h3>ID Mapping</h3>
+          <pre id="authorMappings">No mappings yet.</pre>
+        </section>
+      </section>
+
+      <details class="author-structure-collapse" id="authorStructureCollapse" data-testid="author-structure-collapse">
+        <summary>Open Structured Editor (World / Characters / Plot / Scene / Action / Consequence / Ending / Review)</summary>
+
+        <div class="stepper" data-testid="author-stepper" id="authorStepper">
+          <button type="button" class="stepper__item is-active" data-step-index="0">1. World</button>
+          <button type="button" class="stepper__item" data-step-index="1">2. Characters</button>
+          <button type="button" class="stepper__item" data-step-index="2">3. Plot</button>
+          <button type="button" class="stepper__item" data-step-index="3">4. Scene</button>
+          <button type="button" class="stepper__item" data-step-index="4">5. Action</button>
+          <button type="button" class="stepper__item" data-step-index="5">6. Consequence</button>
+          <button type="button" class="stepper__item" data-step-index="6">7. Ending</button>
+          <button type="button" class="stepper__item" data-step-index="7">8. Review</button>
+        </div>
+
+        <section class="wizard-step is-active" data-step-index="0" data-testid="author-step-world">
+          <h2>Step 1: World Layer</h2>
+          <div class="author-grid">
+            <label class="field">
+              <span>Story ID</span>
+              <input id="authorStoryId" type="text" placeholder="campus_week_v4" />
+            </label>
+            <label class="field">
+              <span>Version</span>
+              <input id="authorVersion" type="number" min="1" value="1" />
+            </label>
+            <label class="field">
+              <span>Title</span>
+              <input id="authorTitle" type="text" placeholder="Campus Week v4" />
+            </label>
+            <label class="field">
+              <span>Locale</span>
+              <input id="authorLocale" type="text" value="en" />
+            </label>
+          </div>
+          <label class="field">
+            <span>Summary</span>
+            <textarea id="authorSummary" rows="2" placeholder="Short story summary for readers"></textarea>
+          </label>
+          <div class="author-grid">
+            <label class="field">
+              <span>Era</span>
+              <input id="worldEra" type="text" placeholder="Contemporary semester" />
+            </label>
+            <label class="field">
+              <span>Location</span>
+              <input id="worldLocation" type="text" placeholder="University district" />
+            </label>
+          </div>
+          <label class="field">
+            <span>Boundaries</span>
+            <textarea id="worldBoundaries" rows="2" placeholder="What cannot happen in this world?"></textarea>
+          </label>
+          <label class="field">
+            <span>Social Rules</span>
+            <textarea id="worldSocialRules" rows="2" placeholder="How do people and institutions react to choices?"></textarea>
+          </label>
+        </section>
+
+        <section class="wizard-step" data-step-index="1" data-testid="author-step-characters">
+          <h2>Step 2: Characters Layer</h2>
+          <div class="author-toolbar">
+            <button id="assistRefineCharactersBtn" class="btn btn--ghost" type="button">Refine This Layer</button>
+          </div>
+          <div class="author-grid">
+            <label class="field">
+              <span>Protagonist Name</span>
+              <input id="protagonistName" type="text" />
+            </label>
+            <label class="field">
+              <span>Protagonist Role</span>
+              <input id="protagonistRole" type="text" />
+            </label>
+          </div>
+          <label class="field">
+            <span>Protagonist Traits (comma separated)</span>
+            <input id="protagonistTraits" type="text" />
+          </label>
+          <details class="advanced-block">
+            <summary>Character Data (Advanced)</summary>
+            <label class="field">
+              <span>NPCs JSON</span>
+              <textarea id="charactersNpcsJson" rows="4" placeholder='[{"name":"Alice","role":"friend","traits":["warm"]}]'></textarea>
+            </label>
+            <label class="field">
+              <span>Relationship Axes JSON</span>
+              <textarea id="charactersAxesJson" rows="3" placeholder='{"trust":"kept promises under pressure"}'></textarea>
+            </label>
+          </details>
+        </section>
+
+        <section class="wizard-step" data-step-index="2" data-testid="author-step-plot">
+          <h2>Step 3: Plot Layer</h2>
+          <div class="author-toolbar">
+            <button id="assistRefinePlotBtn" class="btn btn--ghost" type="button">Refine This Layer</button>
+          </div>
+          <label class="field">
+            <span>Mainline Goal</span>
+            <textarea id="authorMainlineGoal" rows="2" placeholder="What does success look like by the end?"></textarea>
+          </label>
+          <label class="field">
+            <span>Sideline Threads (one per line)</span>
+            <textarea id="authorSidelineThreads" rows="3" placeholder="Optional side opportunities"></textarea>
+          </label>
+          <details class="advanced-block">
+            <summary>Act Structure (Advanced)</summary>
+            <div class="author-toolbar">
+              <button id="addActBtn" class="btn btn--ghost" type="button">Add Act</button>
+            </div>
+            <div id="authorActs" class="author-acts"></div>
+          </details>
+        </section>
+
+        <section class="wizard-step" data-step-index="3" data-testid="author-step-scenes">
+          <h2>Step 4: Scene Layer</h2>
+          <p class="author-note">Core fields are shown first. Open Advanced sections for action mapping and balancing details.</p>
+          <div data-testid="author-scene-advanced-toggle" class="compat-marker" hidden></div>
+          <div class="author-toolbar">
+            <button id="addSceneBtn" class="btn btn--ghost" type="button">Add Scene</button>
+            <button id="assistSceneOptionsBtn" class="btn btn--ghost" type="button">Ask AI: Scene Options</button>
+            <button id="assistIntentAliasesBtn" class="btn btn--ghost" type="button">Ask AI: Intent Aliases</button>
+            <button id="assistRefineSceneBtn" class="btn btn--ghost" type="button">Refine This Layer</button>
+          </div>
+          <div id="authorScenes" class="author-scenes"></div>
+        </section>
+
+        <section class="wizard-step" data-step-index="4" data-testid="author-step-action">
+          <h2>Step 5: Action Layer</h2>
+          <div class="author-toolbar">
+            <button id="assistRefineActionBtn" class="btn btn--ghost" type="button">Refine This Layer</button>
+          </div>
+          <label class="field">
+            <span>Input Mapping Policy</span>
+            <input id="actionMappingPolicy" type="text" value="intent_alias_only_visible_choice" />
+          </label>
+          <details class="advanced-block">
+            <summary>Action Catalog (Advanced)</summary>
+            <label class="field">
+              <span>Action Catalog JSON</span>
+              <textarea id="actionCatalogJson" rows="4" placeholder='[{"action_id":"study","label":"Study"}]'></textarea>
+            </label>
+          </details>
+        </section>
+
+        <section class="wizard-step" data-step-index="5" data-testid="author-step-consequence">
+          <h2>Step 6: Consequence Layer</h2>
+          <div data-testid="author-step-advanced" class="compat-marker" hidden></div>
+          <div class="author-toolbar">
+            <button id="assistRefineConsequenceBtn" class="btn btn--ghost" type="button">Refine This Layer</button>
+          </div>
+          <label class="field">
+            <span>State Axes (comma separated)</span>
+            <input id="consequenceStateAxes" type="text" value="energy,money,knowledge,affection,day,slot" />
+          </label>
+          <details class="advanced-block">
+            <summary>Quest / Event Rules (Advanced)</summary>
+            <label class="field">
+              <span>Quest Progression Rules JSON</span>
+              <textarea id="authorQuestsJson" rows="6" placeholder='[]'></textarea>
+            </label>
+            <label class="field">
+              <span>Event Rules JSON</span>
+              <textarea id="authorEventsJson" rows="6" placeholder='[]'></textarea>
+            </label>
+          </details>
+        </section>
+
+        <section class="wizard-step" data-step-index="6" data-testid="author-step-ending">
+          <h2>Step 7: Ending Layer</h2>
+          <div class="author-toolbar">
+            <button id="assistRefineEndingBtn" class="btn btn--ghost" type="button">Refine This Layer</button>
+          </div>
+          <details class="advanced-block">
+            <summary>Ending Rules & Fallback Style (Advanced)</summary>
+            <label class="field">
+              <span>Ending Rules JSON</span>
+              <textarea id="authorEndingsJson" rows="6" placeholder='[]'></textarea>
+            </label>
+            <div class="author-grid">
+              <label class="field">
+                <span>Tone</span>
+                <select id="fallbackTone">
+                  <option value="supportive" selected>Supportive</option>
+                  <option value="calm">Calm</option>
+                  <option value="neutral">Neutral</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Fallback Action</span>
+                <select id="fallbackActionType">
+                  <option value="rest" selected>rest</option>
+                  <option value="study">study</option>
+                  <option value="work">work</option>
+                  <option value="date">date</option>
+                  <option value="gift">gift</option>
+                </select>
+              </label>
+            </div>
+          </details>
+        </section>
+
+        <section class="wizard-step" data-step-index="7" data-testid="author-step-review">
+          <h2>Step 8: Review & Diagnostics</h2>
+          <p class="author-note">Detailed diagnostics are available under the Debug tab.</p>
+          <details class="advanced-block" id="authorReviewAdvancedToggle" data-testid="author-review-advanced-toggle" hidden>
+            <summary>Advanced Diagnostics (moved to Debug)</summary>
+          </details>
+        </section>
+
+        <div class="wizard-nav">
+          <button id="prevStepBtn" class="btn btn--ghost" type="button">Previous</button>
+          <button id="nextStepBtn" class="btn" type="button">Next</button>
+        </div>
+      </details>
+    </section>
+  </main>
+
+  <script src="/demo/static/shared.js"></script>
+  <script src="/demo/static/author.js"></script>
+</body>
+</html>

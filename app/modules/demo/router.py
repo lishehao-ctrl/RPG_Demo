@@ -8,6 +8,7 @@ from app.config import settings
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 DEV_INDEX_PATH = STATIC_DIR / "index.dev.html"
 PLAY_INDEX_PATH = STATIC_DIR / "index.play.html"
+AUTHOR_INDEX_PATH = STATIC_DIR / "index.author.html"
 
 router = APIRouter(tags=["demo"])
 
@@ -25,6 +26,11 @@ def demo_page_dev():
 @router.get("/demo/play")
 def demo_page_play():
     return FileResponse(PLAY_INDEX_PATH, media_type="text/html")
+
+
+@router.get("/demo/author")
+def demo_page_author():
+    return FileResponse(AUTHOR_INDEX_PATH, media_type="text/html")
 
 
 @router.get("/demo/bootstrap")

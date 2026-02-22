@@ -5,29 +5,88 @@
 
 ## Demo Pages
 - `GET /demo` -> redirects to `/demo/play`.
-- `GET /demo/play` -> user-facing demo with story selection then gameplay.
-- `GET /demo/dev` -> full developer debugging demo UI.
-- `GET /demo/bootstrap` -> shared frontend bootstrap config:
-  - `default_story_id`
-  - `default_story_version`
-  - `step_retry_max_attempts`
-  - `step_retry_backoff_ms`
-- `GET /stories` -> story list for picker UI (default: published + playable only).
-
-### User Demo Consumption Guidance
-- `/demo/play` should render player-facing summaries rather than raw backend payload blocks.
-- Recommended:
-  - hide debug fields (`phase`, `session_id`, token totals),
-  - render `choices` with friendly type badges and disabled locked states,
-  - map `unavailable_reason` to user-readable copy,
-  - show replay in collapsed summary mode, not raw JSON.
+- `GET /demo/play` -> player-facing demo UI.
+- `GET /demo/dev` -> developer debugging demo UI.
+- `GET /demo/author` -> ASF v4 authoring wizard.
+- `GET /demo/bootstrap` -> shared frontend bootstrap config.
 
 ## Story
 - `POST /stories/validate`
+- `POST /stories/validate-author`
+- `POST /stories/compile-author`
+- `POST /stories/author-assist`
 - `POST /stories`
 - `GET /stories`
 - `GET /stories/{story_id}`
 - `POST /stories/{story_id}/publish?version=...`
+
+### `POST /stories/validate-author`
+- Purpose:
+  - validate `Author Story Format (ASF) v4` payload and run runtime + playability checks on compiled preview.
+- Request body:
+  - ASF v4 JSON payload (`format_version=4`, layered top-level schema).
+- Response:
+  - `valid: bool`
+  - `errors: [{code, path, message, suggestion}]`
+  - `warnings: [{code, path, message, suggestion}]`
+  - `compiled_preview: StoryPack v10 | null`
+  - `playability: {pass, blocking_errors, warnings, metrics}`
+- Behavior:
+  - if any author/runtime validation errors exist: `valid=false`, `compiled_preview=null`.
+  - warnings never change status code.
+  - pre-v4 payload is rejected with `422`:
+    - `detail.code = "AUTHOR_V4_REQUIRED"`
+    - `detail.message` includes minimal migration hints.
+
+### `POST /stories/compile-author`
+- Purpose:
+  - deterministically compile ASF v4 payload to runtime `StoryPack v10`.
+- Request body:
+  - ASF v4 JSON payload.
+- Success response (`200`):
+  - `pack: StoryPack v10`
+    - includes optional `author_source_v4` metadata for author/debug traceability.
+  - `diagnostics`:
+    - `errors: []`
+    - `warnings: [{code, path, message, suggestion}]`
+    - `mappings`:
+      - `scenes`: `scene_key -> node_id`
+      - `options`: `<scene_key>.<option_key> -> choice_id`
+      - `quests`: `quest_key -> quest_id`
+- Failure response (`400`):
+  - `detail.code = "AUTHOR_COMPILE_FAILED"`
+  - `detail.valid = false`
+  - `detail.errors`: author/runtime diagnostics
+  - `detail.warnings`: non-blocking diagnostics
+- Failure response (`422`):
+  - `detail.code = "AUTHOR_V4_REQUIRED"` for pre-v4 payloads.
+
+### `POST /stories/author-assist`
+- Purpose:
+  - return optional authoring suggestions for the wizard without mutating stored stories.
+- Request body:
+  - `task`: one of
+    - `story_ingest`
+    - `seed_expand`
+    - `beat_to_scene`
+    - `scene_deepen`
+    - `option_weave`
+    - `consequence_balance`
+    - `ending_design`
+    - `consistency_check`
+  - `locale`: target story content language code (default `en`)
+  - `context`: object with current wizard fields (including `format_version=4`)
+- Response (`200`):
+  - `suggestions: object`
+  - `patch_preview: [{id, path, label, value}]`
+  - `warnings: [string]`
+  - `provider: string`
+  - `model: string`
+- Notes:
+  - response is suggestion-only; no server-side write is performed.
+  - current `/demo/author` applies patch rows automatically in frontend as a UX policy.
+  - auto-apply is UI behavior only; API contract remains unchanged.
+  - unknown legacy tasks return `422 ASSIST_TASK_V4_REQUIRED`.
 
 ### `GET /stories`
 - Query:
@@ -36,25 +95,18 @@
 - Response:
   - `stories: [{story_id, version, title, is_published, is_playable, summary}]`
 
-### `POST /stories/{story_id}/publish`
-- Publish is blocked when pack is structurally invalid.
-- Failure response:
-  - `400` with `detail.code = "STORY_INVALID_FOR_PUBLISH"`
-  - `detail.errors` includes validation details.
-
 ## Session
 - `POST /sessions`
 - `GET /sessions/{id}`
 - `GET /sessions/{id}/debug/llm-trace` (dev only)
+- `GET /sessions/{id}/debug/layer-inspector` (dev only)
 - `POST /sessions/{id}/step`
 - `POST /sessions/{id}/snapshot`
 - `POST /sessions/{id}/rollback?snapshot_id=...`
 - `POST /sessions/{id}/end`
 - `GET /sessions/{id}/replay`
 
-Session endpoints are anonymous in single-tenant mode:
-- no auth headers are required,
-- legacy auth headers are ignored by API runtime.
+Session endpoints are anonymous in single-tenant mode.
 
 ### `GET /sessions/{id}/debug/llm-trace` (Developer Debug)
 - Purpose:
@@ -62,119 +114,42 @@ Session endpoints are anonymous in single-tenant mode:
 - Availability:
   - only when `ENV=dev`.
   - if `ENV!=dev`, returns `404` with `detail.code="DEBUG_DISABLED"`.
+
+### `GET /sessions/{id}/debug/layer-inspector` (Developer Debug)
+- Purpose:
+  - inspect each runtime step through 7 conceptual layers:
+    - `world_layer`
+    - `characters_layer`
+    - `plot_layer`
+    - `scene_layer`
+    - `action_layer`
+    - `consequence_layer`
+    - `ending_layer`
+- Availability:
+  - only when `ENV=dev`.
+  - if `ENV!=dev`, returns `404` with `detail.code="DEBUG_DISABLED"`.
 - Query:
-  - `limit: int` (optional, default `50`, bounded by backend).
+  - `limit: int` (optional, default `20`, bounded by backend).
 - Response shape:
   - `session_id`
   - `env`
-  - `provider_chain`
-  - `model_generate`
-  - `runtime_limits`:
-    - `llm_timeout_s`
-    - `llm_total_deadline_s`
-    - `llm_retry_attempts_network`
-    - `llm_max_retries`
-    - `circuit_window_s`
-    - `circuit_fail_threshold`
-    - `circuit_open_s`
-  - `latest_idempotency` (nullable):
-    - `idempotency_key`
-    - `status`
-    - `error_code`
-    - `updated_at`
-    - `request_hash_prefix` (first 12 chars only)
-    - `response_present`
-  - `summary`:
-    - `total_calls`
-    - `success_calls`
-    - `error_calls`
-    - `providers`
-    - `errors_by_message_prefix`
-  - `llm_calls[]`:
-    - `id`, `created_at`, `provider`, `model`, `operation`, `status`
-    - `step_id`, `prompt_tokens`, `completion_tokens`, `latency_ms`
-    - `error_message`, `phase_guess`
-- Security:
-  - no raw prompt/raw response
-  - no API key exposure
-
-### `POST /sessions`
-- Request body:
-  - `story_id: string` (required)
-  - `version: int | null` (optional)
-- Missing `story_id` is schema error (`422`).
-- `GET /sessions/{id}` response no longer includes `user_id`.
-- Session state includes deterministic base stats plus optional quest runtime state:
-  - `state_json.quest_state.active_quests`
-  - `state_json.quest_state.completed_quests`
-  - `state_json.quest_state.quests`
-  - `state_json.quest_state.quests[quest_id].current_stage_id`
-  - `state_json.quest_state.quests[quest_id].current_stage_index`
-  - `state_json.quest_state.quests[quest_id].stages`
-  - `state_json.quest_state.recent_events`
-  - `state_json.quest_state.event_seq`
-- Session state also includes run lifecycle state:
-  - `state_json.run_state.step_index`
-  - `state_json.run_state.triggered_event_ids`
-  - `state_json.run_state.event_cooldowns`
-  - `state_json.run_state.ending_id`
-  - `state_json.run_state.ending_outcome`
-  - `state_json.run_state.ended_at_step`
-  - `state_json.run_state.fallback_count`
-- Session node pointer contract (`GET /sessions/{id}`):
-  - `current_node_id` is a StoryPack node id string.
-  - `current_node.id` is the same story node id string.
-  - `current_node.parent_node_id` is string or null.
+  - `steps[]`
+    - `step_index`
+    - layer snapshots listed above
+    - `raw_refs` (`action_log_id`, `llm_step_id`, timestamps)
+  - `summary`
+    - `fallback_rate`
+    - `mismatch_count`
+    - `event_turns`
+    - `guard_all_blocked_turns`
+    - `guard_stall_turns`
+    - `ending_state`
 
 ### Story-mode step behavior (`POST /sessions/{id}/step`)
-- Optional request header:
-  - `X-Idempotency-Key: string`
-  - Recommended for all production clients.
-- Idempotency semantics when header is present:
-  - same `session_id` + same key + same payload -> returns cached success response (no duplicate state advance).
-  - same `session_id` + same key + different payload -> `409`, `detail.code=IDEMPOTENCY_KEY_REUSED`.
-  - same key still being processed -> `409`, `detail.code=REQUEST_IN_PROGRESS`.
-- If the header is omitted, runtime keeps backward-compatible non-idempotent behavior.
 - Request body accepts only:
   - `choice_id: string | null`
   - `player_input: string | null`
-- Unknown fields are rejected (`422`).
-- Sending both `choice_id` and `player_input` is rejected (`422`, `detail.code=INPUT_CONFLICT`).
-- Sending neither field is valid and enters Pass0 `NO_INPUT` fallback (`200`).
-- Free-input selection uses conservative rescue semantics:
-  - if LLM selector returns `use_fallback=true`, runtime still attempts deterministic intent/rule mapping before fallback.
-  - deterministic mapping only applies when confidence is at least `story_map_min_confidence` (default `0.60`).
-  - low-confidence or ambiguous mapping keeps fallback behavior to guide the run.
-- Runtime keeps accept-all semantics for mapping/gating/input issues and returns `200` for non-inactive sessions.
-- Only inactive story sessions return `409` with `detail.code == "SESSION_NOT_ACTIVE"`.
-- Narrative provider-chain exhaustion returns `503` with `detail.code == "LLM_UNAVAILABLE"`.
-- `LLM_UNAVAILABLE` failure does not advance node/state.
-- `StepResponse` keeps existing fields and adds:
-  - `run_ended: bool`
-  - `ending_id: string | null`
-  - `ending_outcome: "success" | "neutral" | "fail" | null`
-- Story telemetry fields stay available:
-  - `attempted_choice_id`
-  - `executed_choice_id`
-  - `resolved_choice_id`
-  - `fallback_used`
-  - `fallback_reason`
-  - `mapping_confidence`
-- Outward `fallback_reason` uses neutral values:
-  - `NO_INPUT`, `BLOCKED`, `FALLBACK`, or `null` (non-fallback path).
-
-### Replay payload contract (`GET /sessions/{id}/replay`)
-- Replay response is story-runtime focused and includes:
-  - `session_id`
-  - `total_steps`
-  - `key_decisions`
-  - `fallback_summary`
-  - `story_path`
-  - `state_timeline`
-- Replay response adds:
-  - `run_summary.ending_id`
-  - `run_summary.ending_outcome`
-  - `run_summary.total_steps`
-  - `run_summary.triggered_events_count`
-  - `run_summary.fallback_rate`
-- Replay no longer includes branch/affection route-analysis keys.
+- Sending both is rejected (`422`, `detail.code=INPUT_CONFLICT`).
+- Sending neither is valid and enters `NO_INPUT` fallback path.
+- `LLM_UNAVAILABLE` returns `503`; step is not applied.
+- Step response contract (`StepResponse`) remains unchanged.

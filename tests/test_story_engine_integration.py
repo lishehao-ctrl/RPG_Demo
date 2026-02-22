@@ -1,9 +1,6 @@
-import os
-import subprocess
-import sys
 import uuid
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
@@ -16,6 +13,7 @@ from app.db.models import ActionLog, LLMUsageLog, Story
 from app.main import app
 from app.modules.llm.adapter import LLMRuntime
 from app.modules.llm.schemas import NarrativeOutput
+from tests.support.db_runtime import prepare_sqlite_db
 from tests.support.story_narrative_assertions import (
     assert_no_internal_story_tokens,
     assert_no_system_error_style_phrases,
@@ -25,18 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _prepare_db(tmp_path: Path) -> None:
-    db_path = tmp_path / "story_engine.db"
-    env = os.environ.copy()
-    env["DATABASE_URL"] = f"sqlite:///{db_path}"
-    proc = subprocess.run(
-        [sys.executable, "-m", "alembic", "upgrade", "head"],
-        cwd=ROOT,
-        env=env,
-        capture_output=True,
-        text=True,
-    )
-    assert proc.returncode == 0, proc.stderr
-    db_session.rebind_engine(f"sqlite+pysqlite:///{db_path}")
+    prepare_sqlite_db(tmp_path, "story_engine.db")
 
 
 def _seed_story_pack_raw(story_id: str, version: int, pack: dict, is_published: bool = True) -> None:
@@ -48,7 +35,7 @@ def _seed_story_pack_raw(story_id: str, version: int, pack: dict, is_published: 
                     version=version,
                     is_published=is_published,
                     pack_json=pack,
-                    created_at=datetime.utcnow(),
+                    created_at=datetime.now(timezone.utc),
                 )
             )
 
@@ -276,9 +263,55 @@ def test_story_step_player_input_no_match_falls_back_with_200(tmp_path: Path) ->
     assert body["fallback_used"] is True
     assert body["fallback_reason"] == "FALLBACK"
     assert_no_internal_story_tokens(body["narrative_text"])
+    lowered = str(body["narrative_text"]).lower()
+    assert "you " in lowered
+    for blocked in ("for this turn", "the scene", "story keeps moving"):
+        assert blocked not in lowered
+    assert '"' not in str(body["narrative_text"])
+    for blocked in ("fuzzy", "unclear", "invalid", "wrong input", "cannot understand"):
+        assert blocked not in lowered
 
     log = _latest_action_log(sid)
     assert "NO_MATCH" in list(log.fallback_reasons or []) or "LLM_PARSE_ERROR" in list(log.fallback_reasons or [])
+
+
+def test_story_step_free_input_fallback_reads_as_acknowledge_plus_redirect(tmp_path: Path) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    pack = _make_pack("s_ack_redirect", 1)
+    _publish_pack(client, pack)
+
+    sid = client.post("/sessions", json={"story_id": "s_ack_redirect"}).json()["id"]
+    resp = client.post(f"/sessions/{sid}/step", json={"player_input": "Play RPG game with Alice"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["fallback_used"] is True
+    lowered = str(body["narrative_text"]).lower()
+    assert "alice" in lowered
+    assert "you pause to catch your breath and recover" in lowered or "follow through on" in lowered
+    assert "and your" in lowered or "and the" in lowered
+    for blocked in ("for this turn", "the scene", "story keeps moving"):
+        assert blocked not in lowered
+    assert '"' not in str(body["narrative_text"])
+    for blocked in ("fuzzy", "unclear", "invalid", "wrong input", "cannot understand"):
+        assert blocked not in lowered
+
+
+def test_story_step_free_input_fallback_paraphrases_chickfila_without_quote(tmp_path: Path) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    pack = _make_pack("s_chickfila_paraphrase", 1)
+    _publish_pack(client, pack)
+
+    sid = client.post("/sessions", json={"story_id": "s_chickfila_paraphrase"}).json()["id"]
+    resp = client.post(f"/sessions/{sid}/step", json={"player_input": "Having a Chick-fila"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["fallback_used"] is True
+    lowered = str(body["narrative_text"]).lower()
+    assert "chick-fila" in lowered
+    assert "having a chick-fila" not in lowered
+    assert '"' not in str(body["narrative_text"])
 
 
 def test_story_step_player_input_intent_alias_executes_visible_choice(tmp_path: Path) -> None:
@@ -338,6 +371,545 @@ def test_story_step_campus_week_free_input_can_progress_without_constant_fallbac
     third_body = third.json()
     assert third_body["fallback_used"] is False
     assert third_body["executed_choice_id"] in visible_third
+
+
+def test_story_step_free_input_prompt_alignment_and_compact_context(tmp_path: Path, monkeypatch) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    pack = _make_pack("s_prompt_alignment", 1)
+    _publish_pack(client, pack)
+
+    from app.modules.session import service as session_service
+
+    class _PromptAwareProvider:
+        def __init__(self):
+            self.narrative_prompt = ""
+
+        @staticmethod
+        def _usage(model: str) -> dict:
+            return {
+                "provider": "fake",
+                "model": model,
+                "prompt_tokens": 42,
+                "completion_tokens": 12,
+                "latency_ms": 1,
+                "status": "success",
+                "error_message": None,
+            }
+
+        async def generate(
+            self,
+            prompt: str,
+            *,
+            request_id: str,
+            timeout_s: float,
+            model: str,
+            connect_timeout_s: float | None = None,
+            read_timeout_s: float | None = None,
+            write_timeout_s: float | None = None,
+            pool_timeout_s: float | None = None,
+        ):
+            prompt_text = str(prompt or "")
+            prompt_lower = prompt_text.lower()
+            if "story selection task" in prompt_lower:
+                return (
+                    {
+                        "choice_id": "c1",
+                        "use_fallback": False,
+                        "confidence": 0.9,
+                        "intent_id": None,
+                        "notes": "selector_match",
+                    },
+                    self._usage(model),
+                )
+            if "story narration task" in prompt_lower:
+                self.narrative_prompt = prompt_text
+                raw_ctx = prompt_text.split("Context:", 1)[1].strip()
+                ctx = json.loads(raw_ctx)
+                player_input = str(ctx.get("player_input_raw") or "").strip()
+                selection = ctx.get("selection_resolution") or {}
+                action_id = str(selection.get("selected_action_id") or "action")
+                impacts = ", ".join(str(item) for item in (ctx.get("impact_brief") or []))
+                text = f"You commit to '{player_input}'. It resolves as a {action_id} action."
+                if impacts:
+                    text = f"{text} Impact: {impacts}."
+                return ({"narrative_text": text}, self._usage(model))
+            return ({"narrative_text": "[llm] ok"}, self._usage(model))
+
+    runtime = LLMRuntime()
+    provider = _PromptAwareProvider()
+    runtime.providers["fake"] = provider
+
+    original_primary = settings.llm_provider_primary
+    original_fallbacks = list(settings.llm_provider_fallbacks)
+    monkeypatch.setattr(session_service, "get_llm_runtime", lambda: runtime)
+    settings.llm_provider_primary = "fake"
+    settings.llm_provider_fallbacks = []
+    try:
+        sid = client.post("/sessions", json={"story_id": "s_prompt_alignment"}).json()["id"]
+        step = client.post(f"/sessions/{sid}/step", json={"player_input": "study hard tonight"})
+        assert step.status_code == 200
+        body = step.json()
+        assert body["fallback_used"] is False
+        assert body["executed_choice_id"] == "c1"
+        assert "study hard tonight" in body["narrative_text"]
+        assert "study action" in body["narrative_text"]
+
+        assert provider.narrative_prompt
+        assert '"input_mode":"free_input"' in provider.narrative_prompt
+        assert '"impact_brief"' in provider.narrative_prompt
+        assert '"state_before"' not in provider.narrative_prompt
+        assert '"state_after"' not in provider.narrative_prompt
+
+        prompt_ctx = json.loads(provider.narrative_prompt.split("Context:", 1)[1].strip())
+        selection_ctx = prompt_ctx.get("selection_resolution") or {}
+        assert selection_ctx.get("selected_choice_label")
+        assert selection_ctx.get("selected_action_id") == "study"
+        quest_nudge_ctx = prompt_ctx.get("quest_nudge") or {}
+        assert quest_nudge_ctx.get("enabled") is False
+        assert quest_nudge_ctx.get("mode") == "off"
+    finally:
+        settings.llm_provider_primary = original_primary
+        settings.llm_provider_fallbacks = original_fallbacks
+
+
+def test_story_step_free_input_quest_nudge_event_driven_in_prompt_context(tmp_path: Path, monkeypatch) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    pack = _make_pack(
+        "s_prompt_quest_nudge_event",
+        1,
+        quests=[
+            {
+                "quest_id": "q_weekly_plan",
+                "title": "Weekly Plan",
+                "auto_activate": True,
+                "stages": [
+                    {
+                        "stage_id": "stage_foundation",
+                        "title": "Foundation",
+                        "milestones": [
+                            {
+                                "milestone_id": "m_start_study",
+                                "title": "Start with study",
+                                "when": {"executed_choice_id_is": "c1"},
+                            },
+                            {
+                                "milestone_id": "m_keep_open",
+                                "title": "Keep momentum",
+                                "when": {"executed_choice_id_is": "c2"},
+                            },
+                        ],
+                    }
+                ],
+            }
+        ],
+    )
+    _publish_pack(client, pack)
+
+    from app.modules.session import service as session_service
+
+    class _QuestNudgePromptProvider:
+        def __init__(self):
+            self.narrative_contexts: list[dict] = []
+
+        @staticmethod
+        def _usage(model: str) -> dict:
+            return {
+                "provider": "fake",
+                "model": model,
+                "prompt_tokens": 32,
+                "completion_tokens": 10,
+                "latency_ms": 1,
+                "status": "success",
+                "error_message": None,
+            }
+
+        async def generate(
+            self,
+            prompt: str,
+            *,
+            request_id: str,
+            timeout_s: float,
+            model: str,
+            connect_timeout_s: float | None = None,
+            read_timeout_s: float | None = None,
+            write_timeout_s: float | None = None,
+            pool_timeout_s: float | None = None,
+        ):
+            prompt_text = str(prompt or "")
+            prompt_lower = prompt_text.lower()
+            if "story selection task" in prompt_lower:
+                return (
+                    {
+                        "choice_id": "c1",
+                        "use_fallback": False,
+                        "confidence": 0.92,
+                        "intent_id": None,
+                        "notes": "selector_match",
+                    },
+                    self._usage(model),
+                )
+            if "story narration task" in prompt_lower:
+                raw_ctx = prompt_text.split("Context:", 1)[1].strip()
+                self.narrative_contexts.append(json.loads(raw_ctx))
+                return ({"narrative_text": "You push ahead and keep your momentum."}, self._usage(model))
+            return ({"narrative_text": "[llm] ok"}, self._usage(model))
+
+    runtime = LLMRuntime()
+    provider = _QuestNudgePromptProvider()
+    runtime.providers["fake"] = provider
+
+    original_primary = settings.llm_provider_primary
+    original_fallbacks = list(settings.llm_provider_fallbacks)
+    monkeypatch.setattr(session_service, "get_llm_runtime", lambda: runtime)
+    settings.llm_provider_primary = "fake"
+    settings.llm_provider_fallbacks = []
+    try:
+        sid = client.post("/sessions", json={"story_id": "s_prompt_quest_nudge_event"}).json()["id"]
+        step = client.post(f"/sessions/{sid}/step", json={"player_input": "study now"})
+        assert step.status_code == 200
+        assert provider.narrative_contexts
+        ctx = provider.narrative_contexts[-1]
+        quest_nudge = ctx.get("quest_nudge") or {}
+        assert quest_nudge.get("enabled") is True
+        assert quest_nudge.get("mode") == "event_driven"
+        assert quest_nudge.get("mainline_hint")
+        if quest_nudge.get("sideline_hint"):
+            assert "quest_id" not in str(quest_nudge.get("sideline_hint")).lower()
+        for blocked in ("main quest", "side quest", "objective", "stage", "milestone"):
+            assert blocked not in str(quest_nudge.get("mainline_hint") or "").lower()
+            assert blocked not in str(quest_nudge.get("sideline_hint") or "").lower()
+    finally:
+        settings.llm_provider_primary = original_primary
+        settings.llm_provider_fallbacks = original_fallbacks
+
+
+def test_story_step_free_input_quest_nudge_cadence_hits_every_third_step(tmp_path: Path, monkeypatch) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    pack = _make_pack(
+        "s_prompt_quest_nudge_cadence",
+        1,
+        quests=[
+            {
+                "quest_id": "q_weekly_plan",
+                "title": "Weekly Plan",
+                "auto_activate": True,
+                "stages": [
+                    {
+                        "stage_id": "stage_foundation",
+                        "title": "Foundation",
+                        "milestones": [
+                            {
+                                "milestone_id": "m_never_hit",
+                                "title": "Hidden check",
+                                "when": {"executed_choice_id_is": "c2"},
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
+    )
+    start_node_id = str(pack["start_node_id"])
+    for choice in (pack["nodes"][0].get("choices") or []):
+        if isinstance(choice, dict):
+            choice["next_node_id"] = start_node_id
+    _publish_pack(client, pack)
+
+    from app.modules.session import service as session_service
+
+    class _CadencePromptProvider:
+        def __init__(self):
+            self.quest_nudges: list[dict] = []
+
+        @staticmethod
+        def _usage(model: str) -> dict:
+            return {
+                "provider": "fake",
+                "model": model,
+                "prompt_tokens": 28,
+                "completion_tokens": 8,
+                "latency_ms": 1,
+                "status": "success",
+                "error_message": None,
+            }
+
+        async def generate(
+            self,
+            prompt: str,
+            *,
+            request_id: str,
+            timeout_s: float,
+            model: str,
+            connect_timeout_s: float | None = None,
+            read_timeout_s: float | None = None,
+            write_timeout_s: float | None = None,
+            pool_timeout_s: float | None = None,
+        ):
+            prompt_text = str(prompt or "")
+            if "story selection task" in prompt_text.lower():
+                return (
+                    {
+                        "choice_id": "c1",
+                        "use_fallback": False,
+                        "confidence": 0.9,
+                        "intent_id": None,
+                        "notes": "selector_match",
+                    },
+                    self._usage(model),
+                )
+            if "story narration task" in prompt_text.lower():
+                ctx = json.loads(prompt_text.split("Context:", 1)[1].strip())
+                self.quest_nudges.append(dict(ctx.get("quest_nudge") or {}))
+                return ({"narrative_text": "You keep moving through the day."}, self._usage(model))
+            return ({"narrative_text": "[llm] ok"}, self._usage(model))
+
+    runtime = LLMRuntime()
+    provider = _CadencePromptProvider()
+    runtime.providers["fake"] = provider
+
+    original_primary = settings.llm_provider_primary
+    original_fallbacks = list(settings.llm_provider_fallbacks)
+    monkeypatch.setattr(session_service, "get_llm_runtime", lambda: runtime)
+    settings.llm_provider_primary = "fake"
+    settings.llm_provider_fallbacks = []
+    try:
+        sid = client.post("/sessions", json={"story_id": "s_prompt_quest_nudge_cadence"}).json()["id"]
+        for _ in range(3):
+            step = client.post(f"/sessions/{sid}/step", json={"player_input": "study"})
+            assert step.status_code == 200
+
+        assert len(provider.quest_nudges) == 3
+        assert provider.quest_nudges[0].get("enabled") is False
+        assert provider.quest_nudges[1].get("enabled") is False
+        assert provider.quest_nudges[2].get("enabled") is True
+        assert provider.quest_nudges[2].get("mode") == "cadence"
+    finally:
+        settings.llm_provider_primary = original_primary
+        settings.llm_provider_fallbacks = original_fallbacks
+
+
+def test_story_step_free_input_narrative_removes_system_jargon(tmp_path: Path, monkeypatch) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    pack = _make_pack("s_free_input_naturalized", 1)
+    _publish_pack(client, pack)
+
+    from app.modules.session import service as session_service
+
+    class _JargonNarrativeProvider:
+        async def generate(
+            self,
+            prompt: str,
+            *,
+            request_id: str,
+            timeout_s: float,
+            model: str,
+            connect_timeout_s: float | None = None,
+            read_timeout_s: float | None = None,
+            write_timeout_s: float | None = None,
+            pool_timeout_s: float | None = None,
+        ):
+            if "story selection task" in str(prompt).lower():
+                return (
+                    {
+                        "choice_id": "c1",
+                        "use_fallback": False,
+                        "confidence": 0.92,
+                        "intent_id": "INTENT_STUDY",
+                        "notes": "selector_match",
+                    },
+                    {
+                        "provider": "fake",
+                        "model": model,
+                        "prompt_tokens": 12,
+                        "completion_tokens": 6,
+                        "latency_ms": 1,
+                        "status": "success",
+                        "error_message": None,
+                    },
+                )
+            return (
+                {
+                    "narrative_text": (
+                        "You decided to do math problems, which mapped to heading to class and studying. "
+                        "Your intent was clear and confidence was high."
+                    )
+                },
+                {
+                    "provider": "fake",
+                    "model": model,
+                    "prompt_tokens": 12,
+                    "completion_tokens": 6,
+                    "latency_ms": 1,
+                    "status": "success",
+                    "error_message": None,
+                },
+            )
+
+    runtime = LLMRuntime()
+    runtime.providers["fake"] = _JargonNarrativeProvider()
+
+    original_primary = settings.llm_provider_primary
+    original_fallbacks = list(settings.llm_provider_fallbacks)
+    monkeypatch.setattr(session_service, "get_llm_runtime", lambda: runtime)
+    settings.llm_provider_primary = "fake"
+    settings.llm_provider_fallbacks = []
+    try:
+        sid = client.post("/sessions", json={"story_id": "s_free_input_naturalized"}).json()["id"]
+        step = client.post(f"/sessions/{sid}/step", json={"player_input": "do math problems"})
+        assert step.status_code == 200
+        body = step.json()
+        assert body["fallback_used"] is False
+        text = str(body["narrative_text"]).lower()
+        assert "mapped to" not in text
+        assert "mapping" not in text
+        assert "intent" not in text
+        assert "choice_id" not in text
+        assert "selected_action_id" not in text
+        assert "confidence" not in text
+        for blocked in ("for this turn", "the scene", "story keeps moving"):
+            assert blocked not in text
+    finally:
+        settings.llm_provider_primary = original_primary
+        settings.llm_provider_fallbacks = original_fallbacks
+
+
+def test_story_step_button_path_narrative_soft_avoids_system_like_phrases(tmp_path: Path, monkeypatch) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    pack = _make_pack("s_button_narrative_soft_avoid", 1)
+    _publish_pack(client, pack)
+
+    from app.modules.session import service as session_service
+
+    class _ButtonPhraseProvider:
+        async def generate(
+            self,
+            prompt: str,
+            *,
+            request_id: str,
+            timeout_s: float,
+            model: str,
+            connect_timeout_s: float | None = None,
+            read_timeout_s: float | None = None,
+            write_timeout_s: float | None = None,
+            pool_timeout_s: float | None = None,
+        ):
+            return (
+                {
+                    "narrative_text": "For this turn, the scene responds and the story keeps moving.",
+                },
+                {
+                    "provider": "fake",
+                    "model": model,
+                    "prompt_tokens": 10,
+                    "completion_tokens": 5,
+                    "latency_ms": 1,
+                    "status": "success",
+                    "error_message": None,
+                },
+            )
+
+    runtime = LLMRuntime()
+    runtime.providers["fake"] = _ButtonPhraseProvider()
+
+    original_primary = settings.llm_provider_primary
+    original_fallbacks = list(settings.llm_provider_fallbacks)
+    monkeypatch.setattr(session_service, "get_llm_runtime", lambda: runtime)
+    settings.llm_provider_primary = "fake"
+    settings.llm_provider_fallbacks = []
+    try:
+        sid = client.post("/sessions", json={"story_id": "s_button_narrative_soft_avoid"}).json()["id"]
+        step = client.post(f"/sessions/{sid}/step", json={"choice_id": "c1"})
+        assert step.status_code == 200
+        text = str(step.json()["narrative_text"]).lower()
+        for blocked in ("for this turn", "the scene", "story keeps moving"):
+            assert blocked not in text
+    finally:
+        settings.llm_provider_primary = original_primary
+        settings.llm_provider_fallbacks = original_fallbacks
+
+
+def test_story_step_free_input_fallback_path_keeps_existing_narration_channel(tmp_path: Path) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    pack = _make_pack("s_free_input_fallback_guard", 1)
+    _publish_pack(client, pack)
+
+    original_flag = settings.story_fallback_llm_enabled
+    settings.story_fallback_llm_enabled = False
+    try:
+        sid = client.post("/sessions", json={"story_id": "s_free_input_fallback_guard"}).json()["id"]
+        step = client.post(f"/sessions/{sid}/step", json={"player_input": "??? ???"})
+        assert step.status_code == 200
+        body = step.json()
+        assert body["fallback_used"] is True
+        lowered = str(body["narrative_text"]).lower()
+        assert "you " in lowered
+        for blocked in ("for this turn", "the scene", "story keeps moving"):
+            assert blocked not in lowered
+        assert '"' not in str(body["narrative_text"])
+    finally:
+        settings.story_fallback_llm_enabled = original_flag
+
+
+def test_story_step_free_input_fallback_can_include_subtle_quest_nudge(tmp_path: Path) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    pack = _make_pack(
+        "s_free_input_fallback_quest_nudge",
+        1,
+        quests=[
+            {
+                "quest_id": "q_weekly_plan",
+                "title": "Weekly Plan",
+                "auto_activate": True,
+                "stages": [
+                    {
+                        "stage_id": "stage_foundation",
+                        "title": "Foundation",
+                        "milestones": [
+                            {
+                                "milestone_id": "m_fallback_once",
+                                "title": "Regain footing",
+                                "when": {"fallback_used_is": True},
+                            },
+                            {
+                                "milestone_id": "m_still_open",
+                                "title": "Follow the weekly rhythm",
+                                "when": {"executed_choice_id_is": "c1"},
+                            },
+                        ],
+                    }
+                ],
+            }
+        ],
+    )
+    _publish_pack(client, pack)
+
+    original_flag = settings.story_fallback_llm_enabled
+    settings.story_fallback_llm_enabled = False
+    try:
+        sid = client.post("/sessions", json={"story_id": "s_free_input_fallback_quest_nudge"}).json()["id"]
+        step = client.post(f"/sessions/{sid}/step", json={"player_input": "???"})
+        assert step.status_code == 200
+        body = step.json()
+        assert body["fallback_used"] is True
+        text = str(body["narrative_text"]).lower()
+        assert "weekly plan" in text or "foundation" in text or "regain footing" in text
+        for blocked in ("quest_id", "main quest", "side quest", "objective", "stage", "milestone"):
+            assert blocked not in text
+    finally:
+        settings.story_fallback_llm_enabled = original_flag
+
+
+def test_story_pack_campus_week_fallback_variant_avoids_fuzzy_phrase() -> None:
+    pack = _load_example_story_pack("campus_week_v1.json")
+    text = str(((pack.get("default_fallback") or {}).get("text_variants") or {}).get("FALLBACK") or "")
+    assert "your intention is fuzzy" not in text.lower()
 
 
 def test_story_step_campus_week_noise_input_still_falls_back(tmp_path: Path) -> None:
@@ -555,6 +1127,153 @@ def test_story_step_llm_network_retry_exhausted_returns_503_without_progress(tmp
         settings.llm_total_deadline_s = original_deadline
 
 
+def test_story_step_narrative_non_json_repair_can_recover(tmp_path: Path, monkeypatch) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    pack = _make_pack("s_narrative_parse_repair", 1)
+    _publish_pack(client, pack)
+
+    from app.modules.session import service as session_service
+
+    class _NarrativeRepairProvider:
+        def __init__(self):
+            self.calls = 0
+            self.repair_calls = 0
+
+        async def generate(
+            self,
+            prompt: str,
+            *,
+            request_id: str,
+            timeout_s: float,
+            model: str,
+            connect_timeout_s: float | None = None,
+            read_timeout_s: float | None = None,
+            write_timeout_s: float | None = None,
+            pool_timeout_s: float | None = None,
+        ):
+            self.calls += 1
+            if "narrative repair task" in str(prompt).lower():
+                self.repair_calls += 1
+                return (
+                    {"narrative_text": "[llm] repaired narrative text"},
+                    {
+                        "provider": "fake",
+                        "model": model,
+                        "prompt_tokens": 10,
+                        "completion_tokens": 5,
+                        "latency_ms": 1,
+                        "status": "success",
+                        "error_message": None,
+                    },
+                )
+            return (
+                "non-json narrative payload",
+                {
+                    "provider": "fake",
+                    "model": model,
+                    "prompt_tokens": 10,
+                    "completion_tokens": 5,
+                    "latency_ms": 1,
+                    "status": "success",
+                    "error_message": None,
+                },
+            )
+
+    runtime = LLMRuntime()
+    provider = _NarrativeRepairProvider()
+    runtime.providers["fake"] = provider
+
+    original_primary = settings.llm_provider_primary
+    original_fallbacks = list(settings.llm_provider_fallbacks)
+    original_network_retries = settings.llm_retry_attempts_network
+    original_llm_retries = settings.llm_max_retries
+    original_deadline = settings.llm_total_deadline_s
+    settings.llm_provider_primary = "fake"
+    settings.llm_provider_fallbacks = []
+    settings.llm_retry_attempts_network = 1
+    settings.llm_max_retries = 1
+    settings.llm_total_deadline_s = 10.0
+    monkeypatch.setattr(session_service, "get_llm_runtime", lambda: runtime)
+    try:
+        sid = client.post("/sessions", json={"story_id": "s_narrative_parse_repair"}).json()["id"]
+        step = client.post(f"/sessions/{sid}/step", json={"choice_id": "c1"})
+        assert step.status_code == 200
+        assert step.json()["narrative_text"] == "[llm] repaired narrative text"
+        assert provider.repair_calls >= 1
+    finally:
+        settings.llm_provider_primary = original_primary
+        settings.llm_provider_fallbacks = original_fallbacks
+        settings.llm_retry_attempts_network = original_network_retries
+        settings.llm_max_retries = original_llm_retries
+        settings.llm_total_deadline_s = original_deadline
+
+
+def test_story_step_narrative_parse_failure_returns_503_without_progress(tmp_path: Path, monkeypatch) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    pack = _make_pack("s_narrative_parse_fail", 1)
+    _publish_pack(client, pack)
+
+    from app.modules.session import service as session_service
+
+    class _NarrativeParseFailProvider:
+        async def generate(
+            self,
+            prompt: str,
+            *,
+            request_id: str,
+            timeout_s: float,
+            model: str,
+            connect_timeout_s: float | None = None,
+            read_timeout_s: float | None = None,
+            write_timeout_s: float | None = None,
+            pool_timeout_s: float | None = None,
+        ):
+            return (
+                "non-json narrative payload forever",
+                {
+                    "provider": "fake",
+                    "model": model,
+                    "prompt_tokens": 10,
+                    "completion_tokens": 5,
+                    "latency_ms": 1,
+                    "status": "success",
+                    "error_message": None,
+                },
+            )
+
+    runtime = LLMRuntime()
+    runtime.providers["fake"] = _NarrativeParseFailProvider()
+
+    original_primary = settings.llm_provider_primary
+    original_fallbacks = list(settings.llm_provider_fallbacks)
+    original_network_retries = settings.llm_retry_attempts_network
+    original_llm_retries = settings.llm_max_retries
+    original_deadline = settings.llm_total_deadline_s
+    settings.llm_provider_primary = "fake"
+    settings.llm_provider_fallbacks = []
+    settings.llm_retry_attempts_network = 1
+    settings.llm_max_retries = 1
+    settings.llm_total_deadline_s = 10.0
+    monkeypatch.setattr(session_service, "get_llm_runtime", lambda: runtime)
+    try:
+        sid = client.post("/sessions", json={"story_id": "s_narrative_parse_fail"}).json()["id"]
+        before = client.get(f"/sessions/{sid}").json()
+        step = client.post(f"/sessions/{sid}/step", json={"choice_id": "c1"})
+        assert step.status_code == 503
+        assert step.json()["detail"]["code"] == "LLM_UNAVAILABLE"
+        after = client.get(f"/sessions/{sid}").json()
+        assert after["current_node_id"] == before["current_node_id"]
+        assert after["state_json"] == before["state_json"]
+    finally:
+        settings.llm_provider_primary = original_primary
+        settings.llm_provider_fallbacks = original_fallbacks
+        settings.llm_retry_attempts_network = original_network_retries
+        settings.llm_max_retries = original_llm_retries
+        settings.llm_total_deadline_s = original_deadline
+
+
 def test_story_step_no_input_maps_to_fallback_with_200(tmp_path: Path) -> None:
     _prepare_db(tmp_path)
     client = TestClient(app)
@@ -586,10 +1305,6 @@ def test_story_step_parse_error_maps_to_fallback(tmp_path: Path, monkeypatch) ->
             return (
                 NarrativeOutput(
                     narrative_text="[fallback] The scene advances quietly. Choose the next move.",
-                    choices=[
-                        {"id": "c1", "text": "Reply", "type": "dialog"},
-                        {"id": "c2", "text": "Wait", "type": "action"},
-                    ],
                 ),
                 True,
             )
@@ -859,20 +1574,12 @@ def test_story_fallback_narrative_leak_guard(tmp_path: Path, monkeypatch) -> Non
                 return (
                     NarrativeOutput(
                         narrative_text="This leaks NO_MATCH and next_node_id.",
-                        choices=[
-                            {"id": "c1", "text": "Reply", "type": "dialog"},
-                            {"id": "c2", "text": "Wait", "type": "action"},
-                        ],
                     ),
                     True,
                 )
             return (
                 NarrativeOutput(
                     narrative_text="[llm] baseline",
-                    choices=[
-                        {"id": "c1", "text": "Reply", "type": "dialog"},
-                        {"id": "c2", "text": "Wait", "type": "action"},
-                    ],
                 ),
                 True,
             )

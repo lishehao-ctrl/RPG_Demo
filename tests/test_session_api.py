@@ -1,48 +1,24 @@
-import os
-import subprocess
-import sys
 import uuid
 import hashlib
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
+import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import event, func, select, text
+from sqlalchemy import func, select, text
 
 from app.config import settings
 from app.db import session as db_session
 from app.db.models import ActionLog, LLMUsageLog, Session as StorySession, SessionSnapshot, SessionStepIdempotency
 from app.modules.llm.adapter import LLMRuntime
 from app.main import app
-
-ROOT = Path(__file__).resolve().parents[1]
+from tests.support.db_runtime import enable_sqlite_fk_per_connection, prepare_sqlite_db
 
 
 def _prepare_db(tmp_path: Path) -> str:
-    db_path = tmp_path / "session_api.db"
-    env = os.environ.copy()
-    env["DATABASE_URL"] = f"sqlite:///{db_path}"
-    proc = subprocess.run(
-        [sys.executable, "-m", "alembic", "upgrade", "head"],
-        cwd=ROOT,
-        env=env,
-        capture_output=True,
-        text=True,
-    )
-    assert proc.returncode == 0, proc.stderr
-    runtime_url = f"sqlite+pysqlite:///{db_path}"
-    db_session.rebind_engine(runtime_url)
-    return runtime_url
-
-
-def _enable_sqlite_fk_per_connection() -> None:
-    @event.listens_for(db_session.engine, "connect")
-    def _set_sqlite_pragma(dbapi_connection, _connection_record):
-        cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.close()
+    return prepare_sqlite_db(tmp_path, "session_api.db")
 
 
 def _make_story_pack(story_id: str, version: int = 1) -> dict:
@@ -284,7 +260,6 @@ def test_create_session_accepts_non_uuid_story_node_ids(tmp_path: Path) -> None:
     assert got.status_code == 200
     assert got.json()["current_node_id"] == "n_start"
     assert got.json()["current_node"]["id"] == "n_start"
-    assert (got.json().get("route_flags") or {}).get("story_node_id") == "n_start"
 
 
 def test_snapshot_rollback_restores_exact_state(tmp_path: Path) -> None:
@@ -387,7 +362,7 @@ def test_rollback_prunes_nodes_and_logs(tmp_path: Path) -> None:
 
 def test_rollback_trim_uses_snapshot_membership_not_timestamp_only(tmp_path: Path) -> None:
     _prepare_db(tmp_path)
-    _enable_sqlite_fk_per_connection()
+    enable_sqlite_fk_per_connection()
     client = TestClient(app)
     _publish_story(client)
 
@@ -531,7 +506,7 @@ def test_step_idempotency_in_progress_returns_409(tmp_path: Path) -> None:
 
     sid = _create_story_session(client)
     key = "idem-step-3"
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     with db_session.SessionLocal() as db:
         with db.begin():
             db.add(
@@ -692,11 +667,17 @@ def test_llm_trace_dev_only(tmp_path: Path) -> None:
         "circuit_fail_threshold",
         "circuit_open_s",
     }
+    runtime_limits = body["runtime_limits"]
+    assert runtime_limits["llm_timeout_s"] == pytest.approx(float(settings.llm_timeout_s))
+    assert runtime_limits["llm_total_deadline_s"] == pytest.approx(float(settings.llm_total_deadline_s))
+    assert runtime_limits["llm_retry_attempts_network"] == int(settings.llm_retry_attempts_network)
+    assert runtime_limits["llm_max_retries"] == int(settings.llm_max_retries)
     assert set(body["summary"].keys()) == {
         "total_calls",
         "success_calls",
         "error_calls",
         "providers",
+        "errors_by_kind",
         "errors_by_message_prefix",
     }
     assert isinstance(body["llm_calls"], list)
@@ -715,6 +696,62 @@ def test_llm_trace_disabled_outside_dev(tmp_path: Path) -> None:
         trace = client.get(f"/sessions/{sid}/debug/llm-trace")
         assert trace.status_code == 404
         assert trace.json()["detail"]["code"] == "DEBUG_DISABLED"
+    finally:
+        settings.env = original_env
+
+
+def test_layer_inspector_dev_only(tmp_path: Path) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    _publish_story(client)
+    sid = _create_story_session(client)
+
+    step = client.post(f"/sessions/{sid}/step", json={"choice_id": "c1"})
+    assert step.status_code == 200
+
+    debug = client.get(f"/sessions/{sid}/debug/layer-inspector")
+    assert debug.status_code == 200
+    body = debug.json()
+
+    assert body["session_id"] == sid
+    assert body["env"] == "dev"
+    assert set(body["summary"].keys()) == {
+        "fallback_rate",
+        "mismatch_count",
+        "event_turns",
+        "guard_all_blocked_turns",
+        "guard_stall_turns",
+        "ending_state",
+    }
+    assert isinstance(body["steps"], list)
+    assert body["steps"]
+    first = body["steps"][0]
+    assert set(first.keys()) == {
+        "step_index",
+        "world_layer",
+        "characters_layer",
+        "plot_layer",
+        "scene_layer",
+        "action_layer",
+        "consequence_layer",
+        "ending_layer",
+        "raw_refs",
+    }
+    assert first["raw_refs"]["action_log_id"]
+
+
+def test_layer_inspector_disabled_outside_dev(tmp_path: Path) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    _publish_story(client)
+    sid = _create_story_session(client)
+
+    original_env = settings.env
+    settings.env = "prod"
+    try:
+        debug = client.get(f"/sessions/{sid}/debug/layer-inspector")
+        assert debug.status_code == 404
+        assert debug.json()["detail"]["code"] == "DEBUG_DISABLED"
     finally:
         settings.env = original_env
 
@@ -773,6 +810,8 @@ def test_llm_trace_records_llm_unavailable_path(tmp_path: Path, monkeypatch) -> 
         assert body["summary"]["error_calls"] >= 1
         assert any(str(item.get("status")) == "error" for item in (body.get("llm_calls") or []))
         assert any(item.get("phase_guess") == "narrative_phase_or_narrative_repair" for item in body["llm_calls"])
+        assert any(item.get("error_kind") for item in body["llm_calls"])
+        assert "errors_by_kind" in body["summary"]
 
         with db_session.SessionLocal() as db:
             rows = db.execute(
@@ -800,11 +839,9 @@ def test_legacy_session_without_story_returns_story_required(tmp_path: Path) -> 
                 StorySession(
                     id=sid,
                     status="active",
-                    current_node_id=None,
                     story_id=None,
                     story_version=None,
                     global_flags={},
-                    route_flags={},
                     active_characters=[],
                     state_json={},
                     memory_summary="",

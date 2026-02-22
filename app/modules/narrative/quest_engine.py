@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.modules.narrative.state_engine import normalize_quest_state, normalize_state
 from app.modules.session.story_runtime.models import QuestStepEvent, QuestUpdateResult
@@ -228,7 +228,7 @@ def _emit_event(
         "milestone_id": milestone_id,
         "title": title,
         "message": message,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "rewards": dict(rewards or {}),
     }
     recent_events = list(quest_state.get("recent_events") or [])
@@ -438,7 +438,7 @@ def advance_quest_state(
 
             rewards = _to_effect_points(milestone.get("rewards"))
             milestone_entry["done"] = True
-            milestone_entry["completed_at"] = datetime.utcnow().isoformat()
+            milestone_entry["completed_at"] = datetime.now(timezone.utc).isoformat()
             milestones_state[milestone_id] = milestone_entry
 
             if rewards:
@@ -475,7 +475,7 @@ def advance_quest_state(
 
         stage_rewards = _to_effect_points(current_stage_def.get("stage_rewards"))
         stage_entry["status"] = "completed"
-        stage_entry["completed_at"] = datetime.utcnow().isoformat()
+        stage_entry["completed_at"] = datetime.now(timezone.utc).isoformat()
 
         if stage_rewards:
             current_state = apply_quest_rewards(current_state, stage_rewards)
@@ -534,7 +534,7 @@ def advance_quest_state(
 
         completion_rewards = _to_effect_points(quest.get("completion_rewards"))
         quest_entry["status"] = "completed"
-        quest_entry["completed_at"] = datetime.utcnow().isoformat()
+        quest_entry["completed_at"] = datetime.now(timezone.utc).isoformat()
         active_set.discard(quest_id)
         completed_set.add(quest_id)
         _mark_active_stage(quest_entry, None)

@@ -12,9 +12,10 @@ DEV_REQUIRED_COLUMNS: dict[str, set[str]] = {
     "sessions": {"state_json", "story_node_id"},
     "action_logs": {"state_before", "state_after", "state_delta"},
 }
-DEV_FORBIDDEN_TABLES: set[str] = {"users", "audit_logs"}
+DEV_FORBIDDEN_TABLES: set[str] = {"users", "audit_logs", "dialogue_nodes"}
 DEV_FORBIDDEN_COLUMNS: dict[str, set[str]] = {
-    "sessions": {"user_id"},
+    "sessions": {"user_id", "current_node_id", "route_flags"},
+    "action_logs": {"node_id"},
 }
 
 
@@ -27,13 +28,13 @@ class Settings(BaseSettings):
     llm_provider_primary: str = "fake"
     llm_provider_fallbacks: list[str] = Field(default_factory=list)
     llm_model_generate: str = "fake-generate-v1"
-    llm_timeout_s: float = 8.0
-    llm_max_retries: int = 2
-    llm_total_deadline_s: float = 10.0
-    llm_connect_timeout_s: float = 2.0
-    llm_read_timeout_s: float = 8.0
-    llm_write_timeout_s: float = 8.0
-    llm_pool_timeout_s: float = 2.0
+    llm_timeout_s: float = 30.0
+    llm_max_retries: int = 1
+    llm_total_deadline_s: float = 120.0
+    llm_connect_timeout_s: float = 12.0
+    llm_read_timeout_s: float = 30.0
+    llm_write_timeout_s: float = 30.0
+    llm_pool_timeout_s: float = 8.0
     llm_retry_attempts_network: int = 2
     llm_retry_backoff_base_ms: int = 150
     llm_retry_backoff_max_ms: int = 1200
@@ -58,6 +59,8 @@ class Settings(BaseSettings):
 
     llm_doubao_base_url: str = "https://ark.cn-beijing.volces.com/api/v3"
     llm_doubao_api_key: str = ""
+    llm_doubao_temperature: float = 0.1
+    llm_doubao_max_tokens: int | None = 512
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

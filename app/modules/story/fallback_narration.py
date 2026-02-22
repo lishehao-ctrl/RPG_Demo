@@ -42,9 +42,25 @@ EXTRACT_STOPWORDS_EN: set[str] = {
 }
 
 _TOKEN_RE = re.compile(r"[a-zA-Z]+")
+_INPUT_TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9'\-]*")
 _SYSTEM_ERROR_STYLE_RE = re.compile(
     r"(invalid choice|parse error|unknown choice|unknown action|unknown input)",
     flags=re.IGNORECASE,
+)
+_REJECTION_TONE_REPLACEMENTS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\bfuzzy\b", flags=re.IGNORECASE), "off-beat"),
+    (re.compile(r"\bunclear\b", flags=re.IGNORECASE), "open"),
+    (re.compile(r"\binvalid\b", flags=re.IGNORECASE), "off-track"),
+    (re.compile(r"\bwrong input\b", flags=re.IGNORECASE), "off-beat attempt"),
+    (re.compile(r"\bcannot understand\b", flags=re.IGNORECASE), "can still work with this"),
+)
+_SOFT_AVOID_TONE_REPLACEMENTS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\bfor this turn\b", flags=re.IGNORECASE), "in this moment"),
+    (re.compile(r"\bthis turn\b", flags=re.IGNORECASE), "this moment"),
+    (re.compile(r"\bthe scene\b", flags=re.IGNORECASE), "the moment around you"),
+    (re.compile(r"\bstory keeps moving\b", flags=re.IGNORECASE), "the day keeps moving forward"),
+    (re.compile(r"\bscene responds\b", flags=re.IGNORECASE), "moment answers"),
+    (re.compile(r"\bscene reacts\b", flags=re.IGNORECASE), "world reacts"),
 )
 _INTERNAL_TOKEN_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\bNO_INPUT\b"),
@@ -65,6 +81,169 @@ _INTERNAL_FIELD_LEAKS: tuple[str, ...] = (
     "confidence",
     "delta_scale",
 )
+_LEADING_FILLER_TOKENS: set[str] = {
+    "a",
+    "an",
+    "for",
+    "having",
+    "have",
+    "i",
+    "i'm",
+    "im",
+    "just",
+    "like",
+    "please",
+    "to",
+    "wanna",
+    "want",
+}
+_TRAILING_FILLER_TOKENS: set[str] = {"a", "an", "and", "for", "please", "the", "to", "with"}
+_FOOD_INTENT_TOKENS: set[str] = {
+    "bite",
+    "breakfast",
+    "burger",
+    "chick-fil-a",
+    "chick-fila",
+    "chickfila",
+    "dinner",
+    "eat",
+    "eating",
+    "food",
+    "lunch",
+    "meal",
+    "snack",
+    "shake",
+    "shack",
+}
+_LOW_SIGNAL_INPUT_TOKENS: set[str] = {"anything", "idk", "nonsense", "random", "whatever"}
+
+
+def _clean_player_input(player_input: str | None, *, max_len: int = 96) -> str:
+    cleaned = " ".join(str(player_input or "").split())
+    cleaned = cleaned.strip(" \"'`.,!?;:")
+    if len(cleaned) <= max_len:
+        return cleaned
+    return f"{cleaned[:max_len].rstrip()}..."
+
+
+def _intent_tokens(player_input: str | None, *, max_tokens: int = 6) -> list[str]:
+    cleaned = _clean_player_input(player_input)
+    if not cleaned:
+        return []
+    tokens = _INPUT_TOKEN_RE.findall(cleaned)
+    while tokens and tokens[0].lower() in _LEADING_FILLER_TOKENS:
+        tokens.pop(0)
+    while tokens and tokens[-1].lower() in _TRAILING_FILLER_TOKENS:
+        tokens.pop()
+    return tokens[:max_tokens]
+
+
+def _paraphrase_player_intent(player_input: str | None) -> str | None:
+    tokens = _intent_tokens(player_input)
+    if not tokens:
+        return None
+    lowered = [token.lower() for token in tokens]
+    if len(tokens) == 1 and lowered[0] in _LOW_SIGNAL_INPUT_TOKENS:
+        return None
+
+    if "with" in lowered:
+        idx = lowered.index("with")
+        partners = [token for token in tokens[idx + 1 : idx + 3] if token.lower() not in _TRAILING_FILLER_TOKENS]
+        if partners:
+            return f"spending a little time with {' '.join(partners)}"
+
+    if any(token in _FOOD_INTENT_TOKENS for token in lowered):
+        brand = next(
+            (
+                token
+                for token in tokens
+                if token.lower() in {"chick-fil-a", "chick-fila", "chickfila"} or "-" in token
+            ),
+            None,
+        )
+        if brand is None and len(tokens) >= 2 and tokens[0][:1].isupper() and tokens[1][:1].isupper():
+            brand = f"{tokens[0]} {tokens[1]}"
+        if brand:
+            return f"grabbing a quick bite at {brand}"
+        return "grabbing a quick bite"
+
+    if lowered[0] in {"play", "playing"} and len(tokens) > 1:
+        return f"starting {' '.join(tokens[1:5])}"
+
+    if len(tokens) <= 2:
+        return f"making a quick move toward {' '.join(tokens[:2])}"
+    return f"pushing toward {' '.join(tokens[:5])}"
+
+
+def _friendly_action_phrase(selected_choice_label: str | None, selected_action_id: str | None) -> str:
+    choice_label = " ".join(str(selected_choice_label or "").split())
+    if choice_label:
+        return f"follow through on {choice_label}"
+
+    action_id = str(selected_action_id or "").strip().lower()
+    action_map = {
+        "study": "head to class and focus on your notes",
+        "work": "pick up a short paid shift",
+        "rest": "pause to catch your breath and recover",
+        "date": "spend a calm stretch connecting with someone",
+    }
+    if action_id in action_map:
+        return action_map[action_id]
+    if action_id:
+        return f"commit to {action_id.replace('_', ' ')}"
+    return "take the closest available move"
+
+
+def _friendly_action_consequence(selected_choice_label: str | None, selected_action_id: str | None) -> str:
+    if str(selected_choice_label or "").strip():
+        return "the choice lands cleanly and gives your next decision more direction"
+
+    action_id = str(selected_action_id or "").strip().lower()
+    action_map = {
+        "study": "the effort costs energy while your focus gets sharper",
+        "work": "your wallet gets a little heavier while the clock keeps pushing forward",
+        "rest": "your breathing settles and your footing steadies",
+        "date": "the connection warms and the next decision feels easier",
+    }
+    if action_id in action_map:
+        return action_map[action_id]
+    return "the pace steadies and the next beat becomes clear"
+
+
+def sanitize_rejecting_tone(text: str) -> str:
+    out = str(text or "")
+    for pattern, replacement in _REJECTION_TONE_REPLACEMENTS:
+        out = pattern.sub(replacement, out)
+    return " ".join(out.split()).strip()
+
+
+def naturalize_narrative_tone(text: str) -> str:
+    out = str(text or "")
+    for pattern, replacement in _SOFT_AVOID_TONE_REPLACEMENTS:
+        out = pattern.sub(replacement, out)
+    return " ".join(out.split()).strip()
+
+
+def build_free_input_fallback_narrative_text(
+    *,
+    player_input: str | None,
+    selected_choice_label: str | None,
+    selected_action_id: str | None,
+    quest_nudge_text: str | None = None,
+) -> str:
+    intent_phrase = _paraphrase_player_intent(player_input)
+    if intent_phrase:
+        first = f"You steer toward {intent_phrase}, and the moment gives you a workable opening."
+    else:
+        first = "You make a quick call under pressure, and the moment still gives you room to act."
+    second = (
+        f"You {_friendly_action_phrase(selected_choice_label, selected_action_id)}, "
+        f"and {_friendly_action_consequence(selected_choice_label, selected_action_id)}."
+    )
+    quest_hint = " ".join(str(quest_nudge_text or "").split()).strip(" .")
+    if quest_hint:
+        second = second[:-1] + f", while {quest_hint}."
+    return naturalize_narrative_tone(sanitize_rejecting_tone(f"{first} {second}"))
 
 
 def _candidate_reason_keys(reason: str | None) -> list[str]:

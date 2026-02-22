@@ -1,7 +1,7 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, Index
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -9,7 +9,7 @@ from app.db.types import GUID, JSONType
 
 
 def utcnow() -> datetime:
-    return datetime.utcnow()
+    return datetime.now(timezone.utc)
 
 
 class Session(Base):
@@ -17,12 +17,10 @@ class Session(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     status: Mapped[str] = mapped_column(String(32), default="active", index=True)
-    current_node_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True, index=True)
     story_node_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     story_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     story_version: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     global_flags: Mapped[dict] = mapped_column(JSONType, default=dict)
-    route_flags: Mapped[dict] = mapped_column(JSONType, default=dict)
     active_characters: Mapped[list] = mapped_column(JSONType, default=list)
     state_json: Mapped[dict] = mapped_column(JSONType, default=dict)
     memory_summary: Mapped[str] = mapped_column(Text, default="")
@@ -66,25 +64,11 @@ class SessionCharacterState(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow, index=True)
 
 
-class DialogueNode(Base):
-    __tablename__ = "dialogue_nodes"
-
-    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
-    session_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("sessions.id"), index=True)
-    parent_node_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("dialogue_nodes.id"), nullable=True, index=True)
-    node_type: Mapped[str] = mapped_column(String(32), default="ai", index=True)
-    player_input: Mapped[str | None] = mapped_column(Text, nullable=True)
-    narrative_text: Mapped[str] = mapped_column(Text, default="")
-    choices: Mapped[list] = mapped_column(JSONType, default=list)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
-
-
 class ActionLog(Base):
     __tablename__ = "action_logs"
 
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     session_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("sessions.id"), index=True)
-    node_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("dialogue_nodes.id"), nullable=True, index=True)
     story_node_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     story_choice_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     player_input: Mapped[str] = mapped_column(Text, default="")
@@ -162,6 +146,3 @@ class SessionStepIdempotency(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow, index=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
-
-
-Index("ix_dialogue_nodes_parent_created", DialogueNode.parent_node_id, DialogueNode.created_at)

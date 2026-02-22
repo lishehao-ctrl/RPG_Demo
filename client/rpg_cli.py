@@ -110,7 +110,7 @@ def _handle_response(resp: httpx.Response, action: str) -> dict[str, Any] | None
 
 
 def _print_step(body: dict[str, Any]) -> None:
-    typer.echo(f"node_id: {body.get('node_id')}")
+    typer.echo(f"story_node_id: {body.get('story_node_id')}")
     typer.echo(f"narrative: {body.get('narrative_text')}")
     cost = body.get("cost", {})
     typer.echo(f"cost: provider={cost.get('provider')} in={cost.get('tokens_in')} out={cost.get('tokens_out')}")

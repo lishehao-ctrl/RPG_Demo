@@ -36,7 +36,7 @@ CLI persists lightweight state to `client/.state.json`:
 
 ```bash
 rpg ping
-rpg session create --story-id campus_life
+rpg session create --story-id campus_week_v1
 rpg session get [SESSION_ID]
 rpg step --text "hello"
 rpg step --choice-id "c1"
@@ -52,7 +52,7 @@ If `session_id`/`snapshot_id` are omitted, the CLI uses values from `client/.sta
 
 ```bash
 rpg ping
-rpg session create --story-id campus_life
+rpg session create --story-id campus_week_v1
 rpg step --text "hello"
 rpg snapshot --name "manual"
 rpg step --text "another input"

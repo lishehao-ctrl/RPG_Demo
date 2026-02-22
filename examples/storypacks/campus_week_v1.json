@@ -30,7 +30,7 @@
     "text_variants": {
       "NO_INPUT": "You lose a beat and take a breath before moving.",
       "BLOCKED": "That approach does not work right now, so you reset your pace.",
-      "FALLBACK": "Your intention is fuzzy, so you steady yourself before acting.",
+      "FALLBACK": "You make your move, and the moment still responds. For now, you take a stable step and keep the day moving.",
       "DEFAULT": "You pause and rethink your next move."
     }
   },

@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -43,7 +43,7 @@ def seed_story(*, story_file: Path, publish: bool) -> dict:
 
     payload = _load_pack_json(story_file)
     pack = _validate_pack(payload, source_path=story_file)
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     with SessionLocal() as db:
         with db.begin():

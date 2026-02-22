@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
@@ -8,14 +10,16 @@ from app.modules.demo.router import router as demo_router
 from app.modules.session.router import router as session_router
 from app.modules.story.router import router as story_router
 
-app = FastAPI(title="RPG Demo Backend")
-app.mount("/demo/static", StaticFiles(directory=str(DEMO_STATIC_DIR)), name="demo_static")
 
-
-@app.on_event("startup")
-def validate_security_settings() -> None:
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
     if settings.env == "dev":
         ensure_dev_database_schema(str(db_session.engine.url))
+    yield
+
+
+app = FastAPI(title="RPG Demo Backend", lifespan=_lifespan)
+app.mount("/demo/static", StaticFiles(directory=str(DEMO_STATIC_DIR)), name="demo_static")
 
 
 @app.get("/health")

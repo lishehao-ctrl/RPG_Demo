@@ -1,25 +1,49 @@
 import asyncio
 import json
 import random
+import re
 import time
 import uuid
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 
 import httpx
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db.models import LLMUsageLog
 from app.modules.llm.base import LLMProvider
-from app.modules.llm.prompts import build_repair_prompt
+from app.modules.llm.prompts import (
+    build_narrative_repair_prompt,
+    build_selection_repair_prompt,
+)
 from app.modules.llm.providers import DoubaoProvider, FakeProvider
 from app.modules.llm.schemas import NarrativeOutput, StorySelectionOutput
 
 
 class LLMUnavailableError(RuntimeError):
     """Raised when narrative generation fails across the full provider chain."""
+
+
+class NarrativeParseError(ValueError):
+    """Raised when narrative payload cannot be parsed/validated."""
+
+    def __init__(self, message: str, *, error_kind: str, raw_snippet: str | None = None):
+        super().__init__(message)
+        self.error_kind = str(error_kind)
+        self.raw_snippet = raw_snippet
+
+
+_NARRATIVE_ERROR_TIMEOUT = "NARRATIVE_TIMEOUT"
+_NARRATIVE_ERROR_NETWORK = "NARRATIVE_NETWORK"
+_NARRATIVE_ERROR_HTTP_STATUS = "NARRATIVE_HTTP_STATUS"
+_NARRATIVE_ERROR_JSON_PARSE = "NARRATIVE_JSON_PARSE"
+_NARRATIVE_ERROR_SCHEMA_VALIDATE = "NARRATIVE_SCHEMA_VALIDATE"
+
+_TOKEN_REDACTION_RE = re.compile(r"\bsk-[A-Za-z0-9_\-]{8,}\b")
+_FENCED_JSON_RE = re.compile(r"```(?:json)?\s*(\{[\s\S]*\})\s*```", re.IGNORECASE)
 
 
 @dataclass(slots=True)
@@ -30,9 +54,17 @@ class _CircuitState:
 
 class LLMRuntime:
     def __init__(self):
+        doubao_provider = DoubaoProvider(
+            api_key=settings.llm_doubao_api_key,
+            base_url=settings.llm_doubao_base_url,
+            temperature=settings.llm_doubao_temperature,
+            max_tokens=settings.llm_doubao_max_tokens,
+        )
         self.providers: dict[str, LLMProvider] = {
             "fake": FakeProvider(),
-            "doubao": DoubaoProvider(api_key=settings.llm_doubao_api_key, base_url=settings.llm_doubao_base_url),
+            "doubao": doubao_provider,
+            # Alias for clarity when using Alibaba Qwen via OpenAI-compatible gateways.
+            "alibaba_qwen": doubao_provider,
         }
         self._circuits: dict[str, _CircuitState] = defaultdict(_CircuitState)
 
@@ -56,7 +88,7 @@ class LLMRuntime:
             latency_ms=int(usage.get("latency_ms", 0) or 0),
             status=usage.get("status", "success"),
             error_message=usage.get("error_message"),
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
         )
         db.add(row)
 
@@ -121,6 +153,80 @@ class LLMRuntime:
         wait_s = min(wait_s, self._deadline_remaining_s(deadline_at))
         if wait_s > 0:
             time.sleep(wait_s)
+
+    @staticmethod
+    def _sanitize_raw_snippet(raw: object, max_len: int = 200) -> str | None:
+        if raw is None:
+            return None
+        if isinstance(raw, (dict, list)):
+            try:
+                text = json.dumps(raw, ensure_ascii=False)
+            except Exception:  # noqa: BLE001
+                text = str(raw)
+        else:
+            text = str(raw)
+        text = text.replace("\r", " ").replace("\n", " ").replace("\t", " ")
+        text = _TOKEN_REDACTION_RE.sub("[REDACTED_KEY]", text)
+        text = " ".join(text.split())
+        text = text.replace("|", "/")
+        if not text:
+            return None
+        return text[:max_len]
+
+    @staticmethod
+    def _extract_json_fragment(raw_text: str) -> str | None:
+        if not raw_text:
+            return None
+        fenced = _FENCED_JSON_RE.search(raw_text)
+        if fenced:
+            return fenced.group(1).strip()
+        left = raw_text.find("{")
+        right = raw_text.rfind("}")
+        if left == -1 or right == -1 or right <= left:
+            return None
+        return raw_text[left : right + 1].strip()
+
+    @staticmethod
+    def _narrative_error_kind(exc: Exception) -> str:
+        if isinstance(exc, NarrativeParseError):
+            return exc.error_kind
+        if isinstance(exc, (TimeoutError, httpx.TimeoutException)):
+            return _NARRATIVE_ERROR_TIMEOUT
+        if isinstance(exc, httpx.HTTPStatusError):
+            return _NARRATIVE_ERROR_HTTP_STATUS
+        if isinstance(
+            exc,
+            (
+                httpx.ConnectError,
+                httpx.ReadError,
+                httpx.WriteError,
+                httpx.PoolTimeout,
+                httpx.RemoteProtocolError,
+            ),
+        ):
+            return _NARRATIVE_ERROR_NETWORK
+        return _NARRATIVE_ERROR_NETWORK
+
+    @staticmethod
+    def _narrative_raw_snippet(exc: Exception, raw: object | None) -> str | None:
+        if isinstance(exc, NarrativeParseError) and exc.raw_snippet:
+            return exc.raw_snippet
+        return LLMRuntime._sanitize_raw_snippet(raw)
+
+    @staticmethod
+    def _format_narrative_chain_error(
+        last_error: Exception | None,
+        *,
+        error_kind: str | None,
+        raw_snippet: str | None,
+    ) -> str:
+        detail = f": {last_error}" if last_error else ""
+        message = f"narrative provider chain exhausted{detail}"
+        if error_kind:
+            message = f"{message} | kind={error_kind}"
+        if raw_snippet:
+            message = f"{message} | raw={raw_snippet}"
+        return message
 
     def _call_once(
         self,
@@ -229,6 +335,8 @@ class LLMRuntime:
         provider_chain = [settings.llm_provider_primary] + list(settings.llm_provider_fallbacks)
         deadline_at = time.monotonic() + max(0.1, float(settings.llm_total_deadline_s))
         last_error: Exception | None = None
+        last_error_kind: str | None = None
+        last_raw_snippet: str | None = None
 
         for idx, provider_name in enumerate(provider_chain):
             if provider_name not in self.providers:
@@ -252,13 +360,16 @@ class LLMRuntime:
                     return parsed, True
                 except Exception as exc:  # noqa: BLE001
                     last_error = exc
+                    last_error_kind = self._narrative_error_kind(exc)
+                    last_raw_snippet = self._narrative_raw_snippet(exc, raw)
                     if raw is None:
                         continue
+                    repair_raw = None
                     try:
                         repair_raw = self._call_with_network_retries(
                             db,
                             provider_name=provider_name,
-                            payload=build_repair_prompt(str(raw)),
+                            payload=build_narrative_repair_prompt(str(raw)),
                             model=settings.llm_model_generate,
                             session_id=session_id,
                             step_id=step_id,
@@ -268,10 +379,17 @@ class LLMRuntime:
                         return parsed, True
                     except Exception as repair_exc:  # noqa: BLE001
                         last_error = repair_exc
+                        last_error_kind = self._narrative_error_kind(repair_exc)
+                        last_raw_snippet = self._narrative_raw_snippet(repair_exc, repair_raw)
                         continue
 
-        detail = f": {last_error}" if last_error else ""
-        raise LLMUnavailableError(f"narrative provider chain exhausted{detail}")
+        raise LLMUnavailableError(
+            self._format_narrative_chain_error(
+                last_error,
+                error_kind=last_error_kind,
+                raw_snippet=last_raw_snippet,
+            )
+        )
 
     def select_story_choice_with_fallback(
         self,
@@ -312,7 +430,7 @@ class LLMRuntime:
                         repair_raw = self._call_with_network_retries(
                             db,
                             provider_name=provider_name,
-                            payload=build_repair_prompt(str(raw)),
+                            payload=build_selection_repair_prompt(str(raw)),
                             model=settings.llm_model_generate,
                             session_id=session_id,
                             step_id=step_id,
@@ -336,9 +454,45 @@ class LLMRuntime:
 
     @staticmethod
     def _parse_narrative(raw) -> NarrativeOutput:
-        if isinstance(raw, str):
-            raw = json.loads(raw)
-        return NarrativeOutput.model_validate(raw)
+        parsed_payload: object = raw
+        original_raw_snippet = LLMRuntime._sanitize_raw_snippet(raw)
+
+        if isinstance(parsed_payload, str):
+            raw_text = parsed_payload.strip()
+            if not raw_text:
+                raise NarrativeParseError(
+                    "narrative json parse error: empty response",
+                    error_kind=_NARRATIVE_ERROR_JSON_PARSE,
+                    raw_snippet=original_raw_snippet,
+                )
+            try:
+                parsed_payload = json.loads(raw_text)
+            except json.JSONDecodeError as exc:
+                fragment = LLMRuntime._extract_json_fragment(raw_text)
+                if fragment:
+                    try:
+                        parsed_payload = json.loads(fragment)
+                    except json.JSONDecodeError as fragment_exc:
+                        raise NarrativeParseError(
+                            f"narrative json parse error: {fragment_exc}",
+                            error_kind=_NARRATIVE_ERROR_JSON_PARSE,
+                            raw_snippet=original_raw_snippet,
+                        ) from exc
+                else:
+                    raise NarrativeParseError(
+                        f"narrative json parse error: {exc}",
+                        error_kind=_NARRATIVE_ERROR_JSON_PARSE,
+                        raw_snippet=original_raw_snippet,
+                    ) from exc
+
+        try:
+            return NarrativeOutput.model_validate(parsed_payload)
+        except ValidationError as exc:
+            raise NarrativeParseError(
+                f"narrative schema validate error: {exc}",
+                error_kind=_NARRATIVE_ERROR_SCHEMA_VALIDATE,
+                raw_snippet=LLMRuntime._sanitize_raw_snippet(parsed_payload),
+            ) from exc
 
 
 _runtime: LLMRuntime | None = None

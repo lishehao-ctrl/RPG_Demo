@@ -1,8 +1,5 @@
-import os
-import subprocess
-import sys
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -12,23 +9,13 @@ from app.config import settings
 from app.db import session as db_session
 from app.db.models import Story
 from app.main import app
+from tests.support.db_runtime import prepare_sqlite_db
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def _prepare_db(tmp_path: Path) -> None:
-    db_path = tmp_path / "stories.db"
-    env = os.environ.copy()
-    env["DATABASE_URL"] = f"sqlite:///{db_path}"
-    proc = subprocess.run(
-        [sys.executable, "-m", "alembic", "upgrade", "head"],
-        cwd=ROOT,
-        env=env,
-        capture_output=True,
-        text=True,
-    )
-    assert proc.returncode == 0, proc.stderr
-    db_session.rebind_engine(f"sqlite+pysqlite:///{db_path}")
+    prepare_sqlite_db(tmp_path, "stories.db")
 
 
 def _pack() -> dict:
@@ -252,7 +239,7 @@ def test_list_stories_defaults_to_published_playable_only(tmp_path: Path) -> Non
                     version=1,
                     is_published=True,
                     pack_json={"story_id": "broken_story", "version": 1, "title": "Broken"},
-                    created_at=datetime.utcnow(),
+                    created_at=datetime.now(timezone.utc),
                 )
             )
 
@@ -281,7 +268,7 @@ def test_publish_rejects_invalid_story_pack(tmp_path: Path) -> None:
                     version=1,
                     is_published=False,
                     pack_json={"story_id": "invalid_publish_story", "version": 1},
-                    created_at=datetime.utcnow(),
+                    created_at=datetime.now(timezone.utc),
                 )
             )
 

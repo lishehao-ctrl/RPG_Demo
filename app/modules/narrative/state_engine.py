@@ -83,6 +83,18 @@ def normalize_run_state(run_state: dict | None) -> dict:
     if fallback_count < 0:
         fallback_count = 0
 
+    stall_turns = _to_int(raw.get("stall_turns"), 0)
+    if stall_turns < 0:
+        stall_turns = 0
+
+    guard_all_blocked_hits = _to_int(raw.get("guard_all_blocked_hits"), 0)
+    if guard_all_blocked_hits < 0:
+        guard_all_blocked_hits = 0
+
+    guard_stall_hits = _to_int(raw.get("guard_stall_hits"), 0)
+    if guard_stall_hits < 0:
+        guard_stall_hits = 0
+
     return {
         "step_index": step_index,
         "triggered_event_ids": triggered_event_ids,
@@ -91,6 +103,9 @@ def normalize_run_state(run_state: dict | None) -> dict:
         "ending_outcome": ending_outcome,
         "ended_at_step": ended_at_step,
         "fallback_count": fallback_count,
+        "stall_turns": stall_turns,
+        "guard_all_blocked_hits": guard_all_blocked_hits,
+        "guard_stall_hits": guard_stall_hits,
     }
 
 

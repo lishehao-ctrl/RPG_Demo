@@ -1,6 +1,3 @@
-import os
-import subprocess
-import sys
 import uuid
 from pathlib import Path
 
@@ -10,17 +7,11 @@ from sqlalchemy import select
 from app.db import session as db_session
 from app.db.models import ActionLog
 from app.main import app
-
-ROOT = Path(__file__).resolve().parents[1]
+from tests.support.db_runtime import prepare_sqlite_db
 
 
 def _prepare_db(tmp_path: Path) -> None:
-    db_path = tmp_path / "integration.db"
-    env = os.environ.copy()
-    env["DATABASE_URL"] = f"sqlite:///{db_path}"
-    proc = subprocess.run([sys.executable, "-m", "alembic", "upgrade", "head"], cwd=ROOT, env=env, capture_output=True, text=True)
-    assert proc.returncode == 0, proc.stderr
-    db_session.rebind_engine(f"sqlite+pysqlite:///{db_path}")
+    prepare_sqlite_db(tmp_path, "integration.db")
 
 
 def _make_story_pack(story_id: str, version: int = 1) -> dict:

@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.modules.session import service
 from app.modules.session.schemas import (
+    LayerInspectorOut,
     LLMTraceOut,
     SessionCreateOut,
     SessionCreateRequest,
@@ -42,6 +43,15 @@ def get_llm_trace(
     db: Session = Depends(get_db),
 ):
     return service.get_llm_trace(db, session_id, limit=limit)
+
+
+@router.get("/sessions/{session_id}/debug/layer-inspector", response_model=LayerInspectorOut)
+def get_layer_inspector(
+    session_id: uuid.UUID,
+    limit: int = 20,
+    db: Session = Depends(get_db),
+):
+    return service.get_layer_inspector(db, session_id, limit=limit)
 
 
 @router.post("/sessions/{session_id}/step", response_model=StepResponse)

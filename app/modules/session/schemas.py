@@ -43,7 +43,6 @@ class SessionStateOut(BaseModel):
     story_id: str | None = None
     story_version: int | None = None
     global_flags: dict = Field(default_factory=dict)
-    route_flags: dict = Field(default_factory=dict)
     active_characters: list = Field(default_factory=list)
     state_json: dict = Field(default_factory=dict)
     memory_summary: str
@@ -70,7 +69,6 @@ class SnapshotOut(BaseModel):
 
 
 class StepResponse(BaseModel):
-    node_id: uuid.UUID
     story_node_id: str | None = None
     attempted_choice_id: str | None = None
     executed_choice_id: str | None = None
@@ -98,6 +96,8 @@ class LLMTraceCallOut(BaseModel):
     completion_tokens: int
     latency_ms: int
     error_message: str | None = None
+    error_kind: str | None = None
+    raw_snippet: str | None = None
     phase_guess: str
 
 
@@ -125,6 +125,7 @@ class LLMTraceSummaryOut(BaseModel):
     success_calls: int
     error_calls: int
     providers: dict[str, int] = Field(default_factory=dict)
+    errors_by_kind: dict[str, int] = Field(default_factory=dict)
     errors_by_message_prefix: dict[str, int] = Field(default_factory=dict)
 
 
@@ -137,3 +138,31 @@ class LLMTraceOut(BaseModel):
     latest_idempotency: IdempotencyDebugOut | None = None
     summary: LLMTraceSummaryOut
     llm_calls: list[LLMTraceCallOut] = Field(default_factory=list)
+
+
+class LayerInspectorStepOut(BaseModel):
+    step_index: int
+    world_layer: dict = Field(default_factory=dict)
+    characters_layer: dict = Field(default_factory=dict)
+    plot_layer: dict = Field(default_factory=dict)
+    scene_layer: dict = Field(default_factory=dict)
+    action_layer: dict = Field(default_factory=dict)
+    consequence_layer: dict = Field(default_factory=dict)
+    ending_layer: dict = Field(default_factory=dict)
+    raw_refs: dict = Field(default_factory=dict)
+
+
+class LayerInspectorSummaryOut(BaseModel):
+    fallback_rate: float
+    mismatch_count: int
+    event_turns: int
+    guard_all_blocked_turns: int = 0
+    guard_stall_turns: int = 0
+    ending_state: str
+
+
+class LayerInspectorOut(BaseModel):
+    session_id: str
+    env: str
+    steps: list[LayerInspectorStepOut] = Field(default_factory=list)
+    summary: LayerInspectorSummaryOut

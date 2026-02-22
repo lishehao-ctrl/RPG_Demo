@@ -7,25 +7,13 @@ from sqlalchemy import func, select
 
 from app.db import session as db_session
 from app.db.models import Story
+from tests.support.db_runtime import prepare_sqlite_db
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def _prepare_db(tmp_path: Path) -> str:
-    db_path = tmp_path / "seed_script.db"
-    env = os.environ.copy()
-    env["DATABASE_URL"] = f"sqlite:///{db_path}"
-    proc = subprocess.run(
-        [sys.executable, "-m", "alembic", "upgrade", "head"],
-        cwd=ROOT,
-        env=env,
-        capture_output=True,
-        text=True,
-    )
-    assert proc.returncode == 0, proc.stderr
-    runtime_url = f"sqlite+pysqlite:///{db_path}"
-    db_session.rebind_engine(runtime_url)
-    return runtime_url
+    return prepare_sqlite_db(tmp_path, "seed_script.db")
 
 
 def test_seed_script_populates_and_publishes_default_story(tmp_path: Path) -> None:

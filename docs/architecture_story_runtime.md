@@ -9,10 +9,10 @@ This document describes the active story-mode runtime in:
 
 ## Contract Locks
 - Endpoint paths are unchanged.
-- `StepResponse` keeps all existing fields and adds optional run-ending fields:
-  - `run_ended`
-  - `ending_id`
-  - `ending_outcome`
+- `StepResponse` is story-pointer first:
+  - includes `story_node_id`
+  - excludes legacy synthetic `node_id`
+  - includes optional run-ending fields `run_ended`, `ending_id`, `ending_outcome`
 - Story step returns `200` for all non-inactive requests.
 - Only inactive sessions return `409` with `SESSION_NOT_ACTIVE`.
 - Session APIs run in single-tenant anonymous mode (no auth dependency).
@@ -25,7 +25,6 @@ This document describes the active story-mode runtime in:
 - `GET /stories` provides story picker data (`published_only/playable_only` filters).
 - Resolver ownership remains in `app/modules/session/service.py`.
 - Session runtime pointer truth is `sessions.story_node_id` (string StoryPack node id).
-- `route_flags.story_node_id` is maintained as a compatibility mirror.
 
 ## Runtime Model
 Internal runtime candidates use one model:

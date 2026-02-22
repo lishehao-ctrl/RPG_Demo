@@ -1,17 +1,8 @@
-from typing import Literal
-
 from pydantic import BaseModel, Field
-
-
-class LLMChoice(BaseModel):
-    id: str
-    text: str
-    type: Literal["dialog", "action"]
 
 
 class NarrativeOutput(BaseModel):
     narrative_text: str
-    choices: list[LLMChoice] = Field(min_length=2, max_length=4)
 
 
 class StorySelectionOutput(BaseModel):

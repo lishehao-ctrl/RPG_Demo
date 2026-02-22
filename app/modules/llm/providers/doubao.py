@@ -8,9 +8,18 @@ from app.modules.llm.base import LLMProvider
 class DoubaoProvider(LLMProvider):
     name = "doubao"
 
-    def __init__(self, api_key: str, base_url: str):
+    def __init__(
+        self,
+        api_key: str,
+        base_url: str,
+        *,
+        temperature: float = 0.2,
+        max_tokens: int | None = None,
+    ):
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
+        self.temperature = float(temperature)
+        self.max_tokens = int(max_tokens) if max_tokens is not None else None
 
     async def _chat(
         self,
@@ -28,8 +37,10 @@ class DoubaoProvider(LLMProvider):
         payload = {
             "model": model,
             "messages": [{"role": "user", "content": content}],
-            "temperature": 0.2,
+            "temperature": self.temperature,
         }
+        if self.max_tokens is not None and self.max_tokens > 0:
+            payload["max_tokens"] = self.max_tokens
         timeout = httpx.Timeout(
             timeout=timeout_s,
             connect=connect_timeout_s if connect_timeout_s is not None else timeout_s,

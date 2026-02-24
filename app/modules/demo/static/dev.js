@@ -31,10 +31,6 @@ const refs = {
   questRecentEl: mustEl("questRecent"),
   runStatePanelEl: mustEl("runStatePanel"),
   pendingStatusEl: mustEl("pendingStatus"),
-  llmTraceMetaEl: mustEl("llmTraceMeta"),
-  llmTraceSummaryEl: mustEl("llmTraceSummary"),
-  llmTraceCallsEl: mustEl("llmTraceCalls"),
-  refreshLlmTraceBtnEl: mustEl("refreshLlmTraceBtn"),
   layerInspectorSummaryEl: mustEl("layerInspectorSummary"),
   layerInspectorStepsEl: mustEl("layerInspectorSteps"),
   refreshLayerInspectorBtnEl: mustEl("refreshLayerInspectorBtn"),
@@ -56,7 +52,6 @@ const refs = {
   copySessionBtnEl: mustEl("copySessionBtn"),
 };
 
-const hasLlmTracePanel = Boolean(refs.llmTraceMetaEl && refs.llmTraceSummaryEl && refs.llmTraceCallsEl);
 const hasLayerInspectorPanel = Boolean(refs.layerInspectorSummaryEl && refs.layerInspectorStepsEl);
 
 const nowIso = () => new Date().toISOString();
@@ -197,101 +192,90 @@ function renderRunPanel(runState) {
   ].join("\n");
 }
 
-function shortText(value, limit = 200) {
-  const text = String(value || "").replace(/\s+/g, " ").trim();
-  if (!text) return "";
-  return text.slice(0, limit);
+function compactText(value, fallback = "n/a") {
+  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+  return text || fallback;
 }
 
-function renderLlmTrace(payload) {
-  if (!hasLlmTracePanel) return;
-
-  if (!payload) {
-    refs.llmTraceMetaEl.textContent = "(no trace)";
-    refs.llmTraceSummaryEl.textContent = "(no summary)";
-    refs.llmTraceCallsEl.textContent = "(no calls)";
-    return;
+function summarizeWorldLayer(layer) {
+  const locale = compactText(layer?.locale, "en");
+  const goal = compactText(layer?.mainline_goal, "an unspecified objective");
+  const brief = compactText(layer?.global_brief, "");
+  if (brief && brief !== "n/a") {
+    return `Locale is ${locale}. The world framing centers on "${brief}", with mainline goal "${goal}".`;
   }
-
-  const latest = payload.latest_idempotency || null;
-  const runtime = payload.runtime_limits || {};
-  const summary = payload.summary || {};
-
-  refs.llmTraceMetaEl.textContent = [
-    `session_id: ${payload.session_id || "n/a"}`,
-    `env: ${payload.env || "n/a"}`,
-    `provider_chain: ${(payload.provider_chain || []).join(" -> ") || "(empty)"}`,
-    `model_generate: ${payload.model_generate || "n/a"}`,
-    `llm_timeout_s: ${runtime.llm_timeout_s ?? "n/a"}`,
-    `llm_total_deadline_s: ${runtime.llm_total_deadline_s ?? "n/a"}`,
-    `llm_retry_attempts_network: ${runtime.llm_retry_attempts_network ?? "n/a"}`,
-    `llm_max_retries: ${runtime.llm_max_retries ?? "n/a"}`,
-    `circuit_window_s: ${runtime.circuit_window_s ?? "n/a"}`,
-    `circuit_fail_threshold: ${runtime.circuit_fail_threshold ?? "n/a"}`,
-    `circuit_open_s: ${runtime.circuit_open_s ?? "n/a"}`,
-    `latest_idempotency: ${latest ? latest.idempotency_key : "(none)"}`,
-    `latest_idempotency_status: ${latest ? latest.status : "(none)"}`,
-    `latest_error_code: ${latest ? latest.error_code || "(none)" : "(none)"}`,
-    `latest_updated_at: ${latest ? latest.updated_at : "(none)"}`,
-    `request_hash_prefix: ${latest ? latest.request_hash_prefix : "(none)"}`,
-    `response_present: ${latest ? String(Boolean(latest.response_present)) : "(none)"}`,
-  ].join("\n");
-
-  refs.llmTraceSummaryEl.textContent = [
-    `total_calls: ${summary.total_calls ?? 0}`,
-    `success_calls: ${summary.success_calls ?? 0}`,
-    `error_calls: ${summary.error_calls ?? 0}`,
-    `providers: ${JSON.stringify(summary.providers || {})}`,
-    `errors_by_kind: ${JSON.stringify(summary.errors_by_kind || {})}`,
-    `errors_by_message_prefix: ${JSON.stringify(summary.errors_by_message_prefix || {})}`,
-  ].join("\n");
-
-  const calls = Array.isArray(payload.llm_calls) ? payload.llm_calls.slice(0, 20) : [];
-  if (!calls.length) {
-    refs.llmTraceCallsEl.textContent = "(no calls)";
-    return;
-  }
-
-  refs.llmTraceCallsEl.textContent = calls.map((row) => {
-    const error = shortText(row.error_message);
-    const rawSnippet = shortText(row.raw_snippet);
-    return [
-      `${row.created_at} | ${row.status} | ${row.provider} | ${row.operation} | ${row.phase_guess}`,
-      `model=${row.model} step_id=${row.step_id || "-"} tokens=${row.prompt_tokens || 0}/${row.completion_tokens || 0} latency_ms=${row.latency_ms || 0}`,
-      `error_kind=${row.error_kind || "-"} raw_snippet=${rawSnippet || "-"}`,
-      `error=${error || "-"}`,
-    ].join("\n");
-  }).join("\n\n");
+  return `Locale is ${locale}. The world framing currently supports mainline goal "${goal}".`;
 }
 
-async function refreshLlmTrace() {
-  if (!hasLlmTracePanel) return null;
+function summarizeCharactersLayer(layer) {
+  const activeCharacters = Array.isArray(layer?.active_characters) ? layer.active_characters : [];
+  const roster = activeCharacters.slice(0, 3).join(", ") || "no explicit active names";
+  const relation = compactText(layer?.relation_signal, "neutral relation signal");
+  return `Active characters this step: ${roster}. Relationship pressure is ${relation}.`;
+}
 
-  if (!state.sessionId) {
-    renderLlmTrace(null);
-    return null;
+function summarizePlotLayer(layer) {
+  const act = compactText(layer?.active_act, "unmapped act");
+  const thread = compactText(layer?.active_thread, "no explicit sideline thread");
+  const urgency = compactText(layer?.urgency, "steady");
+  return `Plot focus is ${act} with thread "${thread}" and urgency "${urgency}".`;
+}
+
+function summarizeSceneLayer(layer) {
+  const fromScene = compactText(layer?.from_scene, "unknown");
+  const toScene = compactText(layer?.to_scene, "unknown");
+  const question = compactText(layer?.dramatic_question, "no dramatic question available");
+  return `Scene moved from ${fromScene} to ${toScene}. Current dramatic question: ${question}.`;
+}
+
+function summarizeActionLayer(layer) {
+  const selectedAction = compactText(layer?.selected_action_id, "fallback action");
+  const choice = compactText(layer?.resolved_choice_id, "no resolved choice");
+  const confidence = typeof layer?.mapping_confidence === "number" ? layer.mapping_confidence.toFixed(2) : "n/a";
+  return `Action execution resolved to ${selectedAction} via choice ${choice} (mapping confidence ${confidence}).`;
+}
+
+function summarizeConsequenceLayer(layer) {
+  const delta = layer?.state_delta && typeof layer.state_delta === "object" ? layer.state_delta : {};
+  const keys = Object.keys(delta);
+  const deltaText = keys.length
+    ? keys.slice(0, 4).map((key) => `${key}:${delta[key]}`).join(", ")
+    : "no material state delta";
+  const guardSignals = [];
+  if (layer?.all_blocked_guard_triggered) guardSignals.push("all-blocked guard triggered");
+  if (layer?.stall_guard_triggered) guardSignals.push("stall guard triggered");
+  const guardText = guardSignals.length ? guardSignals.join("; ") : "no guard escalation";
+  return `Consequence update: ${deltaText}. Guard status: ${guardText}.`;
+}
+
+function summarizeEndingLayer(layer) {
+  const runEnded = layer?.run_ended === true;
+  const endingId = compactText(layer?.ending_id, "none");
+  const endingOutcome = compactText(layer?.ending_outcome, "in_progress");
+  if (runEnded) {
+    return `Run ended with ending ${endingId} (${endingOutcome}).`;
   }
+  return `Run is still in progress; latest ending check is ${endingId} (${endingOutcome}).`;
+}
 
-  try {
-    const trace = await Shared.callApi("GET", `/sessions/${state.sessionId}/debug/llm-trace`);
-    renderLlmTrace(trace);
-    return trace;
-  } catch (error) {
-    const status = Number(error?.response?.status || 0);
-    const code = Shared.detailCode(error?.response?.data);
-
-    if (status === 404 && code === "DEBUG_DISABLED") {
-      refs.llmTraceMetaEl.textContent = "LLM trace debug is disabled outside ENV=dev.";
-      refs.llmTraceSummaryEl.textContent = "(debug disabled)";
-      refs.llmTraceCallsEl.textContent = "(debug disabled)";
-      return null;
-    }
-
-    refs.llmTraceMetaEl.textContent = `Failed to load trace: ${error.message || error}`;
-    refs.llmTraceSummaryEl.textContent = "(trace unavailable)";
-    refs.llmTraceCallsEl.textContent = "(trace unavailable)";
-    setNotice(`LLM trace failed: ${error.message || error}`, "error");
-    return null;
+function summarizeLayerPayload(name, payload) {
+  switch (name) {
+    case "world_layer":
+      return summarizeWorldLayer(payload);
+    case "characters_layer":
+      return summarizeCharactersLayer(payload);
+    case "plot_layer":
+      return summarizePlotLayer(payload);
+    case "scene_layer":
+      return summarizeSceneLayer(payload);
+    case "action_layer":
+      return summarizeActionLayer(payload);
+    case "consequence_layer":
+      return summarizeConsequenceLayer(payload);
+    case "ending_layer":
+      return summarizeEndingLayer(payload);
+    default:
+      return "No narrative summary available for this layer.";
   }
 }
 
@@ -304,6 +288,15 @@ function renderLayerStepCard(step) {
   const guardNotes = [];
   if (consequence.all_blocked_guard_triggered) guardNotes.push("all-blocked-guard");
   if (consequence.stall_guard_triggered) guardNotes.push("stall-guard");
+
+  const header = document.createElement("header");
+  header.innerHTML = `
+    <span>step_index: ${stepIndex}</span>
+    <span>action_log_id: ${rawRefs.action_log_id || "n/a"}</span>
+    <span>guards: ${guardNotes.length ? guardNotes.join(", ") : "none"}</span>
+  `;
+  card.appendChild(header);
+
   const layers = [
     ["world_layer", step?.world_layer || {}],
     ["characters_layer", step?.characters_layer || {}],
@@ -313,19 +306,35 @@ function renderLayerStepCard(step) {
     ["consequence_layer", step?.consequence_layer || {}],
     ["ending_layer", step?.ending_layer || {}],
   ];
-  const layerBlocks = layers.map(([name, payload]) => {
-    return `<div><strong>${name}</strong><pre>${JSON.stringify(payload, null, 2)}</pre></div>`;
-  }).join("");
-  card.innerHTML = `
-    <header>
-      <span>step_index: ${stepIndex}</span>
-      <span>action_log_id: ${rawRefs.action_log_id || "n/a"}</span>
-      <span>guards: ${guardNotes.length ? guardNotes.join(", ") : "none"}</span>
-    </header>
-    <div class="layer-step-grid">
-      ${layerBlocks}
-    </div>
-  `;
+
+  const grid = document.createElement("div");
+  grid.className = "layer-step-grid";
+
+  layers.forEach(([name, payload]) => {
+    const block = document.createElement("section");
+    block.className = "layer-step-block";
+
+    const title = document.createElement("h4");
+    title.textContent = name.replace("_layer", "").replaceAll("_", " ");
+    block.appendChild(title);
+
+    const summary = document.createElement("p");
+    summary.textContent = summarizeLayerPayload(name, payload);
+    block.appendChild(summary);
+
+    const details = document.createElement("details");
+    const detailSummary = document.createElement("summary");
+    detailSummary.textContent = "Raw payload";
+    const pre = document.createElement("pre");
+    pre.textContent = JSON.stringify(payload || {}, null, 2);
+    details.appendChild(detailSummary);
+    details.appendChild(pre);
+    block.appendChild(details);
+
+    grid.appendChild(block);
+  });
+
+  card.appendChild(grid);
   return card;
 }
 
@@ -338,16 +347,18 @@ function renderLayerInspector(payload) {
   }
 
   const summary = payload.summary || {};
+  const fallbackRate = Number(summary.fallback_rate ?? 0);
+  const mismatchCount = Number(summary.mismatch_count ?? 0);
+  const eventTurns = Number(summary.event_turns ?? 0);
+  const blockedTurns = Number(summary.guard_all_blocked_turns ?? 0);
+  const stallTurns = Number(summary.guard_stall_turns ?? 0);
+  const endingState = summary.ending_state || "in_progress";
   refs.layerInspectorSummaryEl.textContent = [
-    `session_id: ${payload.session_id || "n/a"}`,
-    `env: ${payload.env || "n/a"}`,
-    `fallback_rate: ${summary.fallback_rate ?? 0}`,
-    `mismatch_count: ${summary.mismatch_count ?? 0}`,
-    `event_turns: ${summary.event_turns ?? 0}`,
-    `guard_all_blocked_turns: ${summary.guard_all_blocked_turns ?? 0}`,
-    `guard_stall_turns: ${summary.guard_stall_turns ?? 0}`,
-    `ending_state: ${summary.ending_state || "in_progress"}`,
-  ].join("\n");
+    `Session ${payload.session_id || "n/a"} is running in ${payload.env || "n/a"} mode.`,
+    `Fallback rate is ${fallbackRate}, with ${mismatchCount} intent-action mismatches and ${eventTurns} event-heavy turns.`,
+    `Guard pressure shows ${blockedTurns} all-blocked turns and ${stallTurns} stall turns.`,
+    `Ending state is currently ${endingState}.`,
+  ].join(" ");
 
   refs.layerInspectorStepsEl.innerHTML = "";
   const steps = Array.isArray(payload.steps) ? payload.steps : [];
@@ -388,14 +399,6 @@ async function refreshLayerInspector() {
   }
 }
 
-function updateTokenTotals(cost) {
-  const tokensIn = Number(cost.tokens_in || 0);
-  const tokensOut = Number(cost.tokens_out || 0);
-  state.totals.tokensIn += tokensIn;
-  state.totals.tokensOut += tokensOut;
-  refs.tokenTotalsEl.textContent = `in: ${state.totals.tokensIn}, out: ${state.totals.tokensOut}`;
-}
-
 function renderNarrative(narrativeText, choices) {
   refs.narrativeTextEl.textContent = narrativeText || "(empty)";
   refs.choiceButtonsEl.innerHTML = "";
@@ -433,8 +436,6 @@ function renderStepCard(step) {
     </header>
     <div class="meta">
       <div><strong>story_node_id</strong>: ${step.story_node_id || "n/a"}</div>
-      <div><strong>provider</strong>: ${step.cost.provider || "none"}</div>
-      <div><strong>tokens</strong>: ${step.cost.tokens_in || 0} in / ${step.cost.tokens_out || 0} out</div>
       <div><strong>attempted_choice_id</strong>: ${step.attempted_choice_id || "n/a"}</div>
       <div><strong>executed_choice_id</strong>: ${step.executed_choice_id || "n/a"}</div>
       <div><strong>resolved_choice_id</strong>: ${step.resolved_choice_id || "n/a"}</div>
@@ -474,7 +475,6 @@ function appendStep(raw, stateDelta, stateAfter, meta = {}) {
   const step = {
     timestamp: nowIso(),
     story_node_id: raw.story_node_id,
-    cost: raw.cost || { provider: "none", tokens_in: 0, tokens_out: 0 },
     attempted_choice_id: raw.attempted_choice_id || null,
     executed_choice_id: raw.executed_choice_id || null,
     resolved_choice_id: raw.resolved_choice_id || null,
@@ -493,7 +493,6 @@ function appendStep(raw, stateDelta, stateAfter, meta = {}) {
 
   state.steps.push(step);
   renderStepCard(step);
-  updateTokenTotals(step.cost);
 }
 
 async function loadBootstrap() {
@@ -525,7 +524,6 @@ function resetSessionPanels() {
   renderQuestPanel({});
   renderRunPanel({});
   renderReplayHighlights(null);
-  renderLlmTrace(null);
   renderLayerInspector(null);
 }
 
@@ -544,7 +542,6 @@ async function createSession() {
   setSessionId(out.id);
   resetSessionPanels();
   await refreshSession();
-  await refreshLlmTrace();
   await refreshLayerInspector();
   setNotice(`Session ready: ${out.id}`);
 }
@@ -577,7 +574,7 @@ function stepPayloadFromInput(payloadOverride) {
 
 function throwIfTerminalStepFailure(result) {
   if (result.reason === "LLM_UNAVAILABLE") {
-    throw new Error("LLM_UNAVAILABLE: this step was not applied. Check LLM Debug Trace panel.");
+    throw new Error("LLM_UNAVAILABLE: this step was not applied.");
   }
   if (result.reason === "IDEMPOTENCY_KEY_REUSED") {
     throw new Error("IDEMPOTENCY_KEY_REUSED: pending key conflicted with a different payload.");
@@ -600,7 +597,6 @@ async function executeStepPayload(payload) {
     if (result.retryable) {
       throw new Error("Step request still uncertain after retries. Use Retry Pending to continue with the same key.");
     }
-    await refreshLlmTrace();
     throwIfTerminalStepFailure(result);
   }
 
@@ -611,7 +607,6 @@ async function executeStepPayload(payload) {
   const stateAfter = cloneJson((refreshed || {}).state_json || state.currentState);
   const stateDelta = computeDelta(stateBefore, stateAfter);
   appendStep(out, stateDelta, stateAfter, result.meta || {});
-  await refreshLlmTrace();
   await refreshLayerInspector();
 
   refs.playerInputEl.value = "";
@@ -647,7 +642,6 @@ async function retryPendingStep() {
       if (result.retryable) {
         throw new Error("Step remains uncertain after retry. Try again or clear pending.");
       }
-      await refreshLlmTrace();
       throwIfTerminalStepFailure(result);
     }
 
@@ -657,7 +651,6 @@ async function retryPendingStep() {
     const stateAfter = cloneJson((refreshed || {}).state_json || state.currentState);
     const stateDelta = computeDelta(stateBefore, stateAfter);
     appendStep(out, stateDelta, stateAfter, result.meta || {});
-    await refreshLlmTrace();
     await refreshLayerInspector();
     clearNotice();
   } finally {
@@ -733,19 +726,13 @@ function bindAsync(button, handler) {
 async function init() {
   await loadBootstrap();
   renderReplayHighlights(null);
-  renderLlmTrace(null);
   renderLayerInspector(null);
 
   bindAsync(refs.createSessionBtnEl, createSession);
   bindAsync(refs.refreshSessionBtnEl, async () => {
     await refreshSession();
-    await refreshLlmTrace();
     await refreshLayerInspector();
     setNotice("Session refreshed.");
-  });
-  bindAsync(refs.refreshLlmTraceBtnEl, async () => {
-    await refreshLlmTrace();
-    setNotice("LLM trace refreshed.");
   });
   bindAsync(refs.refreshLayerInspectorBtnEl, async () => {
     await refreshLayerInspector();

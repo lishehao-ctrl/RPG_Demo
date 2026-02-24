@@ -113,23 +113,6 @@ class ReplayReport(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
 
 
-class LLMUsageLog(Base):
-    __tablename__ = "llm_usage_logs"
-
-    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
-    session_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("sessions.id"), nullable=True, index=True)
-    provider: Mapped[str] = mapped_column(String(64), index=True)
-    model: Mapped[str] = mapped_column(String(128), default="", index=True)
-    operation: Mapped[str] = mapped_column(String(64), index=True)
-    step_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), nullable=True, index=True)
-    prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
-    completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
-    latency_ms: Mapped[int] = mapped_column(Integer, default=0)
-    status: Mapped[str] = mapped_column(String(32), index=True)
-    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
-
-
 class SessionStepIdempotency(Base):
     __tablename__ = "session_step_idempotency"
     __table_args__ = (

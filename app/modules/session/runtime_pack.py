@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from typing import Any
+
+from pydantic import ValidationError
+
 
 def story_node(pack: dict, node_id: str) -> dict | None:
     for node in (pack.get("nodes") or []):
@@ -397,6 +401,34 @@ def normalize_pack_for_runtime(pack_json: dict | None) -> dict:
     pack["endings"] = _normalize_endings_for_runtime(pack.get("endings"))
     pack["run_config"] = _normalize_run_config_for_runtime(pack.get("run_config"))
     return pack
+
+
+def _render_schema_errors(exc: ValidationError) -> list[str]:
+    rendered: list[str] = []
+    for item in exc.errors():
+        location = ".".join(str(part) for part in item.get("loc", ()))
+        message = str(item.get("msg") or "validation error")
+        rendered.append(f"SCHEMA:{location}:{message}")
+    return rendered
+
+
+def validate_runtime_pack_v10_strict(pack_json: dict | None) -> list[str]:
+    payload: Any = pack_json if isinstance(pack_json, dict) else {}
+    from app.modules.story.schemas import StoryPack
+    from app.modules.story.validation import validate_story_pack_structural
+
+    try:
+        pack = StoryPack.model_validate(payload)
+    except ValidationError as exc:
+        return sorted(set(_render_schema_errors(exc)))
+    return sorted(set(validate_story_pack_structural(pack)))
+
+
+def assert_runtime_pack_v10_strict(pack_json: dict | None) -> dict:
+    errors = validate_runtime_pack_v10_strict(pack_json)
+    if errors:
+        raise ValueError("RUNTIME_PACK_V10_REQUIRED")
+    return normalize_pack_for_runtime(pack_json)
 
 
 def implicit_fallback_spec() -> dict:

@@ -55,55 +55,116 @@
       </section>
 
       <section id="authorMainFlow" class="author-main-flow" data-testid="author-main-flow">
-        <section class="author-focus-core" data-testid="author-focus-core">
-          <h2>Author Mode: Create First, Polish Later</h2>
-          <p class="author-note">Start from Spark or Ingest, auto-apply AI updates, then refine scenes when needed.</p>
-          <div class="author-auto-apply-hint" data-testid="author-auto-apply-hint">
-            Auto-apply enabled for all Assist actions. Undo remains available.
-          </div>
+        <nav class="author-page-nav" aria-label="Author workflow pages">
+          <button id="authorPageComposeBtn" class="btn author-page-nav__btn is-active" type="button">Compose</button>
+          <button id="authorPageShapeBtn" class="btn btn--ghost author-page-nav__btn" type="button">Shape</button>
+          <button id="authorPageBuildBtn" class="btn btn--ghost author-page-nav__btn" type="button">Build</button>
+        </nav>
 
-          <section class="author-subpanel">
-            <div class="author-entry" data-testid="author-entry-mode">
-              <div class="author-toolbar">
-                <button id="authorEntrySparkBtn" class="btn" type="button" data-testid="author-entry-spark">Spark Mode</button>
-                <button id="authorEntryIngestBtn" class="btn btn--ghost" type="button" data-testid="author-entry-ingest">Ingest Mode</button>
+        <section id="authorPageCompose" class="author-page" data-testid="author-page-compose">
+          <section class="author-focus-core" data-testid="author-focus-core">
+            <h2>Compose</h2>
+            <p class="author-note">Start from Spark or Ingest, then iterate with targeted AI writing actions.</p>
+            <div class="author-auto-apply-hint" data-testid="author-auto-apply-hint">
+              Auto-apply enabled for all Assist actions. Undo remains available.
+            </div>
+
+            <section class="author-subpanel">
+              <div class="author-entry" data-testid="author-entry-mode">
+                <div class="author-toolbar">
+                  <button id="authorEntrySparkBtn" class="btn" type="button" data-testid="author-entry-spark">Spark Mode</button>
+                  <button id="authorEntryIngestBtn" class="btn btn--ghost" type="button" data-testid="author-entry-ingest">Ingest Mode</button>
+                </div>
+                <label class="field" data-testid="author-seed-input">
+                  <span>Spark Seed</span>
+                  <textarea id="authorSeedInput" rows="2" placeholder="One sentence idea, conflict, or emotional hook."></textarea>
+                </label>
+                <label class="field" data-testid="author-source-input">
+                  <span>Ingest Source Text</span>
+                  <textarea id="authorSourceInput" rows="3" placeholder="Paste a full short story/chapter to project into RPG structure."></textarea>
+                </label>
               </div>
-              <label class="field" data-testid="author-seed-input">
-                <span>Spark Seed</span>
-                <textarea id="authorSeedInput" rows="2" placeholder="One sentence idea, conflict, or emotional hook."></textarea>
+              <label class="field" data-testid="author-global-brief">
+                <span>Global Brief</span>
+                <textarea id="authorGlobalBrief" rows="3" placeholder="Describe your world, conflict, and expected player fantasy."></textarea>
               </label>
-              <label class="field" data-testid="author-source-input">
-                <span>Ingest Source Text</span>
-                <textarea id="authorSourceInput" rows="3" placeholder="Paste a full short story/chapter to project into RPG structure."></textarea>
+              <div class="author-toolbar">
+                <button id="assistBootstrapBtn" class="btn" type="button">Parse All Layers</button>
+                <button id="assistRefineWorldBtn" class="btn btn--ghost" type="button">Refine This Layer</button>
+                <button
+                  id="assistCancelBtn"
+                  class="btn btn--danger hidden"
+                  type="button"
+                  data-testid="author-assist-cancel-btn"
+                >
+                  Cancel Request
+                </button>
+              </div>
+            </section>
+
+            <section class="author-subpanel">
+              <h3>Continue Writing</h3>
+              <label class="field" data-testid="author-continue-input">
+                <span>Continue Input</span>
+                <textarea id="authorContinueInput" rows="2" placeholder="Add/trim/reshape the current draft in plain language."></textarea>
               </label>
-            </div>
-            <label class="field" data-testid="author-global-brief">
-              <span>Global Brief</span>
-              <textarea id="authorGlobalBrief" rows="3" placeholder="Describe your world, conflict, and expected player fantasy."></textarea>
-            </label>
-            <div class="author-toolbar">
-              <button id="assistBootstrapBtn" class="btn" type="button">Parse All Layers</button>
-              <button id="assistRefineWorldBtn" class="btn btn--ghost" type="button">Refine This Layer</button>
-            </div>
+              <div class="author-toolbar">
+                <button id="continueWriteBtn" class="btn btn--ghost" type="button" data-testid="author-continue-write-btn">Continue Write</button>
+                <button id="trimContentBtn" class="btn btn--ghost" type="button" data-testid="author-trim-content-btn">Trim Content</button>
+                <button id="spiceBranchBtn" class="btn btn--ghost" type="button" data-testid="author-spice-branch-btn">Spice Branch</button>
+                <button id="tensionRebalanceBtn" class="btn btn--ghost" type="button" data-testid="author-tension-rebalance-btn">Rebalance Tension</button>
+              </div>
+            </section>
+
+            <section class="author-subpanel" data-testid="author-story-overview">
+              <h3>Story Overview</h3>
+              <ul id="authorStoryOverviewList" class="summary-list"></ul>
+            </section>
           </section>
+        </section>
 
-          <section class="author-subpanel" data-testid="author-writer-turn-feed">
-            <h3>Writer Turn Feed</h3>
-            <div id="writerTurnFeed"></div>
+        <section id="authorPageShape" class="author-page hidden" data-testid="author-page-shape">
+          <section class="author-subpanel">
+            <h2>Shape</h2>
+            <p class="author-note">Edit structure only when you need precision. Focus on one scene at a time.</p>
           </section>
+        </section>
 
-          <template id="writerTurnTemplate">
-            <article class="writer-turn" data-testid="author-turn-card">
-              <header class="writer-turn__head"></header>
-              <p class="writer-turn__author"></p>
-              <p class="writer-turn__assistant"></p>
-            </article>
-          </template>
-
+        <section id="authorPageBuild" class="author-page hidden" data-testid="author-page-build">
           <section class="author-subpanel" data-testid="author-next-steps">
             <h3>Next Steps</h3>
             <div id="authorStatus" class="author-status" role="status" aria-live="polite">Ready.</div>
+            <div id="authorAssistRetryHint" class="author-retry-hint hidden" data-testid="author-assist-retry-hint" role="status" aria-live="polite">
+              Model unavailable. Please retry.
+            </div>
             <ul id="authorNextSteps" class="summary-list"></ul>
+          </section>
+
+          <section class="author-subpanel" data-testid="author-fun-metrics">
+            <h3>Creative Quality Snapshot</h3>
+            <div id="authorFunMetrics" class="author-fun-metrics" role="status" aria-live="polite">
+              <article class="fun-metric-card">
+                <div class="fun-metric-card__label">Conflict Clarity</div>
+                <div id="authorFunConflictValue" class="fun-metric-card__value">n/a</div>
+              </article>
+              <article class="fun-metric-card">
+                <div class="fun-metric-card__label">Branch Contrast</div>
+                <div id="authorFunBranchValue" class="fun-metric-card__value">n/a</div>
+              </article>
+              <article class="fun-metric-card">
+                <div class="fun-metric-card__label">Recovery Coverage</div>
+                <div id="authorFunRecoveryValue" class="fun-metric-card__value">n/a</div>
+              </article>
+              <article class="fun-metric-card">
+                <div class="fun-metric-card__label">Deadline Pressure</div>
+                <div id="authorFunDeadlineValue" class="fun-metric-card__value">n/a</div>
+              </article>
+            </div>
+          </section>
+
+          <section class="author-subpanel">
+            <h3>Playability Blocking</h3>
+            <ul id="authorPlayabilityBlockingMain" class="summary-list"></ul>
           </section>
 
           <section class="author-subpanel">
@@ -128,6 +189,14 @@
         </section>
       </section>
 
+      <template id="writerTurnTemplate">
+        <article class="writer-turn" data-testid="author-turn-card">
+          <header class="writer-turn__head"></header>
+          <p class="writer-turn__author"></p>
+          <p class="writer-turn__assistant"></p>
+        </article>
+      </template>
+
       <section id="authorDebugPanel" class="author-debug-panel hidden" data-testid="author-debug-panel">
         <details class="author-subpanel author-subpanel--collapsible" data-testid="author-assist-panel" open>
           <summary>AI Assist Suggestions</summary>
@@ -149,6 +218,39 @@
           <div class="author-toolbar">
             <button id="applySelectedPatchBtn" class="btn btn--ghost hidden" type="button">Apply Selected</button>
           </div>
+        </details>
+
+        <details class="author-subpanel author-subpanel--collapsible" data-testid="author-writer-turn-feed">
+          <summary>Writer Turn Feed (Debug)</summary>
+          <div id="writerTurnFeed"></div>
+        </details>
+
+        <details class="author-subpanel author-subpanel--collapsible" data-testid="author-raw-layer-data">
+          <summary>Raw Layer Data (Advanced)</summary>
+          <label class="field">
+            <span>NPCs JSON</span>
+            <textarea id="charactersNpcsJson" rows="4" placeholder='[{"name":"Alice","role":"friend","traits":["warm"]}]'></textarea>
+          </label>
+          <label class="field">
+            <span>Relationship Axes JSON</span>
+            <textarea id="charactersAxesJson" rows="3" placeholder='{"trust":"kept promises under pressure"}'></textarea>
+          </label>
+          <label class="field">
+            <span>Action Catalog JSON</span>
+            <textarea id="actionCatalogJson" rows="4" placeholder='[{"action_id":"study","label":"Study"}]'></textarea>
+          </label>
+          <label class="field">
+            <span>Quest Progression Rules JSON</span>
+            <textarea id="authorQuestsJson" rows="6" placeholder='[]'></textarea>
+          </label>
+          <label class="field">
+            <span>Event Rules JSON</span>
+            <textarea id="authorEventsJson" rows="6" placeholder='[]'></textarea>
+          </label>
+          <label class="field">
+            <span>Ending Rules JSON</span>
+            <textarea id="authorEndingsJson" rows="6" placeholder='[]'></textarea>
+          </label>
         </details>
 
         <section class="author-subpanel" data-testid="author-validate-panel">
@@ -267,17 +369,18 @@
             <span>Protagonist Traits (comma separated)</span>
             <input id="protagonistTraits" type="text" />
           </label>
-          <details class="advanced-block">
-            <summary>Character Data (Advanced)</summary>
+          <section class="advanced-block">
+            <h3>Character Narrative Template</h3>
             <label class="field">
-              <span>NPCs JSON</span>
-              <textarea id="charactersNpcsJson" rows="4" placeholder='[{"name":"Alice","role":"friend","traits":["warm"]}]'></textarea>
+              <span>NPC Lines (one per line)</span>
+              <textarea id="charactersNpcsNarrative" rows="5" placeholder="Alice | close friend | traits: warm, direct"></textarea>
             </label>
             <label class="field">
-              <span>Relationship Axes JSON</span>
-              <textarea id="charactersAxesJson" rows="3" placeholder='{"trust":"kept promises under pressure"}'></textarea>
+              <span>Relationship Axis Lines (one per line)</span>
+              <textarea id="charactersAxesNarrative" rows="3" placeholder="trust: grows when promises are kept under pressure"></textarea>
             </label>
-          </details>
+            <p class="author-note">Template format: <code>Name | role | traits: trait1, trait2</code> and <code>axis: description</code>.</p>
+          </section>
         </section>
 
         <section class="wizard-step" data-step-index="2" data-testid="author-step-plot">
@@ -324,13 +427,14 @@
             <span>Input Mapping Policy</span>
             <input id="actionMappingPolicy" type="text" value="intent_alias_only_visible_choice" />
           </label>
-          <details class="advanced-block">
-            <summary>Action Catalog (Advanced)</summary>
+          <section class="advanced-block">
+            <h3>Action Narrative Template</h3>
             <label class="field">
-              <span>Action Catalog JSON</span>
-              <textarea id="actionCatalogJson" rows="4" placeholder='[{"action_id":"study","label":"Study"}]'></textarea>
+              <span>Action Lines (one per line)</span>
+              <textarea id="actionCatalogNarrative" rows="4" placeholder="study: Focus on learning and evidence building"></textarea>
             </label>
-          </details>
+            <p class="author-note">Template format: <code>action_id: natural-language label or usage note</code>.</p>
+          </section>
         </section>
 
         <section class="wizard-step" data-step-index="5" data-testid="author-step-consequence">
@@ -343,17 +447,17 @@
             <span>State Axes (comma separated)</span>
             <input id="consequenceStateAxes" type="text" value="energy,money,knowledge,affection,day,slot" />
           </label>
-          <details class="advanced-block">
-            <summary>Quest / Event Rules (Advanced)</summary>
+          <section class="advanced-block">
+            <h3>Consequence Narrative Summary</h3>
             <label class="field">
-              <span>Quest Progression Rules JSON</span>
-              <textarea id="authorQuestsJson" rows="6" placeholder='[]'></textarea>
+              <span>Current Summary</span>
+              <textarea id="consequenceNarrativeSummary" rows="5" readonly></textarea>
             </label>
             <label class="field">
-              <span>Event Rules JSON</span>
-              <textarea id="authorEventsJson" rows="6" placeholder='[]'></textarea>
+              <span>Refine Intent (optional)</span>
+              <textarea id="consequenceRefineIntent" rows="3" placeholder="Ask AI to rebalance quest pacing and reduce dead-end penalties."></textarea>
             </label>
-          </details>
+          </section>
         </section>
 
         <section class="wizard-step" data-step-index="6" data-testid="author-step-ending">
@@ -361,11 +465,15 @@
           <div class="author-toolbar">
             <button id="assistRefineEndingBtn" class="btn btn--ghost" type="button">Refine This Layer</button>
           </div>
-          <details class="advanced-block">
-            <summary>Ending Rules & Fallback Style (Advanced)</summary>
+          <section class="advanced-block">
+            <h3>Ending Narrative Summary</h3>
             <label class="field">
-              <span>Ending Rules JSON</span>
-              <textarea id="authorEndingsJson" rows="6" placeholder='[]'></textarea>
+              <span>Current Summary</span>
+              <textarea id="endingNarrativeSummary" rows="4" readonly></textarea>
+            </label>
+            <label class="field">
+              <span>Refine Intent (optional)</span>
+              <textarea id="endingRefineIntent" rows="3" placeholder="Ask AI to sharpen ending contrast between sacrifice and recovery paths."></textarea>
             </label>
             <div class="author-grid">
               <label class="field">
@@ -387,7 +495,7 @@
                 </select>
               </label>
             </div>
-          </details>
+          </section>
         </section>
 
         <section class="wizard-step" data-step-index="7" data-testid="author-step-review">
@@ -407,6 +515,13 @@
   </main>
 
   <script src="/demo/static/shared.js"></script>
+  <script src="/demo/static/author/state.js"></script>
+  <script src="/demo/static/author/assist.js"></script>
+  <script src="/demo/static/author/patch_engine.js"></script>
+  <script src="/demo/static/author/page_compose.js"></script>
+  <script src="/demo/static/author/page_shape.js"></script>
+  <script src="/demo/static/author/page_build.js"></script>
+  <script src="/demo/static/author/app.js"></script>
   <script src="/demo/static/author.js"></script>
 </body>
 </html>

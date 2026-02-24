@@ -138,6 +138,35 @@ def test_validate_author_success_returns_compiled_preview(tmp_path: Path) -> Non
     assert body["compiled_preview"]["start_node_id"] == "n_start"
     assert isinstance(body.get("playability"), dict)
     assert isinstance(body["playability"].get("metrics"), dict)
+    metrics = body["playability"]["metrics"]
+    for key in (
+        "ending_reach_rate",
+        "stuck_turn_rate",
+        "no_progress_rate",
+        "branch_coverage",
+        "choice_contrast_score",
+        "dominant_strategy_rate",
+        "recovery_window_rate",
+        "tension_loop_score",
+    ):
+        assert key in metrics
+
+
+def test_validate_author_does_not_depend_on_llm_runtime(tmp_path: Path, monkeypatch) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    payload = _valid_author_payload_v4()
+
+    def _fail_get_runtime(*_args, **_kwargs):
+        raise AssertionError("validate-author must stay deterministic and not call LLM runtime")
+
+    monkeypatch.setattr("app.modules.llm.adapter.get_llm_runtime", _fail_get_runtime)
+
+    resp = client.post("/stories/validate-author", json=payload)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["valid"] is True
+    assert isinstance(body.get("playability"), dict)
 
 
 def test_validate_author_rejects_pre_v4_payload_with_explicit_code(tmp_path: Path) -> None:

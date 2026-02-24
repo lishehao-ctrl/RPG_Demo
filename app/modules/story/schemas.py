@@ -306,7 +306,6 @@ class StoryPack(BaseModel):
     events: list[StoryEvent] = Field(default_factory=list)
     endings: list[StoryEnding] = Field(default_factory=list)
     run_config: StoryRunConfig | None = None
-    author_source_v3: dict | None = None
     author_source_v4: dict | None = None
 
 
@@ -333,6 +332,10 @@ class PlayabilityMetrics(BaseModel):
     stuck_turn_rate: float = 0.0
     no_progress_rate: float = 0.0
     branch_coverage: float = 0.0
+    choice_contrast_score: float = 0.0
+    dominant_strategy_rate: float = 0.0
+    recovery_window_rate: float = 0.0
+    tension_loop_score: float = 0.0
 
 
 class PlayabilityReport(BaseModel):
@@ -369,7 +372,6 @@ class AuthorAssistResponse(BaseModel):
     suggestions: dict = Field(default_factory=dict)
     patch_preview: list[dict] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
-    provider: str
     model: str
 
 

@@ -371,6 +371,13 @@ class PlayabilityPolicy(BaseModel):
     stuck_turn_rate_max: float = 0.05
     no_progress_rate_max: float = 0.25
     branch_coverage_warn_below: float = 0.30
+    choice_contrast_warn_below: float = 0.45
+    dominant_strategy_warn_above: float = 0.75
+    recovery_window_warn_below: float = 0.55
+    tension_loop_warn_below: float = 0.50
+    dominant_strategy_block_above: float = 0.90
+    low_branch_with_dominant_block_below: float = 0.20
+    recovery_window_block_below: float = 0.25
     rollout_strategies: int = Field(default=3, ge=1, le=5)
     rollout_runs_per_strategy: int = Field(default=80, ge=1, le=200)
     rollout_step_cap: int | None = Field(default=None, ge=8, le=120)
@@ -381,6 +388,16 @@ class PlayabilityPolicy(BaseModel):
         self.stuck_turn_rate_max = min(0.50, max(0.00, float(self.stuck_turn_rate_max)))
         self.no_progress_rate_max = min(0.80, max(0.00, float(self.no_progress_rate_max)))
         self.branch_coverage_warn_below = min(0.90, max(0.00, float(self.branch_coverage_warn_below)))
+        self.choice_contrast_warn_below = min(0.95, max(0.00, float(self.choice_contrast_warn_below)))
+        self.dominant_strategy_warn_above = min(0.99, max(0.20, float(self.dominant_strategy_warn_above)))
+        self.recovery_window_warn_below = min(0.95, max(0.00, float(self.recovery_window_warn_below)))
+        self.tension_loop_warn_below = min(0.95, max(0.00, float(self.tension_loop_warn_below)))
+        self.dominant_strategy_block_above = min(0.995, max(0.30, float(self.dominant_strategy_block_above)))
+        self.low_branch_with_dominant_block_below = min(
+            0.90,
+            max(0.00, float(self.low_branch_with_dominant_block_below)),
+        )
+        self.recovery_window_block_below = min(0.90, max(0.00, float(self.recovery_window_block_below)))
         return self
 
 

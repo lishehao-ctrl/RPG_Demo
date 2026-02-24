@@ -51,6 +51,16 @@ def _normalize_policy(policy: dict | None, run_config: dict | None) -> dict[str,
         "stuck_turn_rate_max": max(0.0, min(float(raw.get("stuck_turn_rate_max", 0.05)), 0.50)),
         "no_progress_rate_max": max(0.0, min(float(raw.get("no_progress_rate_max", 0.25)), 0.80)),
         "branch_coverage_warn_below": max(0.0, min(float(raw.get("branch_coverage_warn_below", 0.30)), 0.90)),
+        "choice_contrast_warn_below": max(0.0, min(float(raw.get("choice_contrast_warn_below", 0.45)), 0.95)),
+        "dominant_strategy_warn_above": max(0.20, min(float(raw.get("dominant_strategy_warn_above", 0.75)), 0.99)),
+        "recovery_window_warn_below": max(0.0, min(float(raw.get("recovery_window_warn_below", 0.55)), 0.95)),
+        "tension_loop_warn_below": max(0.0, min(float(raw.get("tension_loop_warn_below", 0.50)), 0.95)),
+        "dominant_strategy_block_above": max(0.30, min(float(raw.get("dominant_strategy_block_above", 0.90)), 0.995)),
+        "low_branch_with_dominant_block_below": max(
+            0.0,
+            min(float(raw.get("low_branch_with_dominant_block_below", 0.20)), 0.90),
+        ),
+        "recovery_window_block_below": max(0.0, min(float(raw.get("recovery_window_block_below", 0.25)), 0.90)),
         "rollout_strategies": max(1, min(_safe_int(raw.get("rollout_strategies"), 3), 5)),
         "rollout_runs_per_strategy": max(1, min(_safe_int(raw.get("rollout_runs_per_strategy"), 80), 200)),
         "rollout_step_cap": step_cap,
@@ -150,6 +160,38 @@ def _apply_choice(state: dict, choice: dict) -> dict:
     return normalize_state(out)
 
 
+def _clamp01(value: float) -> float:
+    return max(0.0, min(float(value), 1.0))
+
+
+def _choice_contrast_score_for_node(node: dict) -> float:
+    choices = _choice_list(node)
+    if len(choices) < 2:
+        return 0.0
+    pair_scores: list[float] = []
+    for left_idx in range(len(choices)):
+        for right_idx in range(left_idx + 1, len(choices)):
+            left = choices[left_idx]
+            right = choices[right_idx]
+            score = 0.0
+            left_action = str(((left.get("action") or {}).get("action_id")) if isinstance(left.get("action"), dict) else "")
+            right_action = str(((right.get("action") or {}).get("action_id")) if isinstance(right.get("action"), dict) else "")
+            if left_action != right_action:
+                score += 0.40
+            left_next = str(left.get("next_node_id") or "")
+            right_next = str(right.get("next_node_id") or "")
+            if left_next and right_next and left_next != right_next:
+                score += 0.25
+            left_effect = _action_effect(left)
+            right_effect = _action_effect(right)
+            effect_distance = sum(abs(int(left_effect.get(key, 0)) - int(right_effect.get(key, 0))) for key in _NUMERIC_KEYS)
+            score += min(effect_distance / 60.0, 0.35)
+            pair_scores.append(_clamp01(score))
+    if not pair_scores:
+        return 0.0
+    return _clamp01(sum(pair_scores) / len(pair_scores))
+
+
 @dataclass(slots=True)
 class _RunResult:
     reached_ending: bool
@@ -157,6 +199,9 @@ class _RunResult:
     no_progress: bool
     turns: int
     visited_choice_ids: set[str]
+    selected_choice_ids: list[str]
+    recovery_offered_turns: int
+    tension_cycles: int
 
 
 def _simulate_single_run(
@@ -172,17 +217,51 @@ def _simulate_single_run(
     turns = 0
     progress_turns = 0
     visited_choice_ids: set[str] = set()
+    selected_choice_ids: list[str] = []
+    recovery_offered_turns = 0
+    tension_cycles = 0
+    tension_phase = 0
 
     for _ in range(step_cap):
         node = node_map.get(current_node_id)
         if not node:
-            return _RunResult(False, True, progress_turns == 0, turns, visited_choice_ids)
+            return _RunResult(
+                False,
+                True,
+                progress_turns == 0,
+                turns,
+                visited_choice_ids,
+                selected_choice_ids,
+                recovery_offered_turns,
+                tension_cycles,
+            )
         if bool(node.get("is_end")):
-            return _RunResult(True, False, progress_turns == 0, turns, visited_choice_ids)
+            return _RunResult(
+                True,
+                False,
+                progress_turns == 0,
+                turns,
+                visited_choice_ids,
+                selected_choice_ids,
+                recovery_offered_turns,
+                tension_cycles,
+            )
 
         available = [choice for choice in _choice_list(node) if _available(choice, state)]
         if not available:
-            return _RunResult(False, True, progress_turns == 0, turns, visited_choice_ids)
+            return _RunResult(
+                False,
+                True,
+                progress_turns == 0,
+                turns,
+                visited_choice_ids,
+                selected_choice_ids,
+                recovery_offered_turns,
+                tension_cycles,
+            )
+
+        if any(int(_action_effect(item).get("energy", 0)) > 0 for item in available):
+            recovery_offered_turns += 1
 
         ranked = sorted(
             enumerate(available),
@@ -199,10 +278,39 @@ def _simulate_single_run(
         choice_id = str(selected.get("choice_id") or "").strip()
         if choice_id:
             visited_choice_ids.add(choice_id)
+            selected_choice_ids.append(choice_id)
+
+        selected_effect = _action_effect(selected)
+        energy_delta = int(selected_effect.get("energy", 0))
+        has_forward_progress = bool(
+            int(selected_effect.get("knowledge", 0)) > 0
+            or int(selected_effect.get("money", 0)) > 0
+            or int(selected_effect.get("affection", 0)) > 0
+        )
+        if tension_phase == 0 and energy_delta <= -10:
+            tension_phase = 1
+        elif tension_phase == 1 and energy_delta >= 8:
+            tension_phase = 2
+        elif tension_phase == 2 and has_forward_progress:
+            tension_cycles += 1
+            tension_phase = 0
+        elif tension_phase == 2 and energy_delta <= -10:
+            # Restart a new pressure cycle if the run jumps back to pressure.
+            tension_phase = 1
+
         next_node_id = str(selected.get("next_node_id") or current_node_id).strip() or current_node_id
         current_node_id = next_node_id
 
-    return _RunResult(False, False, progress_turns <= 1, turns, visited_choice_ids)
+    return _RunResult(
+        False,
+        False,
+        progress_turns <= 1,
+        turns,
+        visited_choice_ids,
+        selected_choice_ids,
+        recovery_offered_turns,
+        tension_cycles,
+    )
 
 
 def _graph_reachability(node_map: dict[str, dict], start_node_id: str) -> tuple[set[str], dict[str, set[str]]]:
@@ -258,6 +366,10 @@ def analyze_story_playability(
         "stuck_turn_rate": 0.0,
         "no_progress_rate": 0.0,
         "branch_coverage": 0.0,
+        "choice_contrast_score": 0.0,
+        "dominant_strategy_rate": 0.0,
+        "recovery_window_rate": 0.0,
+        "tension_loop_score": 0.0,
     }
     if not isinstance(pack, dict):
         blocking_errors.append(
@@ -300,10 +412,13 @@ def analyze_story_playability(
 
     has_positive_energy_route = False
     total_choice_count = 0
+    non_end_scene_contrast_scores: list[float] = []
     for node_id, node in node_map.items():
         choices = _choice_list(node)
         total_choice_count += len(choices)
         is_end = bool(node.get("is_end"))
+        if not is_end and choices:
+            non_end_scene_contrast_scores.append(_choice_contrast_score_for_node(node))
         if is_end and len(choices) > 4:
             blocking_errors.append(
                 _diag(
@@ -417,6 +532,9 @@ def analyze_story_playability(
     stuck_runs = 0
     no_progress_runs = 0
     visited_choices: set[str] = set()
+    selected_choice_counter: dict[str, int] = {}
+    recovery_offered_turns = 0
+    runs_with_tension_cycle = 0
     if start_node_id in node_map and total_runs > 0:
         for strategy_index, strategy in enumerate(strategies):
             for run_index in range(int(policy["rollout_runs_per_strategy"])):
@@ -435,11 +553,46 @@ def analyze_story_playability(
                 if result.no_progress:
                     no_progress_runs += 1
                 visited_choices.update(result.visited_choice_ids)
+                recovery_offered_turns += int(result.recovery_offered_turns)
+                if int(result.tension_cycles) > 0:
+                    runs_with_tension_cycle += 1
+                for selected_choice_id in result.selected_choice_ids:
+                    selected_choice_counter[selected_choice_id] = int(selected_choice_counter.get(selected_choice_id, 0)) + 1
 
     metrics["ending_reach_rate"] = (float(reached_runs) / float(total_runs)) if total_runs else 0.0
     metrics["stuck_turn_rate"] = (float(stuck_runs) / float(total_runs)) if total_runs else 0.0
     metrics["no_progress_rate"] = (float(no_progress_runs) / float(total_runs)) if total_runs else 0.0
     metrics["branch_coverage"] = (float(len(visited_choices)) / float(total_choice_count)) if total_choice_count else 0.0
+    metrics["choice_contrast_score"] = (
+        float(sum(non_end_scene_contrast_scores)) / float(len(non_end_scene_contrast_scores))
+        if non_end_scene_contrast_scores
+        else 0.0
+    )
+    dominant_picks = max(selected_choice_counter.values()) if selected_choice_counter else 0
+    total_selected_picks = sum(selected_choice_counter.values())
+    metrics["dominant_strategy_rate"] = (
+        float(dominant_picks) / float(total_selected_picks)
+        if total_selected_picks
+        else 0.0
+    )
+    metrics["recovery_window_rate"] = (
+        float(recovery_offered_turns) / float(total_turns)
+        if total_turns
+        else 0.0
+    )
+    metrics["tension_loop_score"] = (
+        float(runs_with_tension_cycle) / float(total_runs)
+        if total_runs
+        else 0.0
+    )
+
+    for metric_key in (
+        "choice_contrast_score",
+        "dominant_strategy_rate",
+        "recovery_window_rate",
+        "tension_loop_score",
+    ):
+        metrics[metric_key] = _clamp01(float(metrics.get(metric_key) or 0.0))
 
     if metrics["ending_reach_rate"] < float(policy["ending_reach_rate_min"]):
         blocking_errors.append(
@@ -477,6 +630,33 @@ def analyze_story_playability(
                 suggestion="Increase meaningful state changes in early and mid-path choices.",
             )
         )
+    if (
+        metrics["dominant_strategy_rate"] > float(policy["dominant_strategy_block_above"])
+        and metrics["branch_coverage"] < float(policy["low_branch_with_dominant_block_below"])
+    ):
+        blocking_errors.append(
+            _diag(
+                code="PLAYABILITY_DOMINANT_ROUTE_LOCK",
+                path="flow.scenes",
+                message=(
+                    f"dominant_strategy_rate={metrics['dominant_strategy_rate']:.2f} with "
+                    f"branch_coverage={metrics['branch_coverage']:.2f} indicates route lock."
+                ),
+                suggestion="Increase branch contrast and reduce one-route dominance in early scenes.",
+            )
+        )
+    if metrics["recovery_window_rate"] < float(policy["recovery_window_block_below"]):
+        blocking_errors.append(
+            _diag(
+                code="PLAYABILITY_RECOVERY_WINDOW_TOO_LOW",
+                path="flow.scenes.options",
+                message=(
+                    f"recovery_window_rate={metrics['recovery_window_rate']:.2f} below blocking threshold "
+                    f"{float(policy['recovery_window_block_below']):.2f}."
+                ),
+                suggestion="Ensure most turns present at least one viable recovery option.",
+            )
+        )
     if metrics["branch_coverage"] < float(policy["branch_coverage_warn_below"]):
         warnings.append(
             _diag(
@@ -487,6 +667,54 @@ def analyze_story_playability(
                     f"{float(policy['branch_coverage_warn_below']):.2f}."
                 ),
                 suggestion="Differentiate option outcomes so multiple branches stay meaningful.",
+            )
+        )
+    if metrics["choice_contrast_score"] < float(policy["choice_contrast_warn_below"]):
+        warnings.append(
+            _diag(
+                code="PLAYABILITY_CHOICE_CONTRAST_LOW",
+                path="flow.scenes.options",
+                message=(
+                    f"choice_contrast_score={metrics['choice_contrast_score']:.2f} below warning threshold "
+                    f"{float(policy['choice_contrast_warn_below']):.2f}."
+                ),
+                suggestion="Increase option contrast through action type, route target, or effects.",
+            )
+        )
+    if metrics["dominant_strategy_rate"] > float(policy["dominant_strategy_warn_above"]):
+        warnings.append(
+            _diag(
+                code="PLAYABILITY_DOMINANT_STRATEGY_HIGH",
+                path="flow.scenes",
+                message=(
+                    f"dominant_strategy_rate={metrics['dominant_strategy_rate']:.2f} above warning threshold "
+                    f"{float(policy['dominant_strategy_warn_above']):.2f}."
+                ),
+                suggestion="Add competitive alternatives so one strategy is not always optimal.",
+            )
+        )
+    if metrics["recovery_window_rate"] < float(policy["recovery_window_warn_below"]):
+        warnings.append(
+            _diag(
+                code="PLAYABILITY_RECOVERY_WINDOW_LOW",
+                path="flow.scenes.options",
+                message=(
+                    f"recovery_window_rate={metrics['recovery_window_rate']:.2f} below warning threshold "
+                    f"{float(policy['recovery_window_warn_below']):.2f}."
+                ),
+                suggestion="Offer recovery options more consistently across scenes.",
+            )
+        )
+    if metrics["tension_loop_score"] < float(policy["tension_loop_warn_below"]):
+        warnings.append(
+            _diag(
+                code="PLAYABILITY_TENSION_LOOP_WEAK",
+                path="consequence",
+                message=(
+                    f"tension_loop_score={metrics['tension_loop_score']:.2f} below warning threshold "
+                    f"{float(policy['tension_loop_warn_below']):.2f}."
+                ),
+                suggestion="Design pressure -> recovery -> progress cycles in nearby scenes.",
             )
         )
 

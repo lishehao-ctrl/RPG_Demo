@@ -19,6 +19,8 @@ const state = {
   stepUiStatus: "idle",
   busyRequestKind: null,
   busyPhase: null,
+  stageLabel: "",
+  stageCode: "",
   busyLongWait: false,
   busyPhaseTimer: null,
   longWaitTimer: null,
@@ -54,6 +56,12 @@ const FREE_INPUT_PHASE2_DELAY_MS = 900;
 const LONG_WAIT_HINT_MS = 12000;
 const STEP_ACK_HOLD_MS = 1200;
 const IMPACT_MAX_ROWS = 4;
+const PLAY_BUSY_STAGE_CLASS_BY_CODE = {
+  "play.selection.start": "play-busy--selection",
+  "play.narration.start": "play-busy--narration",
+  "llm.retry": "play-busy--retry",
+};
+const PLAY_BUSY_STAGE_CLASSES = Object.values(PLAY_BUSY_STAGE_CLASS_BY_CODE);
 
 const numberFormatter = new Intl.NumberFormat("en-US");
 
@@ -189,6 +197,9 @@ function clearBusyFlow() {
   _clearBusyTimers();
   state.busyRequestKind = null;
   state.busyPhase = null;
+  state.stageLabel = "";
+  state.stageCode = "";
+  refs.stepBusyHintEl.classList.remove(...PLAY_BUSY_STAGE_CLASSES);
   state.busyLongWait = false;
   refs.stepBusyPhaseEl.textContent = "";
   refs.stepBusyPhaseEl.classList.remove("play-busy__phase--visible");
@@ -224,6 +235,13 @@ function showStepAck(message, stateName = "success") {
 }
 
 function renderBusyCopy() {
+  if (state.stageLabel) {
+    refs.stepBusyTextEl.textContent = state.stageLabel;
+    refs.stepBusyPhaseEl.textContent = "";
+    refs.stepBusyPhaseEl.classList.remove("play-busy__phase--visible");
+    return;
+  }
+
   const kind = state.busyRequestKind || "choice";
   const phase = state.busyPhase || "single";
   const longWait = state.busyLongWait === true;
@@ -279,7 +297,9 @@ function setStepUiStatus(nextStatus, options = {}) {
   const idle = normalized === "idle";
 
   refs.sendInputBtnEl.classList.toggle("btn--loading", submitting);
-  refs.sendInputBtnEl.textContent = submitting ? "Sending..." : "Send Input";
+  refs.sendInputBtnEl.textContent = submitting
+    ? (state.stageLabel || "Sending...")
+    : "Send Input";
   refs.sendInputBtnEl.disabled = !idle;
 
   refs.retryPendingBtnEl.classList.remove("btn--loading");
@@ -305,6 +325,23 @@ function setStepUiStatus(nextStatus, options = {}) {
   }
 
   _updateChoiceInteractivity();
+}
+
+function handleStepStage(stagePayload) {
+  const label = String(stagePayload?.label || "").trim();
+  const stageCode = String(stagePayload?.stage_code || "").trim();
+  const stageClass = PLAY_BUSY_STAGE_CLASS_BY_CODE[stageCode] || "";
+  refs.stepBusyHintEl.classList.remove(...PLAY_BUSY_STAGE_CLASSES);
+  if (stageClass) {
+    refs.stepBusyHintEl.classList.add(stageClass);
+  }
+  state.stageCode = stageCode;
+  if (!label) return;
+  state.stageLabel = label;
+  if (state.stepUiStatus === "submitting") {
+    refs.sendInputBtnEl.textContent = label;
+    renderBusyCopy();
+  }
 }
 
 function renderPendingStatus(pending, meta = {}) {
@@ -615,6 +652,7 @@ async function loadBootstrap() {
     maxAttempts: payload.step_retry_max_attempts,
     backoffMs: payload.step_retry_backoff_ms,
     onStatus: renderPendingStatus,
+    onStage: handleStepStage,
   });
   setStepUiStatus("idle");
 }

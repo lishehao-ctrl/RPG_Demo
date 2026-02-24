@@ -11,7 +11,7 @@ from sqlalchemy import func, select, text
 
 from app.config import settings
 from app.db import session as db_session
-from app.db.models import ActionLog, LLMUsageLog, Session as StorySession, SessionSnapshot, SessionStepIdempotency
+from app.db.models import ActionLog, Session as StorySession, SessionSnapshot, SessionStepIdempotency, Story
 from app.modules.llm.adapter import LLMRuntime
 from app.main import app
 from tests.support.db_runtime import enable_sqlite_fk_per_connection, prepare_sqlite_db
@@ -103,6 +103,25 @@ def _step_request_hash(*, choice_id: str | None, player_input: str | None) -> st
         separators=(",", ":"),
     )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _parse_sse_events(payload: str) -> list[tuple[str, dict]]:
+    events: list[tuple[str, dict]] = []
+    for raw_block in str(payload or "").replace("\r\n", "\n").split("\n\n"):
+        block = raw_block.strip()
+        if not block:
+            continue
+        event_name = "message"
+        data_parts: list[str] = []
+        for line in block.split("\n"):
+            if line.startswith("event:"):
+                event_name = line[len("event:"):].strip() or "message"
+            elif line.startswith("data:"):
+                data_parts.append(line[len("data:"):].strip())
+        data_text = "\n".join(data_parts).strip()
+        data = json.loads(data_text) if data_text else {}
+        events.append((event_name, data))
+    return events
 
 
 def test_create_session_requires_story_id(tmp_path: Path) -> None:
@@ -262,6 +281,32 @@ def test_create_session_accepts_non_uuid_story_node_ids(tmp_path: Path) -> None:
     assert got.json()["current_node"]["id"] == "n_start"
 
 
+def test_create_session_rejects_legacy_storypack_shape_at_runtime(tmp_path: Path) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    bad_pack = _make_story_pack("session_api_legacy_pack")
+    bad_pack["author_source_v3"] = {"legacy": True}
+
+    with db_session.SessionLocal() as db:
+        with db.begin():
+            db.add(
+                Story(
+                    story_id="session_api_legacy_pack",
+                    version=1,
+                    is_published=True,
+                    pack_json=bad_pack,
+                    created_at=datetime.now(timezone.utc),
+                )
+            )
+
+    created = client.post("/sessions", json={"story_id": "session_api_legacy_pack"})
+    assert created.status_code == 400
+    detail = created.json()["detail"]
+    assert detail["code"] == "RUNTIME_PACK_V10_REQUIRED"
+    assert isinstance(detail.get("errors"), list)
+    assert detail["errors"]
+
+
 def test_snapshot_rollback_restores_exact_state(tmp_path: Path) -> None:
     _prepare_db(tmp_path)
     client = TestClient(app)
@@ -286,6 +331,142 @@ def test_snapshot_rollback_restores_exact_state(tmp_path: Path) -> None:
 
     assert state_after["current_node_id"] == state_at_snapshot["current_node_id"]
     assert state_after["character_states"] == state_at_snapshot["character_states"]
+
+
+def test_step_stream_choice_emits_stage_and_result(tmp_path: Path) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    _publish_story(client, story_id="session_api_stream_choice")
+    sid = _create_story_session(client, story_id="session_api_stream_choice")
+
+    response = client.post(f"/sessions/{sid}/step/stream", json={"choice_id": "c1"})
+    assert response.status_code == 200
+    assert "text/event-stream" in response.headers.get("content-type", "")
+
+    events = _parse_sse_events(response.text)
+    assert events
+    stage_codes = [payload.get("stage_code") for event, payload in events if event == "stage"]
+    assert "play.narration.start" in stage_codes
+
+    result_events = [payload for event, payload in events if event == "result"]
+    assert len(result_events) == 1
+    result = result_events[0]
+    assert isinstance(result.get("narrative_text"), str) and result["narrative_text"].strip()
+    assert isinstance(result.get("choices"), list)
+    assert "cost" not in result
+
+
+def test_step_stream_free_input_emits_selection_then_narration(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    _publish_story(client, story_id="session_api_stream_free_input")
+    sid = _create_story_session(client, story_id="session_api_stream_free_input")
+
+    from app.modules.llm.runtime.progress import emit_stage
+    from app.modules.llm.schemas import NarrativeOutput, StorySelectionOutput
+    from app.modules.session import service as session_service
+
+    class _StreamRuntime:
+        def select_story_choice_with_fallback(
+            self,
+            db,
+            *,
+            prompt: str,
+            prompt_envelope=None,
+            session_id=None,
+            step_id=None,
+            stage_emitter=None,
+            stage_locale=None,
+            stage_request_kind=None,
+        ):  # noqa: ANN001
+            _ = (db, prompt, prompt_envelope, session_id, step_id)
+            emit_stage(
+                stage_emitter,
+                stage_code="play.selection.start",
+                locale=stage_locale,
+                request_kind=stage_request_kind,
+            )
+            return (
+                StorySelectionOutput(
+                    choice_id="c1",
+                    use_fallback=False,
+                    confidence=0.95,
+                    intent_id="intent_study",
+                    notes="matched",
+                ),
+                True,
+            )
+
+        def narrative_with_fallback(
+            self,
+            db,
+            *,
+            prompt: str,
+            prompt_envelope=None,
+            session_id=None,
+            step_id=None,
+            timeout_profile=None,
+            max_tokens_override=None,
+            temperature_override=None,
+            stage_emitter=None,
+            stage_locale=None,
+            stage_request_kind=None,
+        ):  # noqa: ANN001
+            _ = (
+                db,
+                prompt,
+                prompt_envelope,
+                session_id,
+                step_id,
+                timeout_profile,
+                max_tokens_override,
+                temperature_override,
+            )
+            emit_stage(
+                stage_emitter,
+                stage_code="play.narration.start",
+                locale=stage_locale,
+                request_kind=stage_request_kind,
+            )
+            return (NarrativeOutput(narrative_text="Stage test narrative."), True)
+
+    monkeypatch.setattr(session_service, "get_llm_runtime", lambda: _StreamRuntime())
+
+    response = client.post(
+        f"/sessions/{sid}/step/stream",
+        json={"player_input": "I want to study now"},
+    )
+    assert response.status_code == 200
+    events = _parse_sse_events(response.text)
+    stage_codes = [payload.get("stage_code") for event, payload in events if event == "stage"]
+    assert "play.selection.start" in stage_codes
+    assert "play.narration.start" in stage_codes
+    assert stage_codes.index("play.selection.start") < stage_codes.index("play.narration.start")
+    result_events = [payload for event, payload in events if event == "result"]
+    assert len(result_events) == 1
+
+
+def test_step_stream_input_conflict_emits_error_event(tmp_path: Path) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    _publish_story(client, story_id="session_api_stream_conflict")
+    sid = _create_story_session(client, story_id="session_api_stream_conflict")
+
+    response = client.post(
+        f"/sessions/{sid}/step/stream",
+        json={"choice_id": "c1", "player_input": "also text"},
+    )
+    assert response.status_code == 200
+    events = _parse_sse_events(response.text)
+    assert events
+    event_name, payload = events[-1]
+    assert event_name == "error"
+    assert payload.get("status") == 422
+    detail = payload.get("detail") or {}
+    assert detail.get("code") == "INPUT_CONFLICT"
 
 
 def test_snapshot_rollback_restores_quest_state(tmp_path: Path) -> None:
@@ -399,7 +580,7 @@ def test_rollback_trim_uses_snapshot_membership_not_timestamp_only(tmp_path: Pat
     assert logs_after == 1
 
 
-def test_step_cost_payload_is_token_only(tmp_path: Path) -> None:
+def test_step_payload_has_no_cost_field(tmp_path: Path) -> None:
     _prepare_db(tmp_path)
     client = TestClient(app)
     _publish_story(client)
@@ -409,8 +590,7 @@ def test_step_cost_payload_is_token_only(tmp_path: Path) -> None:
     assert step.status_code == 200
     step_body = step.json()
     assert "affection_delta" not in step_body
-    cost = step_body["cost"]
-    assert set(cost.keys()) == {"tokens_in", "tokens_out", "provider"}
+    assert "cost" not in step_body
     assert step_body["run_ended"] is False
     assert step_body["ending_id"] is None
     assert step_body["ending_outcome"] is None
@@ -551,7 +731,13 @@ def test_step_idempotency_failed_llm_unavailable_can_retry_same_key(tmp_path: Pa
             read_timeout_s: float | None = None,
             write_timeout_s: float | None = None,
             pool_timeout_s: float | None = None,
+            max_tokens_override: int | None = None,
+            temperature_override: float | None = None,
+            messages_override: list[dict] | None = None,
         ):
+            _ = max_tokens_override
+            _ = temperature_override
+            _ = messages_override
             self.calls += 1
             if self.fail:
                 raise httpx.ReadTimeout("forced read timeout", request=httpx.Request("POST", "https://example.com"))
@@ -564,7 +750,6 @@ def test_step_idempotency_failed_llm_unavailable_can_retry_same_key(tmp_path: Pa
                     ],
                 },
                 {
-                    "provider": "fake",
                     "model": model,
                     "prompt_tokens": 12,
                     "completion_tokens": 7,
@@ -578,13 +763,9 @@ def test_step_idempotency_failed_llm_unavailable_can_retry_same_key(tmp_path: Pa
     provider = _ToggleProvider()
     runtime.providers["fake"] = provider
 
-    original_primary = settings.llm_provider_primary
-    original_fallbacks = list(settings.llm_provider_fallbacks)
     original_network_retries = settings.llm_retry_attempts_network
     original_llm_retries = settings.llm_max_retries
     original_deadline = settings.llm_total_deadline_s
-    settings.llm_provider_primary = "fake"
-    settings.llm_provider_fallbacks = []
     settings.llm_retry_attempts_network = 1
     settings.llm_max_retries = 1
     settings.llm_total_deadline_s = 1.0
@@ -637,67 +818,9 @@ def test_step_idempotency_failed_llm_unavailable_can_retry_same_key(tmp_path: Pa
             ).scalar_one()
             assert log_count == 1
     finally:
-        settings.llm_provider_primary = original_primary
-        settings.llm_provider_fallbacks = original_fallbacks
         settings.llm_retry_attempts_network = original_network_retries
         settings.llm_max_retries = original_llm_retries
         settings.llm_total_deadline_s = original_deadline
-
-
-def test_llm_trace_dev_only(tmp_path: Path) -> None:
-    _prepare_db(tmp_path)
-    client = TestClient(app)
-    _publish_story(client)
-    sid = _create_story_session(client)
-
-    trace = client.get(f"/sessions/{sid}/debug/llm-trace")
-    assert trace.status_code == 200
-    body = trace.json()
-
-    assert body["session_id"] == sid
-    assert body["env"] == "dev"
-    assert isinstance(body["provider_chain"], list)
-    assert isinstance(body["model_generate"], str)
-    assert set(body["runtime_limits"].keys()) == {
-        "llm_timeout_s",
-        "llm_total_deadline_s",
-        "llm_retry_attempts_network",
-        "llm_max_retries",
-        "circuit_window_s",
-        "circuit_fail_threshold",
-        "circuit_open_s",
-    }
-    runtime_limits = body["runtime_limits"]
-    assert runtime_limits["llm_timeout_s"] == pytest.approx(float(settings.llm_timeout_s))
-    assert runtime_limits["llm_total_deadline_s"] == pytest.approx(float(settings.llm_total_deadline_s))
-    assert runtime_limits["llm_retry_attempts_network"] == int(settings.llm_retry_attempts_network)
-    assert runtime_limits["llm_max_retries"] == int(settings.llm_max_retries)
-    assert set(body["summary"].keys()) == {
-        "total_calls",
-        "success_calls",
-        "error_calls",
-        "providers",
-        "errors_by_kind",
-        "errors_by_message_prefix",
-    }
-    assert isinstance(body["llm_calls"], list)
-    assert "api_key" not in json.dumps(body).lower()
-
-
-def test_llm_trace_disabled_outside_dev(tmp_path: Path) -> None:
-    _prepare_db(tmp_path)
-    client = TestClient(app)
-    _publish_story(client)
-    sid = _create_story_session(client)
-
-    original_env = settings.env
-    settings.env = "prod"
-    try:
-        trace = client.get(f"/sessions/{sid}/debug/llm-trace")
-        assert trace.status_code == 404
-        assert trace.json()["detail"]["code"] == "DEBUG_DISABLED"
-    finally:
-        settings.env = original_env
 
 
 def test_layer_inspector_dev_only(tmp_path: Path) -> None:
@@ -706,12 +829,17 @@ def test_layer_inspector_dev_only(tmp_path: Path) -> None:
     _publish_story(client)
     sid = _create_story_session(client)
 
-    step = client.post(f"/sessions/{sid}/step", json={"choice_id": "c1"})
-    assert step.status_code == 200
+    original_env = settings.env
+    settings.env = "dev"
+    try:
+        step = client.post(f"/sessions/{sid}/step", json={"choice_id": "c1"})
+        assert step.status_code == 200
 
-    debug = client.get(f"/sessions/{sid}/debug/layer-inspector")
-    assert debug.status_code == 200
-    body = debug.json()
+        debug = client.get(f"/sessions/{sid}/debug/layer-inspector")
+        assert debug.status_code == 200
+        body = debug.json()
+    finally:
+        settings.env = original_env
 
     assert body["session_id"] == sid
     assert body["env"] == "dev"
@@ -721,6 +849,8 @@ def test_layer_inspector_dev_only(tmp_path: Path) -> None:
         "event_turns",
         "guard_all_blocked_turns",
         "guard_stall_turns",
+        "dominant_route_alerts",
+        "low_recovery_turns",
         "ending_state",
     }
     assert isinstance(body["steps"], list)
@@ -754,78 +884,6 @@ def test_layer_inspector_disabled_outside_dev(tmp_path: Path) -> None:
         assert debug.json()["detail"]["code"] == "DEBUG_DISABLED"
     finally:
         settings.env = original_env
-
-
-def test_llm_trace_records_llm_unavailable_path(tmp_path: Path, monkeypatch) -> None:
-    _prepare_db(tmp_path)
-    client = TestClient(app)
-    _publish_story(client)
-
-    from app.modules.session import service as session_service
-
-    class _AlwaysTimeoutProvider:
-        async def generate(
-            self,
-            prompt: str,
-            *,
-            request_id: str,
-            timeout_s: float,
-            model: str,
-            connect_timeout_s: float | None = None,
-            read_timeout_s: float | None = None,
-            write_timeout_s: float | None = None,
-            pool_timeout_s: float | None = None,
-        ):
-            raise httpx.ReadTimeout("forced read timeout", request=httpx.Request("POST", "https://example.com"))
-
-    runtime = LLMRuntime()
-    runtime.providers["fake"] = _AlwaysTimeoutProvider()
-
-    original_primary = settings.llm_provider_primary
-    original_fallbacks = list(settings.llm_provider_fallbacks)
-    original_network_retries = settings.llm_retry_attempts_network
-    original_llm_retries = settings.llm_max_retries
-    original_deadline = settings.llm_total_deadline_s
-    settings.llm_provider_primary = "fake"
-    settings.llm_provider_fallbacks = []
-    settings.llm_retry_attempts_network = 1
-    settings.llm_max_retries = 1
-    settings.llm_total_deadline_s = 1.0
-    monkeypatch.setattr(session_service, "get_llm_runtime", lambda: runtime)
-    try:
-        sid = _create_story_session(client)
-        step = client.post(
-            f"/sessions/{sid}/step",
-            json={"choice_id": "c1"},
-            headers={"X-Idempotency-Key": "idem-step-trace"},
-        )
-        assert step.status_code == 503
-        assert step.json()["detail"]["code"] == "LLM_UNAVAILABLE"
-
-        trace = client.get(f"/sessions/{sid}/debug/llm-trace")
-        assert trace.status_code == 200
-        body = trace.json()
-
-        assert (body.get("latest_idempotency") or {}).get("error_code") == "LLM_UNAVAILABLE"
-        assert body["summary"]["error_calls"] >= 1
-        assert any(str(item.get("status")) == "error" for item in (body.get("llm_calls") or []))
-        assert any(item.get("phase_guess") == "narrative_phase_or_narrative_repair" for item in body["llm_calls"])
-        assert any(item.get("error_kind") for item in body["llm_calls"])
-        assert "errors_by_kind" in body["summary"]
-
-        with db_session.SessionLocal() as db:
-            rows = db.execute(
-                select(LLMUsageLog).where(LLMUsageLog.session_id == uuid.UUID(sid)).order_by(LLMUsageLog.created_at.desc())
-            ).scalars().all()
-            assert rows
-            assert any(r.status == "error" for r in rows)
-    finally:
-        settings.llm_provider_primary = original_primary
-        settings.llm_provider_fallbacks = original_fallbacks
-        settings.llm_retry_attempts_network = original_network_retries
-        settings.llm_max_retries = original_llm_retries
-        settings.llm_total_deadline_s = original_deadline
-
 
 def test_legacy_session_without_story_returns_story_required(tmp_path: Path) -> None:
     _prepare_db(tmp_path)

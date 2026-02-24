@@ -2,6 +2,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
@@ -149,6 +150,16 @@ def test_validate_rejects_window_effects_hard_cut(tmp_path: Path) -> None:
     assert resp2.status_code == 422
 
 
+def test_validate_rejects_legacy_author_source_v3_field_hard_cut(tmp_path: Path) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    pack = _pack()
+    pack["author_source_v3"] = {"legacy": True}
+
+    resp = client.post("/stories/validate", json=pack)
+    assert resp.status_code == 422
+
+
 def test_validate_rejects_missing_non_end_fallback_coverage(tmp_path: Path) -> None:
     _prepare_db(tmp_path)
     client = TestClient(app)
@@ -278,6 +289,28 @@ def test_publish_rejects_invalid_story_pack(tmp_path: Path) -> None:
     assert detail["code"] == "STORY_INVALID_FOR_PUBLISH"
     assert isinstance(detail.get("errors"), list)
     assert detail["errors"]
+
+
+def test_startup_blocks_when_legacy_storypacks_are_present(tmp_path: Path) -> None:
+    _prepare_db(tmp_path)
+    bad_pack = _pack()
+    bad_pack["author_source_v3"] = {"legacy": True}
+
+    with db_session.SessionLocal() as db:
+        with db.begin():
+            db.add(
+                Story(
+                    story_id="legacy_blocked_story",
+                    version=1,
+                    is_published=True,
+                    pack_json=bad_pack,
+                    created_at=datetime.now(timezone.utc),
+                )
+            )
+
+    with pytest.raises(RuntimeError, match="LEGACY_STORYPACKS_BLOCK_STARTUP"):
+        with TestClient(app):
+            pass
 
 
 def test_validate_accepts_valid_quests_schema(tmp_path: Path) -> None:

@@ -7,6 +7,9 @@ This is the single entry point for project documentation.
 - [StoryPack Spec (v10 Strict)](story-pack-spec.md)
 - [Story Authoring Spec (ASF v4)](story-authoring-spec.md)
 - [Code Structure & Ownership](code-structure.md)
+- [LLM Boundary Guide (ZH)](architecture-llm-boundary-zh.md)
+  - Chinese boundary matrix for LLM vs deterministic engines
+  - Play/Author/Compile deterministic flow diagrams
 
 ## Operational References
 - [API Surface](api.md)
@@ -15,6 +18,8 @@ This is the single entry point for project documentation.
 - [Frontend Handoff Guide](frontend_handoff.md)
   - includes `Stable Selector Contract`
   - includes stable `data-testid` selector contract for `/demo/play` and `/demo/dev`
+- [Story Author Mode Guide (ZH)](author-mode-zh.md)
+  - Chinese author-facing usage guide for `/demo/author`
 - Demo entrypoints:
   - user: `/demo/play`
   - developer: `/demo/dev`

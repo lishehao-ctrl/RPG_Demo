@@ -11,7 +11,7 @@
   <header class="header dev-header">
     <div class="header__title">
       <h1>RPG Developer Console</h1>
-      <p>Full runtime instrumentation for sessions, idempotency, LLM trace, replay, and timeline diagnostics.</p>
+      <p>Full runtime instrumentation for sessions, idempotency, replay, and timeline diagnostics.</p>
       <div class="dev-nav"><a href="/demo/play">Switch to Player Demo</a></div>
     </div>
 
@@ -58,19 +58,9 @@
         </div>
       </div>
 
-      <div class="section section--trace" data-testid="dev-llm-trace-panel">
-        <h2>LLM Debug Trace</h2>
-        <pre id="llmTraceMeta">(no trace)</pre>
-        <pre id="llmTraceSummary">(no summary)</pre>
-        <pre id="llmTraceCalls">(no calls)</pre>
-        <div class="row">
-          <button id="refreshLlmTraceBtn" class="btn btn--ghost" type="button">Refresh LLM Trace</button>
-        </div>
-      </div>
-
       <div class="section section--layers" data-testid="dev-layer-inspector-panel">
         <h2>Layer Inspector</h2>
-        <pre id="layerInspectorSummary">(no layer summary)</pre>
+        <div id="layerInspectorSummary" class="layer-inspector-summary">(no layer summary)</div>
         <div id="layerInspectorSteps" class="layer-inspector-list">(no layer steps)</div>
         <div class="row">
           <button id="refreshLayerInspectorBtn" class="btn btn--ghost" type="button">Refresh Layer Inspector</button>

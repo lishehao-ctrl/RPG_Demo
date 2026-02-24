@@ -78,66 +78,9 @@ class StepResponse(BaseModel):
     mapping_confidence: float | None = None
     narrative_text: str
     choices: list[ChoiceOut]
-    cost: dict
     run_ended: bool = False
     ending_id: str | None = None
     ending_outcome: str | None = None
-
-
-class LLMTraceCallOut(BaseModel):
-    id: str
-    created_at: str
-    provider: str
-    model: str
-    operation: str
-    status: str
-    step_id: str | None = None
-    prompt_tokens: int
-    completion_tokens: int
-    latency_ms: int
-    error_message: str | None = None
-    error_kind: str | None = None
-    raw_snippet: str | None = None
-    phase_guess: str
-
-
-class IdempotencyDebugOut(BaseModel):
-    idempotency_key: str
-    status: str
-    error_code: str | None = None
-    updated_at: str
-    request_hash_prefix: str
-    response_present: bool
-
-
-class RuntimeLimitsOut(BaseModel):
-    llm_timeout_s: float
-    llm_total_deadline_s: float
-    llm_retry_attempts_network: int
-    llm_max_retries: int
-    circuit_window_s: float
-    circuit_fail_threshold: int
-    circuit_open_s: float
-
-
-class LLMTraceSummaryOut(BaseModel):
-    total_calls: int
-    success_calls: int
-    error_calls: int
-    providers: dict[str, int] = Field(default_factory=dict)
-    errors_by_kind: dict[str, int] = Field(default_factory=dict)
-    errors_by_message_prefix: dict[str, int] = Field(default_factory=dict)
-
-
-class LLMTraceOut(BaseModel):
-    session_id: str
-    env: str
-    provider_chain: list[str]
-    model_generate: str
-    runtime_limits: RuntimeLimitsOut
-    latest_idempotency: IdempotencyDebugOut | None = None
-    summary: LLMTraceSummaryOut
-    llm_calls: list[LLMTraceCallOut] = Field(default_factory=list)
 
 
 class LayerInspectorStepOut(BaseModel):
@@ -158,6 +101,8 @@ class LayerInspectorSummaryOut(BaseModel):
     event_turns: int
     guard_all_blocked_turns: int = 0
     guard_stall_turns: int = 0
+    dominant_route_alerts: int = 0
+    low_recovery_turns: int = 0
     ending_state: str
 
 

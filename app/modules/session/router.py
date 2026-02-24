@@ -1,13 +1,14 @@
 import uuid
+import json
 
 from fastapi import APIRouter, Depends, Header
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.modules.session import service
 from app.modules.session.schemas import (
     LayerInspectorOut,
-    LLMTraceOut,
     SessionCreateOut,
     SessionCreateRequest,
     SessionStateOut,
@@ -17,6 +18,10 @@ from app.modules.session.schemas import (
 )
 
 router = APIRouter(prefix="", tags=["sessions"])
+
+
+def _sse_encode(event_name: str, payload: dict) -> str:
+    return f"event: {event_name}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
 @router.post("/sessions", response_model=SessionCreateOut)
@@ -34,15 +39,6 @@ def get_session(
     db: Session = Depends(get_db),
 ):
     return service.get_session_state(db, session_id)
-
-
-@router.get("/sessions/{session_id}/debug/llm-trace", response_model=LLMTraceOut)
-def get_llm_trace(
-    session_id: uuid.UUID,
-    limit: int = 50,
-    db: Session = Depends(get_db),
-):
-    return service.get_llm_trace(db, session_id, limit=limit)
 
 
 @router.get("/sessions/{session_id}/debug/layer-inspector", response_model=LayerInspectorOut)
@@ -68,6 +64,30 @@ def step_session(
         payload.player_input,
         idempotency_key=x_idempotency_key,
     )
+
+
+@router.post("/sessions/{session_id}/step/stream")
+def step_session_stream(
+    session_id: uuid.UUID,
+    payload: StepRequest,
+    x_idempotency_key: str | None = Header(default=None, alias="X-Idempotency-Key"),
+):
+    def _event_stream():
+        for event_name, data in service.step_session_stream(
+            session_id=session_id,
+            choice_id=payload.choice_id,
+            player_input=payload.player_input,
+            idempotency_key=x_idempotency_key,
+        ):
+            if event_name == "stage":
+                yield _sse_encode("stage", data if isinstance(data, dict) else {})
+            elif event_name == "result":
+                yield _sse_encode("result", data if isinstance(data, dict) else {})
+            elif event_name == "error":
+                payload_data = data if isinstance(data, dict) else {"status": 500, "detail": {"code": "INTERNAL_ERROR"}}
+                yield _sse_encode("error", payload_data)
+
+    return StreamingResponse(_event_stream(), media_type="text/event-stream")
 
 
 @router.post("/sessions/{session_id}/snapshot", response_model=SnapshotOut)

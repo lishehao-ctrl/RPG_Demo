@@ -53,7 +53,12 @@ Author selectors:
 - `data-testid="author-tab-debug"`
 - `data-testid="author-debug-toggle"`
 - `data-testid="author-main-flow"`
+- `data-testid="author-page-compose"`
+- `data-testid="author-page-shape"`
+- `data-testid="author-page-build"`
 - `data-testid="author-next-steps"`
+- `data-testid="author-assist-retry-hint"`
+- `data-testid="author-fun-metrics"`
 - `data-testid="author-debug-panel"`
 - `data-testid="author-stepper"`
 - `data-testid="author-step-world"`
@@ -61,6 +66,11 @@ Author selectors:
 - `data-testid="author-entry-ingest"`
 - `data-testid="author-seed-input"`
 - `data-testid="author-source-input"`
+- `data-testid="author-continue-input"`
+- `data-testid="author-continue-write-btn"`
+- `data-testid="author-trim-content-btn"`
+- `data-testid="author-spice-branch-btn"`
+- `data-testid="author-tension-rebalance-btn"`
 - `data-testid="author-auto-apply-hint"`
 - `data-testid="author-step-characters"`
 - `data-testid="author-step-plot"`
@@ -88,13 +98,14 @@ Compatibility markers retained:
 - `data-testid="author-step-advanced"`
 
 ## Author Workflow (ASF v4)
-1. Choose `Spark` or `Ingest` entry.
+1. Choose `Spark` or `Ingest` entry in `Compose`.
 2. Click `Parse All Layers`; assist patches are auto-applied in UI.
-3. Continue with assist actions; all v4 assist tasks auto-apply by default.
-4. Review `Writer Turn Feed` and `Next Steps` on Author tab.
-5. Use `Undo Last Apply` to rollback the latest assist batch.
-6. Open `Show Debug` only when you need raw suggestions/patches/diagnostics.
-7. Validate (with playability gate) -> Compile -> Save -> Playtest.
+3. For post-parse iteration use `Continue Write`, `Trim Content`, `Spice Branch`, `Rebalance Tension`.
+4. Switch to `Shape` only for focused scene/action edits.
+5. Switch to `Build` for next steps, playability blocking, validate/compile/save/playtest.
+6. Use `Undo Last Apply` to rollback the latest assist batch.
+7. Open `Show Debug` only when you need raw suggestions/patches/diagnostics.
+8. On `503` assist failures, show retry guidance in Author tab and keep detailed error code/hint in Debug tab.
 
 ## Dev Layer Inspector
 `/demo/dev` includes Layer Inspector panel powered by:

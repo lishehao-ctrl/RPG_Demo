@@ -1,14 +1,20 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.db.models import Story
 from app.db.session import get_db
-from app.modules.story.author_assist import author_assist_suggestions
+from app.modules.story.author_assist import (
+    AuthorAssistError,
+    author_assist_stream as stream_author_assist_events,
+    author_assist_suggestions,
+)
 from app.modules.story.authoring import (
     author_v4_required_message,
     looks_like_author_pre_v4_payload,
@@ -32,6 +38,10 @@ from app.modules.story.service_api import (
 router = APIRouter(prefix="", tags=["stories"])
 
 _AUTHOR_ASSIST_TASKS_V4 = set(AUTHOR_ASSIST_TASKS_V4)
+
+
+def _sse_encode(event_name: str, payload: dict) -> str:
+    return f"event: {event_name}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
 @router.post("/stories/validate", response_model=ValidateResponse)
@@ -103,23 +113,82 @@ def author_assist(payload: AuthorAssistRequest, db: Session = Depends(get_db)):
                 "message": (
                     "author-assist now requires ASF v4 tasks: "
                     "story_ingest, seed_expand, beat_to_scene, scene_deepen, option_weave, "
-                    "consequence_balance, ending_design, consistency_check."
+                    "consequence_balance, ending_design, consistency_check, continue_write, "
+                    "trim_content, spice_branch, tension_rebalance."
                 ),
             },
         )
-    result = author_assist_suggestions(
-        db=db,
-        task=task,
-        locale=str(payload.locale or "en"),
-        context=(payload.context if isinstance(payload.context, dict) else {}),
-    )
+    try:
+        result = author_assist_suggestions(
+            db=db,
+            task=task,
+            locale=str(payload.locale or "en"),
+            context=(payload.context if isinstance(payload.context, dict) else {}),
+        )
+    except AuthorAssistError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": exc.code,
+                "message": str(exc.message or "Author assist failed."),
+                "retryable": bool(exc.retryable),
+                "hint": exc.hint,
+            },
+        ) from exc
     return {
         "suggestions": (result.get("suggestions") if isinstance(result.get("suggestions"), dict) else {}),
         "patch_preview": (result.get("patch_preview") if isinstance(result.get("patch_preview"), list) else []),
         "warnings": [str(item) for item in (result.get("warnings") or [])],
-        "provider": str(result.get("provider") or "deterministic_fallback"),
         "model": str(result.get("model") or "heuristic-v1"),
     }
+
+
+@router.post("/stories/author-assist/stream")
+def author_assist_stream(payload: AuthorAssistRequest, db: Session = Depends(get_db)):
+    task = str(payload.task or "").strip()
+    if task not in _AUTHOR_ASSIST_TASKS_V4:
+        detail = {
+            "code": "ASSIST_TASK_V4_REQUIRED",
+            "message": (
+                "author-assist now requires ASF v4 tasks: "
+                "story_ingest, seed_expand, beat_to_scene, scene_deepen, option_weave, "
+                "consequence_balance, ending_design, consistency_check, continue_write, "
+                "trim_content, spice_branch, tension_rebalance."
+            ),
+        }
+
+        def _invalid_task_stream():
+            yield _sse_encode("error", {"status": 422, "detail": detail})
+
+        return StreamingResponse(_invalid_task_stream(), media_type="text/event-stream")
+
+    def _event_stream():
+        for event_name, data in stream_author_assist_events(
+            db=db,
+            task=task,  # type: ignore[arg-type]
+            locale=str(payload.locale or "en"),
+            context=(payload.context if isinstance(payload.context, dict) else {}),
+        ):
+            if event_name == "result":
+                payload_out = {
+                    "suggestions": (data.get("suggestions") if isinstance(data.get("suggestions"), dict) else {}),
+                    "patch_preview": (data.get("patch_preview") if isinstance(data.get("patch_preview"), list) else []),
+                    "warnings": [str(item) for item in (data.get("warnings") or [])],
+                    "model": str(data.get("model") or "heuristic-v1"),
+                }
+                yield _sse_encode("result", payload_out)
+                continue
+            if event_name == "error":
+                status = int(data.get("status") or 503) if isinstance(data, dict) else 503
+                detail = data.get("detail") if isinstance(data, dict) else None
+                detail_payload = detail if isinstance(detail, dict) else {"code": "ASSIST_LLM_UNAVAILABLE"}
+                yield _sse_encode("error", {"status": status, "detail": detail_payload})
+                continue
+            if event_name == "stage":
+                stage_payload = data if isinstance(data, dict) else {}
+                yield _sse_encode("stage", stage_payload)
+
+    return StreamingResponse(_event_stream(), media_type="text/event-stream")
 
 
 @router.post("/stories")

@@ -125,6 +125,10 @@ def compile_author_payload_with_runtime_checks(
             "stuck_turn_rate": 0.0,
             "no_progress_rate": 0.0,
             "branch_coverage": 0.0,
+            "choice_contrast_score": 0.0,
+            "dominant_strategy_rate": 0.0,
+            "recovery_window_rate": 0.0,
+            "tension_loop_score": 0.0,
         },
     }
     if compiled_pack is not None:

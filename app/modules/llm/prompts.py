@@ -1,11 +1,139 @@
 import json
+from dataclasses import dataclass
+
+from app.config import settings
 
 from app.modules.story.constants import AUTHOR_ASSIST_TASKS_V4
 
-_SELECTION_MAX_VISIBLE_CHOICES = 6
-_SELECTION_MAX_INTENTS = 6
+_SELECTION_MAX_VISIBLE_CHOICES = 4
+_SELECTION_MAX_INTENTS = 4
 _SELECTION_MAX_PATTERNS = 2
 _NARRATION_MAX_IMPACT_ITEMS = 4
+_AUTHOR_SCENE_WINDOW = 6
+_AUTHOR_OPTION_WINDOW = 4
+_AUTHOR_WRITER_TURN_WINDOW = 6
+_AUTHOR_TEXT_LIMIT_SHORT = 120
+_AUTHOR_TEXT_LIMIT_MEDIUM = 260
+_AUTHOR_TEXT_LIMIT_LONG = 2400
+
+
+@dataclass(frozen=True, slots=True)
+class PromptEnvelope:
+    system_text: str
+    user_text: str
+    schema_name: str
+    schema_payload: dict | None = None
+    tags: tuple[str, ...] = ()
+
+    def to_messages(self) -> list[dict]:
+        return [
+            {"role": "system", "content": self.system_text},
+            {"role": "user", "content": self.user_text},
+        ]
+
+
+def _schema_story_selection() -> dict:
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["choice_id", "use_fallback", "confidence", "intent_id", "notes"],
+        "properties": {
+            "choice_id": {"type": ["string", "null"]},
+            "use_fallback": {"type": "boolean"},
+            "confidence": {"type": "number"},
+            "intent_id": {"type": ["string", "null"]},
+            "notes": {"type": ["string", "null"]},
+        },
+    }
+
+
+def _schema_narrative() -> dict:
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["narrative_text"],
+        "properties": {
+            "narrative_text": {"type": "string"},
+        },
+    }
+
+
+def _schema_author_assist() -> dict:
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["suggestions", "patch_preview", "warnings"],
+        "properties": {
+            "suggestions": {"type": "object"},
+            "patch_preview": {"type": "array"},
+            "warnings": {"type": "array"},
+        },
+    }
+
+
+def _schema_author_idea() -> dict:
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["core_conflict", "tension_loop_plan", "branch_design", "lexical_anchors"],
+        "properties": {
+            "core_conflict": {"type": "object"},
+            "tension_loop_plan": {"type": "object"},
+            "branch_design": {"type": "object"},
+            "lexical_anchors": {"type": "object"},
+        },
+    }
+
+
+def _schema_author_cast_blueprint() -> dict:
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["target_npc_count", "npc_roster", "beat_presence"],
+        "properties": {
+            "target_npc_count": {"type": "integer", "minimum": 3, "maximum": 6},
+            "npc_roster": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["name", "role", "motivation", "tension_hook", "relationship_to_protagonist"],
+                    "properties": {
+                        "name": {"type": "string"},
+                        "role": {"type": "string"},
+                        "motivation": {"type": "string"},
+                        "tension_hook": {"type": "string"},
+                        "relationship_to_protagonist": {"type": "string"},
+                    },
+                },
+            },
+            "beat_presence": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["pressure_open", "pressure_escalation", "recovery_window", "decision_gate"],
+                "properties": {
+                    "pressure_open": {"type": "array", "items": {"type": "string"}},
+                    "pressure_escalation": {"type": "array", "items": {"type": "string"}},
+                    "recovery_window": {"type": "array", "items": {"type": "string"}},
+                    "decision_gate": {"type": "array", "items": {"type": "string"}},
+                },
+            },
+        },
+    }
+
+
+def _prompt_budget_limit(tags: tuple[str, ...]) -> int:
+    if "author" in tags:
+        return max(2000, int(settings.llm_prompt_author_max_chars))
+    return max(1500, int(settings.llm_prompt_play_max_chars))
+
+
+def _trim_prompt_text(text: str, *, tags: tuple[str, ...]) -> str:
+    limit = _prompt_budget_limit(tags)
+    normalized = " ".join(str(text or "").split())
+    if len(normalized) <= limit:
+        return normalized
+    return normalized[:limit]
 
 
 def _clip_text(value: object, *, limit: int = 120) -> str:
@@ -271,6 +399,16 @@ def build_narrative_repair_prompt(raw_text: str) -> str:
     )
 
 
+def build_author_assist_repair_prompt(raw_text: str) -> str:
+    return (
+        "Author-assist repair task. Fix output to JSON with exact schema: "
+        '{"suggestions":object,"patch_preview":array,"warnings":array}. '
+        "Return JSON only. No markdown code fences. No extra top-level keys. "
+        "patch_preview entries must contain keys: id, path, label, value. Source:\n"
+        + raw_text
+    )
+
+
 def build_fallback_polish_prompt(ctx: dict, skeleton_text: str) -> str:
     reason = str((ctx or {}).get("fallback_reason") or "")
     locale = str((ctx or {}).get("locale") or "en")
@@ -374,12 +512,39 @@ def build_story_selection_prompt(
         ],
         "state": _compact_selection_state(state_snippet),
     }
-    return (
+    prompt_text = (
         "Story selection task. Return JSON only with schema: "
         "{choice_id:string|null,use_fallback:boolean,confidence:number,intent_id:string|null,notes:string|null}. "
         "Map player_input to one visible choice_id from valid_choice_ids. "
         "If uncertain, use_fallback=true and choice_id=null. Context: "
         + json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    )
+    return _trim_prompt_text(prompt_text, tags=("play", "selection"))
+
+
+def build_story_selection_envelope(
+    *,
+    player_input: str,
+    valid_choice_ids: list[str],
+    visible_choices: list[dict],
+    intents: list[dict] | None = None,
+    state_snippet: dict | None = None,
+) -> PromptEnvelope:
+    return PromptEnvelope(
+        system_text=(
+            "You are a strict story-selection JSON generator. "
+            "Return one JSON object only. No markdown, no prose, no extra keys."
+        ),
+        user_text=build_story_selection_prompt(
+            player_input=player_input,
+            valid_choice_ids=valid_choice_ids,
+            visible_choices=visible_choices,
+            intents=intents,
+            state_snippet=state_snippet,
+        ),
+        schema_name="story_selection_v1",
+        schema_payload=_schema_story_selection(),
+        tags=("play", "selection"),
     )
 
 
@@ -433,7 +598,7 @@ def build_story_narration_prompt(payload: dict) -> str:
             "Quest nudge suppression rule: skip quest-direction hints on event-present turns to avoid overloaded narration. "
         )
 
-    return (
+    prompt_text = (
         "Story narration task. Return JSON only with exact schema "
         '{"narrative_text":"string"}. '
         "No markdown code fences. No extra keys. "
@@ -454,35 +619,591 @@ def build_story_narration_prompt(payload: dict) -> str:
         + " Context: "
         + json.dumps(compact_context, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     )
+    return _trim_prompt_text(prompt_text, tags=("play", "narration"))
+
+
+def build_story_narration_envelope(payload: dict) -> PromptEnvelope:
+    return PromptEnvelope(
+        system_text=(
+            "You are a strict narrative JSON generator for an interactive story runtime. "
+            "Output exactly one JSON object with no extra keys."
+        ),
+        user_text=build_story_narration_prompt(payload),
+        schema_name="story_narrative_v1",
+        schema_payload=_schema_narrative(),
+        tags=("play", "narration"),
+    )
+
+
+def _author_compaction_profile(task: str) -> dict:
+    mode = str(settings.llm_prompt_compaction_level or "aggressive").strip().lower()
+    aggressive = mode == "aggressive"
+    base = {
+        "scene_window": 6 if aggressive else 8,
+        "option_window": 4 if aggressive else 4,
+        "writer_turn_window": 6 if aggressive else 8,
+        "source_limit": _AUTHOR_TEXT_LIMIT_LONG if aggressive else 3200,
+    }
+    if task == "story_ingest":
+        base["source_limit"] = 2600 if aggressive else 3400
+        base["scene_window"] = 4 if aggressive else 6
+    elif task == "continue_write":
+        base["scene_window"] = 5 if aggressive else 7
+        base["writer_turn_window"] = 4 if aggressive else 6
+    elif task == "seed_expand":
+        base["scene_window"] = 4 if aggressive else 6
+    return base
+
+
+def _compact_author_scene(scene: dict, *, option_window: int) -> dict:
+    options = scene.get("options") if isinstance(scene.get("options"), list) else []
+    compact_options = []
+    for option in options[:max(1, option_window)]:
+        if not isinstance(option, dict):
+            continue
+        compact_options.append(
+            {
+                "option_key": _clip_text(option.get("option_key"), limit=48),
+                "label": _clip_text(option.get("label"), limit=_AUTHOR_TEXT_LIMIT_SHORT),
+                "action_type": _clip_text(option.get("action_type"), limit=24),
+                "go_to": _clip_text(option.get("go_to"), limit=48),
+                "is_key_decision": bool(option.get("is_key_decision", False)),
+            }
+        )
+    return {
+        "scene_key": _clip_text(scene.get("scene_key"), limit=48),
+        "title": _clip_text(scene.get("title"), limit=_AUTHOR_TEXT_LIMIT_SHORT),
+        "setup": _clip_text(scene.get("setup"), limit=_AUTHOR_TEXT_LIMIT_MEDIUM),
+        "is_end": bool(scene.get("is_end", False)),
+        "options": compact_options,
+    }
+
+
+def _compact_author_assist_context(context: dict | None, *, task: str | None = None) -> dict:
+    if not isinstance(context, dict):
+        return {}
+
+    normalized_task = _normalize_author_assist_task(task or str(context.get("task") or "seed_expand"))
+    profile = _author_compaction_profile(normalized_task)
+
+    compact: dict[str, object] = {}
+    for key in (
+        "format_version",
+        "layer",
+        "entry_mode",
+        "operation",
+        "target_scope",
+        "target_scene_key",
+        "target_option_key",
+        "preserve_existing",
+        "story_id",
+        "locale",
+    ):
+        if key not in context:
+            continue
+        compact[key] = context.get(key)
+
+    for key in ("title", "premise", "mainline_goal", "scene_key", "scene_title", "option_label", "action_type"):
+        value = context.get(key)
+        if value is None:
+            continue
+        compact[key] = _clip_text(value, limit=_AUTHOR_TEXT_LIMIT_SHORT)
+
+    for key in ("seed_text", "global_brief", "continue_input"):
+        value = context.get(key)
+        if value is None:
+            continue
+        compact[key] = _clip_text(value, limit=_AUTHOR_TEXT_LIMIT_MEDIUM)
+    source_text = context.get("source_text")
+    if source_text is not None:
+        compact["source_text"] = _clip_text(source_text, limit=max(800, int(profile.get("source_limit", _AUTHOR_TEXT_LIMIT_LONG))))
+
+    writer_journal = context.get("writer_journal")
+    if isinstance(writer_journal, list):
+        compact_turns = []
+        for turn in writer_journal[-max(1, int(profile.get("writer_turn_window", _AUTHOR_WRITER_TURN_WINDOW))):]:
+            if not isinstance(turn, dict):
+                continue
+            compact_turns.append(
+                {
+                    "turn_id": _clip_text(turn.get("turn_id"), limit=48),
+                    "phase": _clip_text(turn.get("phase"), limit=24),
+                    "author_text": _clip_text(turn.get("author_text"), limit=_AUTHOR_TEXT_LIMIT_MEDIUM),
+                    "assistant_text": _clip_text(turn.get("assistant_text"), limit=_AUTHOR_TEXT_LIMIT_MEDIUM),
+                }
+            )
+        compact["writer_journal"] = compact_turns
+
+    draft = context.get("draft")
+    if isinstance(draft, dict):
+        compact_draft: dict[str, object] = {}
+        meta = draft.get("meta")
+        if isinstance(meta, dict):
+            compact_draft["meta"] = {
+                "story_id": _clip_text(meta.get("story_id"), limit=48),
+                "title": _clip_text(meta.get("title"), limit=_AUTHOR_TEXT_LIMIT_SHORT),
+                "locale": _clip_text(meta.get("locale"), limit=24),
+            }
+        plot = draft.get("plot")
+        if isinstance(plot, dict):
+            compact_draft["plot"] = {
+                "mainline_goal": _clip_text(plot.get("mainline_goal"), limit=_AUTHOR_TEXT_LIMIT_SHORT),
+            }
+        flow = draft.get("flow")
+        if isinstance(flow, dict):
+            scenes = flow.get("scenes") if isinstance(flow.get("scenes"), list) else []
+            target_scene_key = _clip_text(context.get("target_scene_key"), limit=48)
+            selected_index = 0
+            if target_scene_key:
+                for idx, scene in enumerate(scenes):
+                    if not isinstance(scene, dict):
+                        continue
+                    if str(scene.get("scene_key") or "") == target_scene_key:
+                        selected_index = idx
+                        break
+            if scenes:
+                scene_window = max(1, int(profile.get("scene_window", _AUTHOR_SCENE_WINDOW)))
+                left = max(0, selected_index - (scene_window // 2))
+                right = min(len(scenes), left + scene_window)
+                selected_scenes = scenes[left:right]
+            else:
+                selected_scenes = []
+            compact_draft["flow"] = {
+                "start_scene_key": _clip_text(flow.get("start_scene_key"), limit=48),
+                "scenes": [
+                    _compact_author_scene(scene, option_window=max(1, int(profile.get("option_window", _AUTHOR_OPTION_WINDOW))))
+                    for scene in selected_scenes
+                    if isinstance(scene, dict)
+                ],
+            }
+        characters = draft.get("characters")
+        if isinstance(characters, dict):
+            compact_characters: dict[str, object] = {}
+            protagonist = characters.get("protagonist")
+            if isinstance(protagonist, dict):
+                compact_characters["protagonist"] = {
+                    "name": _clip_text(protagonist.get("name"), limit=64),
+                    "role": _clip_text(protagonist.get("role"), limit=64),
+                    "traits": [
+                        _clip_text(item, limit=40)
+                        for item in (protagonist.get("traits") if isinstance(protagonist.get("traits"), list) else [])[:4]
+                        if _clip_text(item, limit=40)
+                    ],
+                }
+            npcs = characters.get("npcs")
+            if isinstance(npcs, list):
+                compact_npcs: list[dict[str, object]] = []
+                for npc in npcs[:6]:
+                    if not isinstance(npc, dict):
+                        continue
+                    name = _clip_text(npc.get("name"), limit=64)
+                    if not name:
+                        continue
+                    compact_npcs.append(
+                        {
+                            "name": name,
+                            "role": _clip_text(npc.get("role"), limit=64),
+                            "traits": [
+                                _clip_text(item, limit=40)
+                                for item in (npc.get("traits") if isinstance(npc.get("traits"), list) else [])[:4]
+                                if _clip_text(item, limit=40)
+                            ],
+                        }
+                    )
+                compact_characters["npcs"] = compact_npcs
+            relationship_axes = characters.get("relationship_axes")
+            if isinstance(relationship_axes, dict):
+                compact_axes: dict[str, str] = {}
+                for idx, (raw_key, raw_value) in enumerate(relationship_axes.items()):
+                    if idx >= 6:
+                        break
+                    key = _clip_text(raw_key, limit=48)
+                    value = _clip_text(raw_value, limit=96)
+                    if not key or not value:
+                        continue
+                    compact_axes[key] = value
+                if compact_axes:
+                    compact_characters["relationship_axes"] = compact_axes
+            if compact_characters:
+                compact_draft["characters"] = compact_characters
+        if compact_draft:
+            compact["draft"] = compact_draft
+
+    return compact
+
+
+def _normalize_author_assist_task(task: str) -> str:
+    normalized_task = str(task or "").strip().lower()
+    if normalized_task not in set(AUTHOR_ASSIST_TASKS_V4):
+        return "seed_expand"
+    return normalized_task
+
+
+def _compact_idea_blueprint(idea_blueprint: dict | None) -> dict:
+    if not isinstance(idea_blueprint, dict):
+        return {}
+    core_conflict = idea_blueprint.get("core_conflict") if isinstance(idea_blueprint.get("core_conflict"), dict) else {}
+    tension_loop_plan = idea_blueprint.get("tension_loop_plan") if isinstance(idea_blueprint.get("tension_loop_plan"), dict) else {}
+    branch_design = idea_blueprint.get("branch_design") if isinstance(idea_blueprint.get("branch_design"), dict) else {}
+    lexical_anchors = idea_blueprint.get("lexical_anchors") if isinstance(idea_blueprint.get("lexical_anchors"), dict) else {}
+    out: dict[str, object] = {
+        "core_conflict": {
+            "protagonist": _clip_text(core_conflict.get("protagonist"), limit=_AUTHOR_TEXT_LIMIT_SHORT),
+            "opposition_actor": _clip_text(core_conflict.get("opposition_actor"), limit=_AUTHOR_TEXT_LIMIT_SHORT),
+            "scarce_resource": _clip_text(core_conflict.get("scarce_resource"), limit=_AUTHOR_TEXT_LIMIT_SHORT),
+            "deadline": _clip_text(core_conflict.get("deadline"), limit=_AUTHOR_TEXT_LIMIT_SHORT),
+            "irreversible_risk": _clip_text(core_conflict.get("irreversible_risk"), limit=_AUTHOR_TEXT_LIMIT_MEDIUM),
+        },
+        "tension_loop_plan": {},
+        "branch_design": {
+            "high_risk_push": {},
+            "recovery_stabilize": {},
+        },
+        "lexical_anchors": {
+            "must_include_terms": [],
+            "avoid_generic_labels": [],
+        },
+    }
+    for beat in ("pressure_open", "pressure_escalation", "recovery_window", "decision_gate"):
+        node = tension_loop_plan.get(beat) if isinstance(tension_loop_plan.get(beat), dict) else {}
+        entities_raw = node.get("required_entities") if isinstance(node.get("required_entities"), list) else []
+        entities = [_clip_text(item, limit=48) for item in entities_raw if _clip_text(item, limit=48)]
+        risk_level = node.get("risk_level")
+        try:
+            risk_level = int(risk_level)
+        except Exception:  # noqa: BLE001
+            risk_level = 3
+        risk_level = max(1, min(5, risk_level))
+        out["tension_loop_plan"][beat] = {
+            "objective": _clip_text(node.get("objective"), limit=_AUTHOR_TEXT_LIMIT_SHORT),
+            "stakes": _clip_text(node.get("stakes"), limit=_AUTHOR_TEXT_LIMIT_MEDIUM),
+            "required_entities": entities[:6],
+            "risk_level": risk_level,
+        }
+    for key in ("high_risk_push", "recovery_stabilize"):
+        branch = branch_design.get(key) if isinstance(branch_design.get(key), dict) else {}
+        out["branch_design"][key] = {
+            "short_term_gain": _clip_text(branch.get("short_term_gain"), limit=_AUTHOR_TEXT_LIMIT_SHORT),
+            "long_term_cost": _clip_text(branch.get("long_term_cost"), limit=_AUTHOR_TEXT_LIMIT_SHORT),
+            "signature_action_type": _clip_text(branch.get("signature_action_type"), limit=24),
+        }
+    for key in ("must_include_terms", "avoid_generic_labels"):
+        values = lexical_anchors.get(key) if isinstance(lexical_anchors.get(key), list) else []
+        out["lexical_anchors"][key] = [
+            _clip_text(item, limit=48)
+            for item in values[:8]
+            if _clip_text(item, limit=48)
+        ]
+    return out
+
+
+def _compact_cast_blueprint(cast_blueprint: dict | None) -> dict:
+    if not isinstance(cast_blueprint, dict):
+        return {}
+
+    target_npc_count = cast_blueprint.get("target_npc_count")
+    try:
+        normalized_target = int(target_npc_count)
+    except Exception:  # noqa: BLE001
+        normalized_target = 4
+    normalized_target = max(3, min(6, normalized_target))
+
+    roster_raw = cast_blueprint.get("npc_roster")
+    compact_roster: list[dict[str, str]] = []
+    if isinstance(roster_raw, list):
+        for item in roster_raw[:6]:
+            if not isinstance(item, dict):
+                continue
+            name = _clip_text(item.get("name"), limit=64)
+            role = _clip_text(item.get("role"), limit=64)
+            motivation = _clip_text(item.get("motivation"), limit=_AUTHOR_TEXT_LIMIT_SHORT)
+            tension_hook = _clip_text(item.get("tension_hook"), limit=_AUTHOR_TEXT_LIMIT_SHORT)
+            relationship = _clip_text(item.get("relationship_to_protagonist"), limit=_AUTHOR_TEXT_LIMIT_SHORT)
+            if not all([name, role, motivation, tension_hook, relationship]):
+                continue
+            compact_roster.append(
+                {
+                    "name": name,
+                    "role": role,
+                    "motivation": motivation,
+                    "tension_hook": tension_hook,
+                    "relationship_to_protagonist": relationship,
+                }
+            )
+
+    compact_beats: dict[str, list[str]] = {
+        "pressure_open": [],
+        "pressure_escalation": [],
+        "recovery_window": [],
+        "decision_gate": [],
+    }
+    beat_presence = cast_blueprint.get("beat_presence")
+    if isinstance(beat_presence, dict):
+        for beat in compact_beats.keys():
+            values = beat_presence.get(beat)
+            compact_beats[beat] = [
+                _clip_text(item, limit=64)
+                for item in (values if isinstance(values, list) else [])[:6]
+                if _clip_text(item, limit=64)
+            ]
+
+    return {
+        "target_npc_count": normalized_target,
+        "npc_roster": compact_roster,
+        "beat_presence": compact_beats,
+    }
+
+
+def build_author_idea_repair_prompt(raw_text: str) -> str:
+    return (
+        "Author idea repair task. Fix output to JSON with exact schema: "
+        '{"core_conflict":object,"tension_loop_plan":object,"branch_design":object,"lexical_anchors":object}. '
+        "Return JSON only. No markdown code fences. No extra top-level keys. "
+        "Required beats in tension_loop_plan: pressure_open, pressure_escalation, recovery_window, decision_gate. Source:\n"
+        + raw_text
+    )
+
+
+def build_author_cast_expand_prompt(*, task: str, locale: str, context: dict | None, idea_blueprint: dict) -> str:
+    normalized_task = _normalize_author_assist_task(task)
+    safe_locale = _clip_text(locale, limit=24) or "en"
+    safe_context = _compact_author_assist_context(context if isinstance(context, dict) else {}, task=normalized_task)
+    compact_blueprint = _compact_idea_blueprint(idea_blueprint)
+    payload = {
+        "task": normalized_task,
+        "locale": safe_locale,
+        "context": safe_context,
+        "idea_blueprint": compact_blueprint,
+    }
+    prompt_text = (
+        "Author cast expansion task. Return JSON only with exact schema: "
+        '{"target_npc_count":integer,"npc_roster":array,"beat_presence":object}. '
+        "No markdown code fences. No extra top-level keys. "
+        "target_npc_count must be between 3 and 6. "
+        "npc_roster entries must include name, role, motivation, tension_hook, relationship_to_protagonist. "
+        "beat_presence must include pressure_open, pressure_escalation, recovery_window, decision_gate and list NPC names used in each beat. "
+        "Design cast to preserve existing named NPCs and only supplement gaps. "
+        "Role mix must include at least two of: support, rival, gatekeeper. "
+        + _author_task_specific_rule(normalized_task)
+        + " "
+        f"Write text in locale '{safe_locale}'. "
+        "Task context: "
+        + json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    )
+    return _trim_prompt_text(prompt_text, tags=("author", "cast", normalized_task))
+
+
+def _author_task_specific_rule(task: str) -> str:
+    rules = {
+        "seed_expand": (
+            "Task=seed_expand: extract protagonist, opposition_actor, scarce_resource, deadline, irreversible risk. "
+            "Generate exactly 4 scenes keyed pressure_open, pressure_escalation, recovery_window, decision_gate. "
+            "Every non-end scene must keep 2-4 options, include one high-reward/high-risk option, and keep one recovery option every two scenes."
+        ),
+        "story_ingest": (
+            "Task=story_ingest: convert source_text conflict into playable flow, preserving core entities and stakes. "
+            "Map source conflict to scarce_resource, deadline, irreversible risk and keep go_to references compile-safe."
+        ),
+        "continue_write": (
+            "Task=continue_write: append one playable follow-up scene after decision gate, keep branch contrast, and repair graph references."
+        ),
+        "scene_deepen": "Task=scene_deepen: only refine one scene and keep graph stable.",
+        "option_weave": "Task=option_weave: improve option intents/aliases and keep action/go_to compile-safe.",
+        "consequence_balance": "Task=consequence_balance: rebalance requirements/effects conservatively; avoid extreme deltas.",
+        "ending_design": "Task=ending_design: provide ending trigger and priority sketches aligned with current flow.",
+        "trim_content": "Task=trim_content: remove requested content and repair dangling graph references.",
+        "spice_branch": "Task=spice_branch: increase strategy contrast while preserving 2-4 options per scene.",
+        "tension_rebalance": (
+            "Task=tension_rebalance: restore pressure-recovery rhythm by reducing extreme penalties and adding recovery windows."
+        ),
+        "consistency_check": "Task=consistency_check: emit concise warnings and optional repair patches only.",
+        "beat_to_scene": "Task=beat_to_scene: project the beat into one playable scene with compile-safe options.",
+    }
+    return rules.get(task, rules["seed_expand"])
+
+
+def _author_common_constraint_block() -> str:
+    return (
+        "Return JSON only, no markdown fences, no extra top-level keys. "
+        "Treat suggestions as patch candidates only; never assume persistence. "
+        "Honor context.operation, context.target_scope, context.target_scene_key, context.target_option_key, "
+        "and context.preserve_existing when present."
+    )
+
+
+def build_author_story_build_prompt(
+    *,
+    task: str,
+    locale: str,
+    context: dict | None,
+    idea_blueprint: dict,
+    cast_blueprint: dict | None = None,
+) -> str:
+    normalized_task = _normalize_author_assist_task(task)
+    safe_locale = _clip_text(locale, limit=24) or "en"
+    safe_context = _compact_author_assist_context(context if isinstance(context, dict) else {}, task=normalized_task)
+    compact_blueprint = _compact_idea_blueprint(idea_blueprint)
+    payload = {
+        "task": normalized_task,
+        "locale": safe_locale,
+        "context": safe_context,
+        "idea_blueprint": compact_blueprint,
+    }
+    compact_cast_blueprint = _compact_cast_blueprint(cast_blueprint)
+    if compact_cast_blueprint:
+        payload["cast_blueprint"] = compact_cast_blueprint
+    prompt_text = (
+        "Author story build task. Return JSON only with exact schema: "
+        '{"suggestions":object,"patch_preview":array,"warnings":array}. '
+        "patch_preview must be a list of objects with keys: id, path, label, value. "
+        + _author_common_constraint_block()
+        + " "
+        "Use idea_blueprint as mandatory creative constraints for conflict, branch contrast, and pacing. "
+        "Treat suggestions as patch candidates only; never assume direct persistence. "
+        "Prefer layered outputs aligned with ASF v4: entry_mode/source_text/meta/world/characters/plot/flow/"
+        "action/consequence/ending/systems/writer_journal/playability_policy. "
+        + _author_task_specific_rule(normalized_task)
+        + " "
+        "Option labels must include seed/source entities and avoid generic placeholders from lexical_anchors. "
+        "When cast_blueprint is present, preserve existing NPC names, supplement NPCs to 3-5 (hard cap 6), "
+        "and ensure each NPC has concrete story function across beats. "
+        f"Write text in locale '{safe_locale}'. "
+        "Task context: "
+        + json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    )
+    return _trim_prompt_text(prompt_text, tags=("author", "build", normalized_task))
 
 
 def build_author_assist_prompt(*, task: str, locale: str, context: dict | None) -> str:
-    normalized_task = str(task or "").strip().lower()
-    if normalized_task not in set(AUTHOR_ASSIST_TASKS_V4):
-        normalized_task = "seed_expand"
+    normalized_task = _normalize_author_assist_task(task)
     safe_locale = _clip_text(locale, limit=24) or "en"
-    safe_context = context if isinstance(context, dict) else {}
+    safe_context = _compact_author_assist_context(context if isinstance(context, dict) else {}, task=normalized_task)
     payload = {
         "task": normalized_task,
         "locale": safe_locale,
         "context": safe_context,
     }
-    return (
+    prompt_text = (
         "Author-assist task. Return JSON only with exact schema: "
         '{"suggestions":object,"patch_preview":array,"warnings":array}. '
-        "No markdown code fences. No extra top-level keys. "
         "patch_preview must be a list of objects with keys: id, path, label, value. "
+        + _author_common_constraint_block()
+        + " "
         "Keep suggestions compact and practical for a creative v4 authoring wizard. "
         "Treat suggestions as patch candidates only; never assume direct persistence. "
         "Prefer layered outputs aligned with ASF v4: entry_mode/source_text/meta/world/characters/plot/flow/"
         "action/consequence/ending/systems/writer_journal/playability_policy. "
-        "For story_ingest or seed_expand, include runnable flow.scenes scaffold and writer_journal seed turn. "
-        "For scene_deepen, keep changes focused on one scene/layer. "
-        "For option_weave, produce intent_aliases + action/go_to-safe option edits. "
-        "For consequence_balance, keep effects moderate and compile-safe. "
-        "For ending_design, include priority and trigger sketches. "
-        "When task=consistency_check, emit concise warnings and optional repair patches. "
+        + _author_task_specific_rule(normalized_task)
+        + " "
         f"Write text in locale '{safe_locale}'. "
         "Task context: "
         + json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    )
+    return _trim_prompt_text(prompt_text, tags=("author", "assist", normalized_task))
+
+
+def build_author_idea_expand_prompt(*, task: str, locale: str, context: dict | None) -> str:
+    normalized_task = _normalize_author_assist_task(task)
+    safe_locale = _clip_text(locale, limit=24) or "en"
+    safe_context = _compact_author_assist_context(context if isinstance(context, dict) else {}, task=normalized_task)
+    payload = {
+        "task": normalized_task,
+        "locale": safe_locale,
+        "context": safe_context,
+    }
+    prompt_text = (
+        "Author idea expansion task. Return JSON only with exact schema: "
+        '{"core_conflict":object,"tension_loop_plan":object,"branch_design":object,"lexical_anchors":object}. '
+        "No markdown code fences. No extra top-level keys. "
+        "core_conflict must include protagonist, opposition_actor, scarce_resource, deadline, irreversible_risk. "
+        "tension_loop_plan must include pressure_open, pressure_escalation, recovery_window, decision_gate. "
+        "Each beat must include objective, stakes, required_entities(array), risk_level(1-5). "
+        "branch_design must include high_risk_push and recovery_stabilize with short_term_gain, long_term_cost, signature_action_type. "
+        "lexical_anchors must include must_include_terms(array) and avoid_generic_labels(array). "
+        + _author_task_specific_rule(normalized_task)
+        + " "
+        f"Write text in locale '{safe_locale}'. "
+        "Task context: "
+        + json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    )
+    return _trim_prompt_text(prompt_text, tags=("author", "idea", normalized_task))
+
+
+def build_author_idea_expand_envelope(*, task: str, locale: str, context: dict | None) -> PromptEnvelope:
+    normalized_task = _normalize_author_assist_task(task)
+    return PromptEnvelope(
+        system_text=(
+            "You are a strict author-idea JSON generator for ASF v4 planning. "
+            "Return one JSON object only. No extra keys."
+        ),
+        user_text=build_author_idea_expand_prompt(task=normalized_task, locale=locale, context=context),
+        schema_name="author_idea_blueprint_v1",
+        schema_payload=_schema_author_idea(),
+        tags=("author", "idea", normalized_task),
+    )
+
+
+def build_author_cast_expand_envelope(
+    *,
+    task: str,
+    locale: str,
+    context: dict | None,
+    idea_blueprint: dict,
+) -> PromptEnvelope:
+    normalized_task = _normalize_author_assist_task(task)
+    return PromptEnvelope(
+        system_text=(
+            "You are a strict author-cast JSON generator for ASF v4 planning. "
+            "Return one JSON object only. No extra keys."
+        ),
+        user_text=build_author_cast_expand_prompt(
+            task=normalized_task,
+            locale=locale,
+            context=context,
+            idea_blueprint=idea_blueprint,
+        ),
+        schema_name="author_cast_blueprint_v1",
+        schema_payload=_schema_author_cast_blueprint(),
+        tags=("author", "cast", normalized_task),
+    )
+
+
+def build_author_story_build_envelope(
+    *,
+    task: str,
+    locale: str,
+    context: dict | None,
+    idea_blueprint: dict,
+    cast_blueprint: dict | None = None,
+) -> PromptEnvelope:
+    normalized_task = _normalize_author_assist_task(task)
+    return PromptEnvelope(
+        system_text=(
+            "You are a strict author-assist JSON generator for ASF v4 patches. "
+            "Return one JSON object only. No extra keys."
+        ),
+        user_text=build_author_story_build_prompt(
+            task=normalized_task,
+            locale=locale,
+            context=context,
+            idea_blueprint=idea_blueprint,
+            cast_blueprint=cast_blueprint,
+        ),
+        schema_name="author_assist_payload_v1",
+        schema_payload=_schema_author_assist(),
+        tags=("author", "build", normalized_task),
+    )
+
+
+def build_author_assist_envelope(*, task: str, locale: str, context: dict | None) -> PromptEnvelope:
+    normalized_task = _normalize_author_assist_task(task)
+    return PromptEnvelope(
+        system_text=(
+            "You are a strict author-assist JSON generator for ASF v4 patches. "
+            "Return one JSON object only. No extra keys."
+        ),
+        user_text=build_author_assist_prompt(task=normalized_task, locale=locale, context=context),
+        schema_name="author_assist_payload_v1",
+        schema_payload=_schema_author_assist(),
+        tags=("author", "assist", normalized_task),
     )

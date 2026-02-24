@@ -23,6 +23,10 @@ This is the active authoring and validation contract for story packs accepted by
 - `events: StoryEvent[]` (optional)
 - `endings: StoryEnding[]` (optional)
 - `run_config: StoryRunConfig | null` (optional)
+- `author_source_v4: dict | null` (optional, author trace metadata)
+
+Hard-cut v10:
+- `author_source_v3` is not accepted.
 
 ## StoryNode
 - `node_id: str`
@@ -172,6 +176,13 @@ Structural validator enforces:
 - ending id uniqueness (`ending_id`) pack-wide,
 - event trigger `node_id_is` must reference an existing node,
 - ending trigger `node_id_is` must reference an existing node.
+- strict schema validation rejects unknown top-level keys (including legacy metadata keys).
+
+## Startup Hard-Cut
+- On application startup, all stored `stories.pack_json` rows are validated against StoryPack v10 strict schema + structural rules.
+- Any invalid or legacy row blocks startup with:
+  - `LEGACY_STORYPACKS_BLOCK_STARTUP`
+- Runtime load path does not attempt legacy compatibility projection.
 
 ## Runtime Routing Summary
 1. Pass0 hard no-input -> direct fallback.

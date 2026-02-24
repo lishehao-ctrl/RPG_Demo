@@ -42,6 +42,175 @@ class FakeProvider(LLMProvider):
             return {}
         return parsed if isinstance(parsed, dict) else {}
 
+    @staticmethod
+    def _extract_author_task(prompt: str, *, fallback: str = "seed_expand") -> str:
+        marker = '"task":"'
+        start = prompt.find(marker)
+        if start < 0:
+            return fallback
+        start += len(marker)
+        end = prompt.find('"', start)
+        if end < 0:
+            return fallback
+        task = prompt[start:end].strip().lower()
+        return task or fallback
+
+    @classmethod
+    def _fake_author_idea_blueprint(cls, task: str) -> dict:
+        return {
+            "core_conflict": {
+                "protagonist": "student",
+                "opposition_actor": "roommate",
+                "scarce_resource": "scholarship",
+                "deadline": "one week",
+                "irreversible_risk": "lose critical funding",
+            },
+            "tension_loop_plan": {
+                "pressure_open": {
+                    "objective": f"open conflict for {task}",
+                    "stakes": "time pressure begins immediately",
+                    "required_entities": ["student", "roommate", "scholarship"],
+                    "risk_level": 3,
+                },
+                "pressure_escalation": {
+                    "objective": "raise cost of indecision",
+                    "stakes": "social trust and performance degrade",
+                    "required_entities": ["roommate", "advisor"],
+                    "risk_level": 4,
+                },
+                "recovery_window": {
+                    "objective": "offer stabilization choice",
+                    "stakes": "tempo vs resilience tradeoff",
+                    "required_entities": ["student"],
+                    "risk_level": 2,
+                },
+                "decision_gate": {
+                    "objective": "commit to irreversible direction",
+                    "stakes": "future trajectory is locked",
+                    "required_entities": ["scholarship", "project"],
+                    "risk_level": 5,
+                },
+            },
+            "branch_design": {
+                "high_risk_push": {
+                    "short_term_gain": "fast progress",
+                    "long_term_cost": "relationship damage",
+                    "signature_action_type": "study",
+                },
+                "recovery_stabilize": {
+                    "short_term_gain": "energy recovery",
+                    "long_term_cost": "less immediate output",
+                    "signature_action_type": "rest",
+                },
+            },
+            "lexical_anchors": {
+                "must_include_terms": ["roommate", "scholarship", "deadline"],
+                "avoid_generic_labels": ["Option A", "Option B", "Take action"],
+            },
+        }
+
+    @classmethod
+    def _fake_author_cast_blueprint(cls, task: str) -> dict:
+        _ = task
+        return {
+            "target_npc_count": 4,
+            "npc_roster": [
+                {
+                    "name": "Alice",
+                    "role": "support friend",
+                    "motivation": "Keep the team together before the deadline.",
+                    "tension_hook": "Worries that rushing will cause irreversible mistakes.",
+                    "relationship_to_protagonist": "Trusted classmate who shares workload pressure.",
+                },
+                {
+                    "name": "Reed",
+                    "role": "rival competitor",
+                    "motivation": "Win recognition by exposing weak spots in the project.",
+                    "tension_hook": "Pushes the protagonist into high-risk shortcuts.",
+                    "relationship_to_protagonist": "Academic rival with overlapping goals.",
+                },
+                {
+                    "name": "Professor Lin",
+                    "role": "gatekeeper advisor",
+                    "motivation": "Protect evaluation fairness and long-term growth.",
+                    "tension_hook": "Will block progress if evidence quality is weak.",
+                    "relationship_to_protagonist": "Advisor who controls recommendation outcomes.",
+                },
+            ],
+            "beat_presence": {
+                "pressure_open": ["Alice", "Reed"],
+                "pressure_escalation": ["Reed", "Professor Lin"],
+                "recovery_window": ["Alice", "Professor Lin"],
+                "decision_gate": ["Alice", "Reed", "Professor Lin"],
+            },
+        }
+
+    @classmethod
+    def _fake_author_assist_payload(cls, task: str) -> dict:
+        return {
+            "suggestions": {
+                "meta": {"title": "Fake Author Assist"},
+                "characters": {
+                    "npcs": [
+                        {"name": "Alice", "role": "support friend", "traits": ["warm", "observant"]},
+                        {"name": "Reed", "role": "rival competitor", "traits": ["ambitious", "sharp"]},
+                        {"name": "Professor Lin", "role": "gatekeeper advisor", "traits": ["strict", "fair"]},
+                    ]
+                },
+                "flow": {
+                    "start_scene_key": "pressure_open",
+                    "scenes": [
+                        {
+                            "scene_key": "pressure_open",
+                            "title": "Pressure Open",
+                            "setup": "Conflict opens under deadline pressure.",
+                            "options": [
+                                {"option_key": "push", "label": "Push hard on evidence", "action_type": "study"},
+                                {"option_key": "recover", "label": "Recover before escalation", "action_type": "rest"},
+                            ],
+                        },
+                        {
+                            "scene_key": "pressure_escalation",
+                            "title": "Pressure Escalation",
+                            "setup": "Costs rise quickly.",
+                            "options": [
+                                {"option_key": "public", "label": "Escalate publicly", "action_type": "study"},
+                                {"option_key": "private", "label": "Probe quietly", "action_type": "work"},
+                            ],
+                        },
+                        {
+                            "scene_key": "recovery_window",
+                            "title": "Recovery Window",
+                            "setup": "A brief chance to stabilize.",
+                            "options": [
+                                {"option_key": "reset", "label": "Reset and plan", "action_type": "rest"},
+                                {"option_key": "push", "label": "Skip reset and push", "action_type": "study"},
+                            ],
+                        },
+                        {
+                            "scene_key": "decision_gate",
+                            "title": "Decision Gate",
+                            "setup": "Choose a final stance.",
+                            "is_end": True,
+                            "options": [
+                                {"option_key": "commit", "label": "Commit to evidence path", "action_type": "study"},
+                                {"option_key": "repair", "label": "Repair relationship and split cost", "action_type": "date"},
+                            ],
+                        },
+                    ],
+                },
+            },
+            "patch_preview": [
+                {
+                    "id": f"fake_{task}_meta_title",
+                    "path": "meta.title",
+                    "label": "Refresh title from fake assist",
+                    "value": "Fake Author Assist",
+                }
+            ],
+            "warnings": [],
+        }
+
     @classmethod
     def _select_choice_from_context(cls, context: dict) -> tuple[str, float] | None:
         player_input = cls._normalize_text(context.get("player_input"))
@@ -103,23 +272,52 @@ class FakeProvider(LLMProvider):
         prompt: str,
         *,
         request_id: str,
-        timeout_s: float,
+        timeout_s: float | None,
         model: str,
         connect_timeout_s: float | None = None,
         read_timeout_s: float | None = None,
         write_timeout_s: float | None = None,
         pool_timeout_s: float | None = None,
+        max_tokens_override: int | None = None,
+        temperature_override: float | None = None,
+        messages_override: list[dict] | None = None,
     ):
         started = time.perf_counter()
         self.generate_calls += 1
         if self.fail_generate:
             raise RuntimeError("fake generate failure")
-        prompt_lower = (prompt or "").lower()
+        effective_prompt = str(prompt or "")
+        if isinstance(messages_override, list) and messages_override:
+            fragments: list[str] = []
+            for item in messages_override:
+                if not isinstance(item, dict):
+                    continue
+                role = str(item.get("role") or "").strip().lower()
+                content = str(item.get("content") or "").strip()
+                if not content:
+                    continue
+                fragments.append(f"[{role}] {content}")
+            if fragments:
+                effective_prompt = "\n".join(fragments)
+        prompt_lower = effective_prompt.lower()
         if self.invalid_generate_once:
             self.invalid_generate_once = False
             payload = {"narrative": "bad schema"}
+        elif "author idea expansion task" in prompt_lower or "author idea repair task" in prompt_lower:
+            task = self._extract_author_task(effective_prompt)
+            payload = self._fake_author_idea_blueprint(task)
+        elif "author cast expansion task" in prompt_lower:
+            task = self._extract_author_task(effective_prompt)
+            payload = self._fake_author_cast_blueprint(task)
+        elif (
+            "author story build task" in prompt_lower
+            or "author-assist task" in prompt_lower
+            or "author-assist repair task" in prompt_lower
+        ):
+            task = self._extract_author_task(effective_prompt)
+            payload = self._fake_author_assist_payload(task)
         elif "story selection task" in prompt_lower:
-            context = self._extract_selection_context(prompt)
+            context = self._extract_selection_context(effective_prompt)
             selected = self._select_choice_from_context(context)
             if selected:
                 selected_choice_id, confidence = selected
@@ -147,9 +345,8 @@ class FakeProvider(LLMProvider):
                 ],
             }
         usage = {
-            "provider": self.name,
             "model": model,
-            "prompt_tokens": max(1, len(prompt) // 4),
+            "prompt_tokens": max(1, len(effective_prompt) // 4),
             "completion_tokens": 64,
             "latency_ms": int((time.perf_counter() - started) * 1000),
             "status": "success",

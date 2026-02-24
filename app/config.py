@@ -25,8 +25,6 @@ class Settings(BaseSettings):
     database_url: str = "sqlite+pysqlite:///./app.db"
     redis_url: str = "redis://localhost:6379/0"
 
-    llm_provider_primary: str = "fake"
-    llm_provider_fallbacks: list[str] = Field(default_factory=list)
     llm_model_generate: str = "fake-generate-v1"
     llm_timeout_s: float = 30.0
     llm_max_retries: int = 1
@@ -61,6 +59,17 @@ class Settings(BaseSettings):
     llm_doubao_api_key: str = ""
     llm_doubao_temperature: float = 0.1
     llm_doubao_max_tokens: int | None = 512
+    llm_author_assist_max_tokens: int = 2048
+    llm_author_assist_expand_max_tokens: int = 1400
+    llm_author_assist_build_max_tokens: int = 2048
+    llm_author_assist_repair_max_tokens: int = 900
+    llm_author_assist_expand_temperature: float = 0.65
+    llm_author_assist_build_temperature: float = 0.15
+    llm_author_assist_repair_temperature: float = 0.0
+    llm_prompt_protocol_v2_enabled: bool = True
+    llm_prompt_author_max_chars: int = 14000
+    llm_prompt_play_max_chars: int = 7000
+    llm_prompt_compaction_level: str = "aggressive"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

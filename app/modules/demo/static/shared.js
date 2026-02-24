@@ -138,14 +138,23 @@
         .catch((error) => {
           running = false;
           _clearTimers();
+          let handled = false;
+          if (onError) {
+            try {
+              handled = onError(error) === true;
+            } catch (onErrorFailure) {
+              console.error(onErrorFailure); // eslint-disable-line no-console
+            }
+          }
+          if (handled) {
+            _applyStatus("idle", defaultLabel);
+            return;
+          }
           _applyStatus("error", errorLabel);
           settleTimer = window.setTimeout(() => {
             _applyStatus("idle", defaultLabel);
           }, errorHoldMs);
-          if (onError) {
-            onError(error);
-            return;
-          }
+          if (onError) return;
           console.error(error); // eslint-disable-line no-console
         });
     });
@@ -184,6 +193,7 @@
     const headers = {};
     if (body !== undefined) headers["Content-Type"] = "application/json";
     const extraHeaders = options.headers || {};
+    const signal = options.signal;
     Object.keys(extraHeaders).forEach((key) => {
       headers[key] = extraHeaders[key];
     });
@@ -194,13 +204,17 @@
         method,
         headers,
         body: body !== undefined ? JSON.stringify(body) : undefined,
+        signal,
       });
     } catch (error) {
+      const isAborted = Boolean(
+        error && (error.name === "AbortError" || error.code === "ABORT_ERR"),
+      );
       return {
         ok: false,
         status: 0,
         data: null,
-        errorType: "network",
+        errorType: isAborted ? "aborted" : "network",
         networkError: error,
       };
     }
@@ -232,6 +246,7 @@
     error.status = status;
     error.code = code;
     error.payload = response.data;
+    error.detail = response?.data?.detail || null;
     error.response = response;
     return error;
   }
@@ -239,9 +254,168 @@
   async function callApi(method, url, body, options = {}) {
     const response = await requestJson(method, url, body, options);
     if (!response.ok) {
+      if (response.errorType === "aborted") {
+        const error = new Error(`${method} ${url} canceled by user`);
+        error.status = 0;
+        error.code = "REQUEST_ABORTED";
+        error.payload = null;
+        error.response = response;
+        error.errorType = "aborted";
+        throw error;
+      }
       throw createApiError(response, `${method} ${url}`);
     }
     return response.data;
+  }
+
+  function _parseSseBlock(block) {
+    const lines = String(block || "").split("\n");
+    let eventName = "message";
+    const dataLines = [];
+    lines.forEach((lineRaw) => {
+      const line = String(lineRaw || "");
+      if (!line || line.startsWith(":")) return;
+      if (line.startsWith("event:")) {
+        eventName = line.slice(6).trim() || "message";
+        return;
+      }
+      if (line.startsWith("data:")) {
+        dataLines.push(line.slice(5).trimStart());
+      }
+    });
+    return {
+      event: eventName,
+      dataText: dataLines.join("\n"),
+    };
+  }
+
+  function _parseSsePayload(dataText) {
+    const text = String(dataText || "").trim();
+    if (!text) return {};
+    try {
+      return JSON.parse(text);
+    } catch {
+      return { message: text };
+    }
+  }
+
+  async function callApiStream(method, url, body, options = {}) {
+    const headers = {};
+    if (body !== undefined) headers["Content-Type"] = "application/json";
+    const extraHeaders = options.headers || {};
+    const signal = options.signal;
+    const onStage = typeof options.onStage === "function" ? options.onStage : null;
+    Object.keys(extraHeaders).forEach((key) => {
+      headers[key] = extraHeaders[key];
+    });
+
+    let response;
+    try {
+      response = await fetch(url, {
+        method,
+        headers,
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+        signal,
+      });
+    } catch (error) {
+      const isAborted = Boolean(
+        error && (error.name === "AbortError" || error.code === "ABORT_ERR"),
+      );
+      const streamError = new Error(
+        isAborted ? `${method} ${url} canceled by user` : `${method} ${url} network error`,
+      );
+      streamError.status = 0;
+      streamError.code = isAborted ? "REQUEST_ABORTED" : "NETWORK_ERROR";
+      streamError.payload = null;
+      streamError.errorType = isAborted ? "aborted" : "network";
+      streamError.networkError = isAborted ? null : error;
+      throw streamError;
+    }
+
+    if (!response.ok) {
+      const text = await response.text();
+      let parsed = {};
+      if (text) {
+        try {
+          parsed = JSON.parse(text);
+        } catch {
+          parsed = text;
+        }
+      }
+      throw createApiError(
+        {
+          ok: false,
+          status: response.status,
+          data: parsed,
+          errorType: null,
+          networkError: null,
+        },
+        `${method} ${url}`,
+      );
+    }
+
+    if (!response.body) {
+      throw new Error(`${method} ${url} returned empty stream body`);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let resultPayload = null;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      const chunk = decoder.decode(value || new Uint8Array(), { stream: !done }).replace(/\r\n/g, "\n");
+      buffer += chunk;
+
+      let boundaryIndex = buffer.indexOf("\n\n");
+      while (boundaryIndex >= 0) {
+        const blockRaw = buffer.slice(0, boundaryIndex).trim();
+        buffer = buffer.slice(boundaryIndex + 2);
+        boundaryIndex = buffer.indexOf("\n\n");
+        if (!blockRaw) continue;
+
+        const parsedBlock = _parseSseBlock(blockRaw);
+        const payloadParsed = _parseSsePayload(parsedBlock.dataText);
+        if (parsedBlock.event === "stage") {
+          if (onStage) {
+            try {
+              onStage(payloadParsed);
+            } catch (stageError) {
+              console.error(stageError); // eslint-disable-line no-console
+            }
+          }
+          continue;
+        }
+        if (parsedBlock.event === "result") {
+          resultPayload = payloadParsed;
+          continue;
+        }
+        if (parsedBlock.event === "error") {
+          const status = Number(payloadParsed?.status || 503);
+          const detail = payloadParsed?.detail && typeof payloadParsed.detail === "object"
+            ? payloadParsed.detail
+            : payloadParsed;
+          throw createApiError(
+            {
+              ok: false,
+              status,
+              data: { detail },
+              errorType: null,
+              networkError: null,
+            },
+            `${method} ${url}`,
+          );
+        }
+      }
+
+      if (done) break;
+    }
+
+    if (resultPayload === null || typeof resultPayload !== "object") {
+      throw new Error(`${method} ${url} stream ended without result event`);
+    }
+    return resultPayload;
   }
 
   async function listStories({ publishedOnly = true, playableOnly = true } = {}) {
@@ -255,10 +429,11 @@
     return JSON.stringify(payload || {});
   }
 
-  function createStepRetryController({ maxAttempts = 3, backoffMs = 350, onStatus } = {}) {
+  function createStepRetryController({ maxAttempts = 3, backoffMs = 350, onStatus, onStage } = {}) {
     const limit = Math.max(1, Number(maxAttempts || 1));
     const backoff = Math.max(1, Number(backoffMs || 1));
     const emit = typeof onStatus === "function" ? onStatus : () => {};
+    const emitStage = typeof onStage === "function" ? onStage : () => {};
     let pending = null;
 
     function _clonePending() {
@@ -287,14 +462,48 @@
         pending.attempts += 1;
         _notify();
 
-        const response = await requestJson(
-          "POST",
-          `/sessions/${pending.sessionId}/step`,
-          pending.payload,
-          {
-            headers: { [STEP_IDEMPOTENCY_HEADER]: pending.idempotencyKey },
-          },
-        );
+        let response = null;
+        try {
+          const streamResult = await callApiStream(
+            "POST",
+            `/sessions/${pending.sessionId}/step/stream`,
+            pending.payload,
+            {
+              headers: { [STEP_IDEMPOTENCY_HEADER]: pending.idempotencyKey },
+              onStage: (stage) => {
+                emitStage(stage, { pending: _clonePending(), maxAttempts: limit, backoffMs: backoff });
+              },
+            },
+          );
+          response = {
+            ok: true,
+            status: 200,
+            data: streamResult,
+            errorType: null,
+            networkError: null,
+          };
+        } catch (error) {
+          if (String(error?.code || "") === "REQUEST_ABORTED") {
+            throw error;
+          }
+          if (error?.errorType === "network" || error?.status === 0) {
+            response = {
+              ok: false,
+              status: 0,
+              data: null,
+              errorType: "network",
+              networkError: error?.networkError || error,
+            };
+          } else {
+            response = {
+              ok: false,
+              status: Number(error?.status || 500),
+              data: error?.payload || { detail: error?.detail || { message: String(error || "request failed") } },
+              errorType: null,
+              networkError: null,
+            };
+          }
+        }
 
         if (response.errorType === "network") {
           pending.lastStatus = 0;
@@ -465,6 +674,7 @@
     detailMessage,
     requestJson,
     callApi,
+    callApiStream,
     listStories,
     createApiError,
     createStepRetryController,

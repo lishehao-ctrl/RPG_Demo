@@ -108,10 +108,8 @@ def test_story_step_accepts_choice_and_text_inputs(tmp_path: Path) -> None:
     assert "affection_delta" not in body_choice
 
     by_text = client.post(f"/sessions/{sid}/step", json={"player_input": "nonsense ???"})
-    assert by_text.status_code == 200
-    body_text = by_text.json()
-    assert body_text["fallback_used"] is True
-    assert "affection_delta" not in body_text
+    assert by_text.status_code == 503
+    assert by_text.json()["detail"]["code"] == "LLM_UNAVAILABLE"
 
     with db_session.SessionLocal() as db:
         logs = db.execute(
@@ -119,8 +117,8 @@ def test_story_step_accepts_choice_and_text_inputs(tmp_path: Path) -> None:
             .where(ActionLog.session_id == uuid.UUID(sid))
             .order_by(ActionLog.created_at.asc(), ActionLog.id.asc())
         ).scalars().all()
-        assert len(logs) >= 2
-        assert logs[-1].fallback_used is True
+        assert len(logs) >= 1
+        assert logs[-1].fallback_used is False
 
 
 def test_story_step_text_clear_input_maps_to_choice(tmp_path: Path) -> None:

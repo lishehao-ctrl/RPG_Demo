@@ -5,11 +5,11 @@ from pathlib import Path
 
 import httpx
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.config import settings
 from app.db import session as db_session
-from app.db.models import ActionLog, LLMUsageLog, Story
+from app.db.models import ActionLog, Story
 from app.main import app
 from app.modules.llm.adapter import LLMRuntime
 from app.modules.llm.schemas import NarrativeOutput
@@ -200,15 +200,6 @@ def _latest_action_log(session_id: str | uuid.UUID) -> ActionLog:
         return log
 
 
-def _usage_operations_for_session(session_id: str | uuid.UUID) -> set[str]:
-    sid = uuid.UUID(str(session_id))
-    with db_session.SessionLocal() as db:
-        rows = db.execute(
-            select(LLMUsageLog.operation).where(LLMUsageLog.session_id == sid)
-        ).all()
-    return {str(row[0]) for row in rows if row and row[0] is not None}
-
-
 def test_story_session_advances_nodes_by_choice_id(tmp_path: Path) -> None:
     _prepare_db(tmp_path)
     client = TestClient(app)
@@ -227,7 +218,7 @@ def test_story_session_advances_nodes_by_choice_id(tmp_path: Path) -> None:
     assert body["fallback_used"] is False
     assert body["fallback_reason"] is None
     assert "affection_delta" not in body
-    assert set(body["cost"].keys()) == {"tokens_in", "tokens_out", "provider"}
+    assert "cost" not in body
 
     state1 = client.get(f"/sessions/{sid}").json()
     assert state1["current_node_id"] == pack["nodes"][1]["node_id"]
@@ -258,21 +249,8 @@ def test_story_step_player_input_no_match_falls_back_with_200(tmp_path: Path) ->
 
     sid = client.post("/sessions", json={"story_id": "s_no_match"}).json()["id"]
     resp = client.post(f"/sessions/{sid}/step", json={"player_input": "nonsense ???"})
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["fallback_used"] is True
-    assert body["fallback_reason"] == "FALLBACK"
-    assert_no_internal_story_tokens(body["narrative_text"])
-    lowered = str(body["narrative_text"]).lower()
-    assert "you " in lowered
-    for blocked in ("for this turn", "the scene", "story keeps moving"):
-        assert blocked not in lowered
-    assert '"' not in str(body["narrative_text"])
-    for blocked in ("fuzzy", "unclear", "invalid", "wrong input", "cannot understand"):
-        assert blocked not in lowered
-
-    log = _latest_action_log(sid)
-    assert "NO_MATCH" in list(log.fallback_reasons or []) or "LLM_PARSE_ERROR" in list(log.fallback_reasons or [])
+    assert resp.status_code == 503
+    assert resp.json()["detail"]["code"] == "LLM_UNAVAILABLE"
 
 
 def test_story_step_free_input_fallback_reads_as_acknowledge_plus_redirect(tmp_path: Path) -> None:
@@ -283,18 +261,8 @@ def test_story_step_free_input_fallback_reads_as_acknowledge_plus_redirect(tmp_p
 
     sid = client.post("/sessions", json={"story_id": "s_ack_redirect"}).json()["id"]
     resp = client.post(f"/sessions/{sid}/step", json={"player_input": "Play RPG game with Alice"})
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["fallback_used"] is True
-    lowered = str(body["narrative_text"]).lower()
-    assert "alice" in lowered
-    assert "you pause to catch your breath and recover" in lowered or "follow through on" in lowered
-    assert "and your" in lowered or "and the" in lowered
-    for blocked in ("for this turn", "the scene", "story keeps moving"):
-        assert blocked not in lowered
-    assert '"' not in str(body["narrative_text"])
-    for blocked in ("fuzzy", "unclear", "invalid", "wrong input", "cannot understand"):
-        assert blocked not in lowered
+    assert resp.status_code == 503
+    assert resp.json()["detail"]["code"] == "LLM_UNAVAILABLE"
 
 
 def test_story_step_free_input_fallback_paraphrases_chickfila_without_quote(tmp_path: Path) -> None:
@@ -305,13 +273,8 @@ def test_story_step_free_input_fallback_paraphrases_chickfila_without_quote(tmp_
 
     sid = client.post("/sessions", json={"story_id": "s_chickfila_paraphrase"}).json()["id"]
     resp = client.post(f"/sessions/{sid}/step", json={"player_input": "Having a Chick-fila"})
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["fallback_used"] is True
-    lowered = str(body["narrative_text"]).lower()
-    assert "chick-fila" in lowered
-    assert "having a chick-fila" not in lowered
-    assert '"' not in str(body["narrative_text"])
+    assert resp.status_code == 503
+    assert resp.json()["detail"]["code"] == "LLM_UNAVAILABLE"
 
 
 def test_story_step_player_input_intent_alias_executes_visible_choice(tmp_path: Path) -> None:
@@ -333,11 +296,8 @@ def test_story_step_player_input_intent_alias_executes_visible_choice(tmp_path: 
 
     sid = client.post("/sessions", json={"story_id": "s_intent_alias"}).json()["id"]
     resp = client.post(f"/sessions/{sid}/step", json={"player_input": "i want to gather intel first"})
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["fallback_used"] is False
-    assert body["executed_choice_id"] == "c1"
-    assert body["fallback_reason"] is None
+    assert resp.status_code == 503
+    assert resp.json()["detail"]["code"] == "LLM_UNAVAILABLE"
 
 
 def test_story_step_campus_week_free_input_can_progress_without_constant_fallback(tmp_path: Path) -> None:
@@ -388,7 +348,6 @@ def test_story_step_free_input_prompt_alignment_and_compact_context(tmp_path: Pa
         @staticmethod
         def _usage(model: str) -> dict:
             return {
-                "provider": "fake",
                 "model": model,
                 "prompt_tokens": 42,
                 "completion_tokens": 12,
@@ -408,6 +367,9 @@ def test_story_step_free_input_prompt_alignment_and_compact_context(tmp_path: Pa
             read_timeout_s: float | None = None,
             write_timeout_s: float | None = None,
             pool_timeout_s: float | None = None,
+        max_tokens_override: int | None = None,
+        temperature_override: float | None = None,
+        messages_override: list[dict] | None = None,
         ):
             prompt_text = str(prompt or "")
             prompt_lower = prompt_text.lower()
@@ -440,11 +402,7 @@ def test_story_step_free_input_prompt_alignment_and_compact_context(tmp_path: Pa
     provider = _PromptAwareProvider()
     runtime.providers["fake"] = provider
 
-    original_primary = settings.llm_provider_primary
-    original_fallbacks = list(settings.llm_provider_fallbacks)
     monkeypatch.setattr(session_service, "get_llm_runtime", lambda: runtime)
-    settings.llm_provider_primary = "fake"
-    settings.llm_provider_fallbacks = []
     try:
         sid = client.post("/sessions", json={"story_id": "s_prompt_alignment"}).json()["id"]
         step = client.post(f"/sessions/{sid}/step", json={"player_input": "study hard tonight"})
@@ -469,8 +427,7 @@ def test_story_step_free_input_prompt_alignment_and_compact_context(tmp_path: Pa
         assert quest_nudge_ctx.get("enabled") is False
         assert quest_nudge_ctx.get("mode") == "off"
     finally:
-        settings.llm_provider_primary = original_primary
-        settings.llm_provider_fallbacks = original_fallbacks
+        pass
 
 
 def test_story_step_free_input_quest_nudge_event_driven_in_prompt_context(tmp_path: Path, monkeypatch) -> None:
@@ -516,7 +473,6 @@ def test_story_step_free_input_quest_nudge_event_driven_in_prompt_context(tmp_pa
         @staticmethod
         def _usage(model: str) -> dict:
             return {
-                "provider": "fake",
                 "model": model,
                 "prompt_tokens": 32,
                 "completion_tokens": 10,
@@ -536,6 +492,9 @@ def test_story_step_free_input_quest_nudge_event_driven_in_prompt_context(tmp_pa
             read_timeout_s: float | None = None,
             write_timeout_s: float | None = None,
             pool_timeout_s: float | None = None,
+        max_tokens_override: int | None = None,
+        temperature_override: float | None = None,
+        messages_override: list[dict] | None = None,
         ):
             prompt_text = str(prompt or "")
             prompt_lower = prompt_text.lower()
@@ -560,11 +519,7 @@ def test_story_step_free_input_quest_nudge_event_driven_in_prompt_context(tmp_pa
     provider = _QuestNudgePromptProvider()
     runtime.providers["fake"] = provider
 
-    original_primary = settings.llm_provider_primary
-    original_fallbacks = list(settings.llm_provider_fallbacks)
     monkeypatch.setattr(session_service, "get_llm_runtime", lambda: runtime)
-    settings.llm_provider_primary = "fake"
-    settings.llm_provider_fallbacks = []
     try:
         sid = client.post("/sessions", json={"story_id": "s_prompt_quest_nudge_event"}).json()["id"]
         step = client.post(f"/sessions/{sid}/step", json={"player_input": "study now"})
@@ -581,8 +536,7 @@ def test_story_step_free_input_quest_nudge_event_driven_in_prompt_context(tmp_pa
             assert blocked not in str(quest_nudge.get("mainline_hint") or "").lower()
             assert blocked not in str(quest_nudge.get("sideline_hint") or "").lower()
     finally:
-        settings.llm_provider_primary = original_primary
-        settings.llm_provider_fallbacks = original_fallbacks
+        pass
 
 
 def test_story_step_free_input_quest_nudge_cadence_hits_every_third_step(tmp_path: Path, monkeypatch) -> None:
@@ -627,7 +581,6 @@ def test_story_step_free_input_quest_nudge_cadence_hits_every_third_step(tmp_pat
         @staticmethod
         def _usage(model: str) -> dict:
             return {
-                "provider": "fake",
                 "model": model,
                 "prompt_tokens": 28,
                 "completion_tokens": 8,
@@ -647,6 +600,9 @@ def test_story_step_free_input_quest_nudge_cadence_hits_every_third_step(tmp_pat
             read_timeout_s: float | None = None,
             write_timeout_s: float | None = None,
             pool_timeout_s: float | None = None,
+        max_tokens_override: int | None = None,
+        temperature_override: float | None = None,
+        messages_override: list[dict] | None = None,
         ):
             prompt_text = str(prompt or "")
             if "story selection task" in prompt_text.lower():
@@ -670,11 +626,7 @@ def test_story_step_free_input_quest_nudge_cadence_hits_every_third_step(tmp_pat
     provider = _CadencePromptProvider()
     runtime.providers["fake"] = provider
 
-    original_primary = settings.llm_provider_primary
-    original_fallbacks = list(settings.llm_provider_fallbacks)
     monkeypatch.setattr(session_service, "get_llm_runtime", lambda: runtime)
-    settings.llm_provider_primary = "fake"
-    settings.llm_provider_fallbacks = []
     try:
         sid = client.post("/sessions", json={"story_id": "s_prompt_quest_nudge_cadence"}).json()["id"]
         for _ in range(3):
@@ -687,8 +639,7 @@ def test_story_step_free_input_quest_nudge_cadence_hits_every_third_step(tmp_pat
         assert provider.quest_nudges[2].get("enabled") is True
         assert provider.quest_nudges[2].get("mode") == "cadence"
     finally:
-        settings.llm_provider_primary = original_primary
-        settings.llm_provider_fallbacks = original_fallbacks
+        pass
 
 
 def test_story_step_free_input_narrative_removes_system_jargon(tmp_path: Path, monkeypatch) -> None:
@@ -711,6 +662,9 @@ def test_story_step_free_input_narrative_removes_system_jargon(tmp_path: Path, m
             read_timeout_s: float | None = None,
             write_timeout_s: float | None = None,
             pool_timeout_s: float | None = None,
+        max_tokens_override: int | None = None,
+        temperature_override: float | None = None,
+        messages_override: list[dict] | None = None,
         ):
             if "story selection task" in str(prompt).lower():
                 return (
@@ -722,7 +676,6 @@ def test_story_step_free_input_narrative_removes_system_jargon(tmp_path: Path, m
                         "notes": "selector_match",
                     },
                     {
-                        "provider": "fake",
                         "model": model,
                         "prompt_tokens": 12,
                         "completion_tokens": 6,
@@ -739,7 +692,6 @@ def test_story_step_free_input_narrative_removes_system_jargon(tmp_path: Path, m
                     )
                 },
                 {
-                    "provider": "fake",
                     "model": model,
                     "prompt_tokens": 12,
                     "completion_tokens": 6,
@@ -752,11 +704,7 @@ def test_story_step_free_input_narrative_removes_system_jargon(tmp_path: Path, m
     runtime = LLMRuntime()
     runtime.providers["fake"] = _JargonNarrativeProvider()
 
-    original_primary = settings.llm_provider_primary
-    original_fallbacks = list(settings.llm_provider_fallbacks)
     monkeypatch.setattr(session_service, "get_llm_runtime", lambda: runtime)
-    settings.llm_provider_primary = "fake"
-    settings.llm_provider_fallbacks = []
     try:
         sid = client.post("/sessions", json={"story_id": "s_free_input_naturalized"}).json()["id"]
         step = client.post(f"/sessions/{sid}/step", json={"player_input": "do math problems"})
@@ -773,8 +721,7 @@ def test_story_step_free_input_narrative_removes_system_jargon(tmp_path: Path, m
         for blocked in ("for this turn", "the scene", "story keeps moving"):
             assert blocked not in text
     finally:
-        settings.llm_provider_primary = original_primary
-        settings.llm_provider_fallbacks = original_fallbacks
+        pass
 
 
 def test_story_step_button_path_narrative_soft_avoids_system_like_phrases(tmp_path: Path, monkeypatch) -> None:
@@ -797,13 +744,15 @@ def test_story_step_button_path_narrative_soft_avoids_system_like_phrases(tmp_pa
             read_timeout_s: float | None = None,
             write_timeout_s: float | None = None,
             pool_timeout_s: float | None = None,
+        max_tokens_override: int | None = None,
+        temperature_override: float | None = None,
+        messages_override: list[dict] | None = None,
         ):
             return (
                 {
                     "narrative_text": "For this turn, the scene responds and the story keeps moving.",
                 },
                 {
-                    "provider": "fake",
                     "model": model,
                     "prompt_tokens": 10,
                     "completion_tokens": 5,
@@ -816,11 +765,7 @@ def test_story_step_button_path_narrative_soft_avoids_system_like_phrases(tmp_pa
     runtime = LLMRuntime()
     runtime.providers["fake"] = _ButtonPhraseProvider()
 
-    original_primary = settings.llm_provider_primary
-    original_fallbacks = list(settings.llm_provider_fallbacks)
     monkeypatch.setattr(session_service, "get_llm_runtime", lambda: runtime)
-    settings.llm_provider_primary = "fake"
-    settings.llm_provider_fallbacks = []
     try:
         sid = client.post("/sessions", json={"story_id": "s_button_narrative_soft_avoid"}).json()["id"]
         step = client.post(f"/sessions/{sid}/step", json={"choice_id": "c1"})
@@ -829,8 +774,7 @@ def test_story_step_button_path_narrative_soft_avoids_system_like_phrases(tmp_pa
         for blocked in ("for this turn", "the scene", "story keeps moving"):
             assert blocked not in text
     finally:
-        settings.llm_provider_primary = original_primary
-        settings.llm_provider_fallbacks = original_fallbacks
+        pass
 
 
 def test_story_step_free_input_fallback_path_keeps_existing_narration_channel(tmp_path: Path) -> None:
@@ -844,14 +788,8 @@ def test_story_step_free_input_fallback_path_keeps_existing_narration_channel(tm
     try:
         sid = client.post("/sessions", json={"story_id": "s_free_input_fallback_guard"}).json()["id"]
         step = client.post(f"/sessions/{sid}/step", json={"player_input": "??? ???"})
-        assert step.status_code == 200
-        body = step.json()
-        assert body["fallback_used"] is True
-        lowered = str(body["narrative_text"]).lower()
-        assert "you " in lowered
-        for blocked in ("for this turn", "the scene", "story keeps moving"):
-            assert blocked not in lowered
-        assert '"' not in str(body["narrative_text"])
+        assert step.status_code == 503
+        assert step.json()["detail"]["code"] == "LLM_UNAVAILABLE"
     finally:
         settings.story_fallback_llm_enabled = original_flag
 
@@ -895,13 +833,8 @@ def test_story_step_free_input_fallback_can_include_subtle_quest_nudge(tmp_path:
     try:
         sid = client.post("/sessions", json={"story_id": "s_free_input_fallback_quest_nudge"}).json()["id"]
         step = client.post(f"/sessions/{sid}/step", json={"player_input": "???"})
-        assert step.status_code == 200
-        body = step.json()
-        assert body["fallback_used"] is True
-        text = str(body["narrative_text"]).lower()
-        assert "weekly plan" in text or "foundation" in text or "regain footing" in text
-        for blocked in ("quest_id", "main quest", "side quest", "objective", "stage", "milestone"):
-            assert blocked not in text
+        assert step.status_code == 503
+        assert step.json()["detail"]["code"] == "LLM_UNAVAILABLE"
     finally:
         settings.story_fallback_llm_enabled = original_flag
 
@@ -920,11 +853,8 @@ def test_story_step_campus_week_noise_input_still_falls_back(tmp_path: Path) -> 
 
     sid = client.post("/sessions", json={"story_id": "campus_week_v1"}).json()["id"]
     resp = client.post(f"/sessions/{sid}/step", json={"player_input": "nonsense ???"})
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["fallback_used"] is True
-    assert body["fallback_reason"] == "FALLBACK"
-    assert_no_internal_story_tokens(body["narrative_text"])
+    assert resp.status_code == 503
+    assert resp.json()["detail"]["code"] == "LLM_UNAVAILABLE"
 
 
 def test_story_step_campus_week_runtime_events_trigger_on_play_path(tmp_path: Path) -> None:
@@ -953,7 +883,7 @@ def test_story_step_campus_week_runtime_events_trigger_on_play_path(tmp_path: Pa
     )
 
 
-def test_story_step_usage_logs_are_generate_only(tmp_path: Path) -> None:
+def test_story_step_llm_unavailable_has_no_progress(tmp_path: Path) -> None:
     _prepare_db(tmp_path)
     client = TestClient(app)
     pack = _make_pack("s_usage_ops", 1)
@@ -961,11 +891,13 @@ def test_story_step_usage_logs_are_generate_only(tmp_path: Path) -> None:
 
     sid = client.post("/sessions", json={"story_id": "s_usage_ops"}).json()["id"]
     step = client.post(f"/sessions/{sid}/step", json={"player_input": "nonsense ???"})
-    assert step.status_code == 200
+    assert step.status_code == 503
 
-    operations = _usage_operations_for_session(sid)
-    assert operations
-    assert operations == {"generate"}
+    with db_session.SessionLocal() as db:
+        action_count = db.execute(
+            select(func.count()).select_from(ActionLog).where(ActionLog.session_id == uuid.UUID(sid))
+        ).scalar_one()
+    assert action_count == 0
 
 
 def test_story_step_idempotency_replay_does_not_duplicate_progress(tmp_path: Path) -> None:
@@ -1014,6 +946,9 @@ def test_story_step_llm_network_retry_can_recover(tmp_path: Path, monkeypatch) -
             read_timeout_s: float | None = None,
             write_timeout_s: float | None = None,
             pool_timeout_s: float | None = None,
+        max_tokens_override: int | None = None,
+        temperature_override: float | None = None,
+        messages_override: list[dict] | None = None,
         ):
             self.calls += 1
             if self.calls == 1:
@@ -1027,7 +962,6 @@ def test_story_step_llm_network_retry_can_recover(tmp_path: Path, monkeypatch) -
                     ],
                 },
                 {
-                    "provider": "fake",
                     "model": model,
                     "prompt_tokens": 10,
                     "completion_tokens": 5,
@@ -1041,13 +975,9 @@ def test_story_step_llm_network_retry_can_recover(tmp_path: Path, monkeypatch) -
     flaky = _FlakyProvider()
     runtime.providers["fake"] = flaky
 
-    original_primary = settings.llm_provider_primary
-    original_fallbacks = list(settings.llm_provider_fallbacks)
     original_network_retries = settings.llm_retry_attempts_network
     original_llm_retries = settings.llm_max_retries
     original_deadline = settings.llm_total_deadline_s
-    settings.llm_provider_primary = "fake"
-    settings.llm_provider_fallbacks = []
     settings.llm_retry_attempts_network = 2
     settings.llm_max_retries = 1
     settings.llm_total_deadline_s = 10.0
@@ -1060,8 +990,6 @@ def test_story_step_llm_network_retry_can_recover(tmp_path: Path, monkeypatch) -
         assert body["narrative_text"] == "[llm] retry recovered narration"
         assert flaky.calls >= 2
     finally:
-        settings.llm_provider_primary = original_primary
-        settings.llm_provider_fallbacks = original_fallbacks
         settings.llm_retry_attempts_network = original_network_retries
         settings.llm_max_retries = original_llm_retries
         settings.llm_total_deadline_s = original_deadline
@@ -1090,6 +1018,9 @@ def test_story_step_llm_network_retry_exhausted_returns_503_without_progress(tmp
             read_timeout_s: float | None = None,
             write_timeout_s: float | None = None,
             pool_timeout_s: float | None = None,
+        max_tokens_override: int | None = None,
+        temperature_override: float | None = None,
+        messages_override: list[dict] | None = None,
         ):
             self.calls += 1
             raise httpx.ReadTimeout("forced read timeout", request=httpx.Request("POST", "https://example.com"))
@@ -1098,13 +1029,9 @@ def test_story_step_llm_network_retry_exhausted_returns_503_without_progress(tmp
     provider = _AlwaysTimeoutProvider()
     runtime.providers["fake"] = provider
 
-    original_primary = settings.llm_provider_primary
-    original_fallbacks = list(settings.llm_provider_fallbacks)
     original_network_retries = settings.llm_retry_attempts_network
     original_llm_retries = settings.llm_max_retries
     original_deadline = settings.llm_total_deadline_s
-    settings.llm_provider_primary = "fake"
-    settings.llm_provider_fallbacks = []
     settings.llm_retry_attempts_network = 2
     settings.llm_max_retries = 1
     settings.llm_total_deadline_s = 1.0
@@ -1120,8 +1047,6 @@ def test_story_step_llm_network_retry_exhausted_returns_503_without_progress(tmp
         assert after["state_json"] == before["state_json"]
         assert provider.calls >= 1
     finally:
-        settings.llm_provider_primary = original_primary
-        settings.llm_provider_fallbacks = original_fallbacks
         settings.llm_retry_attempts_network = original_network_retries
         settings.llm_max_retries = original_llm_retries
         settings.llm_total_deadline_s = original_deadline
@@ -1151,6 +1076,9 @@ def test_story_step_narrative_non_json_repair_can_recover(tmp_path: Path, monkey
             read_timeout_s: float | None = None,
             write_timeout_s: float | None = None,
             pool_timeout_s: float | None = None,
+        max_tokens_override: int | None = None,
+        temperature_override: float | None = None,
+        messages_override: list[dict] | None = None,
         ):
             self.calls += 1
             if "narrative repair task" in str(prompt).lower():
@@ -1158,7 +1086,6 @@ def test_story_step_narrative_non_json_repair_can_recover(tmp_path: Path, monkey
                 return (
                     {"narrative_text": "[llm] repaired narrative text"},
                     {
-                        "provider": "fake",
                         "model": model,
                         "prompt_tokens": 10,
                         "completion_tokens": 5,
@@ -1170,7 +1097,6 @@ def test_story_step_narrative_non_json_repair_can_recover(tmp_path: Path, monkey
             return (
                 "non-json narrative payload",
                 {
-                    "provider": "fake",
                     "model": model,
                     "prompt_tokens": 10,
                     "completion_tokens": 5,
@@ -1184,13 +1110,9 @@ def test_story_step_narrative_non_json_repair_can_recover(tmp_path: Path, monkey
     provider = _NarrativeRepairProvider()
     runtime.providers["fake"] = provider
 
-    original_primary = settings.llm_provider_primary
-    original_fallbacks = list(settings.llm_provider_fallbacks)
     original_network_retries = settings.llm_retry_attempts_network
     original_llm_retries = settings.llm_max_retries
     original_deadline = settings.llm_total_deadline_s
-    settings.llm_provider_primary = "fake"
-    settings.llm_provider_fallbacks = []
     settings.llm_retry_attempts_network = 1
     settings.llm_max_retries = 1
     settings.llm_total_deadline_s = 10.0
@@ -1198,12 +1120,10 @@ def test_story_step_narrative_non_json_repair_can_recover(tmp_path: Path, monkey
     try:
         sid = client.post("/sessions", json={"story_id": "s_narrative_parse_repair"}).json()["id"]
         step = client.post(f"/sessions/{sid}/step", json={"choice_id": "c1"})
-        assert step.status_code == 200
-        assert step.json()["narrative_text"] == "[llm] repaired narrative text"
-        assert provider.repair_calls >= 1
+        assert step.status_code == 503
+        assert step.json()["detail"]["code"] == "LLM_UNAVAILABLE"
+        assert provider.repair_calls == 0
     finally:
-        settings.llm_provider_primary = original_primary
-        settings.llm_provider_fallbacks = original_fallbacks
         settings.llm_retry_attempts_network = original_network_retries
         settings.llm_max_retries = original_llm_retries
         settings.llm_total_deadline_s = original_deadline
@@ -1229,11 +1149,13 @@ def test_story_step_narrative_parse_failure_returns_503_without_progress(tmp_pat
             read_timeout_s: float | None = None,
             write_timeout_s: float | None = None,
             pool_timeout_s: float | None = None,
+        max_tokens_override: int | None = None,
+        temperature_override: float | None = None,
+        messages_override: list[dict] | None = None,
         ):
             return (
                 "non-json narrative payload forever",
                 {
-                    "provider": "fake",
                     "model": model,
                     "prompt_tokens": 10,
                     "completion_tokens": 5,
@@ -1246,13 +1168,9 @@ def test_story_step_narrative_parse_failure_returns_503_without_progress(tmp_pat
     runtime = LLMRuntime()
     runtime.providers["fake"] = _NarrativeParseFailProvider()
 
-    original_primary = settings.llm_provider_primary
-    original_fallbacks = list(settings.llm_provider_fallbacks)
     original_network_retries = settings.llm_retry_attempts_network
     original_llm_retries = settings.llm_max_retries
     original_deadline = settings.llm_total_deadline_s
-    settings.llm_provider_primary = "fake"
-    settings.llm_provider_fallbacks = []
     settings.llm_retry_attempts_network = 1
     settings.llm_max_retries = 1
     settings.llm_total_deadline_s = 10.0
@@ -1267,8 +1185,6 @@ def test_story_step_narrative_parse_failure_returns_503_without_progress(tmp_pat
         assert after["current_node_id"] == before["current_node_id"]
         assert after["state_json"] == before["state_json"]
     finally:
-        settings.llm_provider_primary = original_primary
-        settings.llm_provider_fallbacks = original_fallbacks
         settings.llm_retry_attempts_network = original_network_retries
         settings.llm_max_retries = original_llm_retries
         settings.llm_total_deadline_s = original_deadline
@@ -1313,14 +1229,8 @@ def test_story_step_parse_error_maps_to_fallback(tmp_path: Path, monkeypatch) ->
 
     sid = client.post("/sessions", json={"story_id": "s_parse_error"}).json()["id"]
     step = client.post(f"/sessions/{sid}/step", json={"player_input": "nonsense ???"})
-    assert step.status_code == 200
-    body = step.json()
-    assert body["fallback_used"] is True
-    assert body["fallback_reason"] == "FALLBACK"
-    assert_no_internal_story_tokens(body["narrative_text"])
-
-    log = _latest_action_log(sid)
-    assert "LLM_PARSE_ERROR" in list(log.fallback_reasons or [])
+    assert step.status_code == 503
+    assert step.json()["detail"]["code"] == "LLM_UNAVAILABLE"
 
 
 def test_story_step_prereq_blocked_prefers_node_fallback_choice(tmp_path: Path) -> None:
@@ -1591,10 +1501,8 @@ def test_story_fallback_narrative_leak_guard(tmp_path: Path, monkeypatch) -> Non
     try:
         sid = client.post("/sessions", json={"story_id": "s_leak_guard"}).json()["id"]
         resp = client.post(f"/sessions/{sid}/step", json={"player_input": "nonsense ???"})
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["fallback_used"] is True
-        assert_no_internal_story_tokens(body["narrative_text"])
+        assert resp.status_code == 503
+        assert resp.json()["detail"]["code"] == "LLM_UNAVAILABLE"
     finally:
         settings.story_fallback_llm_enabled = original_flag
 

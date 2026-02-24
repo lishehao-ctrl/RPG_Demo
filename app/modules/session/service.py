@@ -1,36 +1,32 @@
 import uuid
+import queue
+import threading
 from datetime import datetime, timezone
+from collections.abc import Callable
 
 from fastapi import HTTPException
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.config import settings
 from app.db.models import (
     ActionLog,
     Character,
-    LLMUsageLog,
     Session as StorySession,
     SessionStepIdempotency,
     SessionCharacterState,
     SessionSnapshot,
     Story,
 )
+from app.db import session as db_session
 from app.modules.llm.adapter import LLMUnavailableError, get_llm_runtime
-from app.modules.narrative.ending_engine import resolve_run_ending
-from app.modules.narrative.event_engine import advance_runtime_events
-from app.modules.narrative.quest_engine import advance_quest_state, init_quest_state, summarize_quest_for_narration
+from app.modules.narrative.quest_engine import init_quest_state
 from app.modules.narrative.state_engine import default_initial_state, normalize_run_state, normalize_state
 from app.modules.replay.engine import ReplayEngine, upsert_replay_report
-from app.modules.session import debug_views, idempotency, runtime_pack, fallback as runtime_fallback, selection
+from app.modules.session import debug_views, idempotency, runtime_deps, runtime_orchestrator
 from app.modules.session.schemas import ChoiceOut, SessionStateOut
-from app.modules.session.story_choice_gating import evaluate_choice_availability
-from app.modules.session.story_runtime.models import SelectionResult
-from app.modules.session.story_runtime.pipeline import StoryRuntimePipelineDeps, run_story_runtime_pipeline
 
 replay_engine = ReplayEngine()
-_STORY_FALLBACK_BUILTIN_TEXT = "[fallback] The scene advances quietly. Choose the next move."
 
 
 def _get_or_create_default_character(db: Session) -> Character:
@@ -124,123 +120,23 @@ def _serialize_state(db: Session, sess: StorySession) -> SessionStateOut:
 
 
 def _load_story_pack(db: Session, story_id: str, version: int | None = None) -> Story:
-    if version is not None:
-        row = db.execute(select(Story).where(Story.story_id == story_id, Story.version == version)).scalar_one_or_none()
-    else:
-        row = db.execute(
-            select(Story)
-            .where(Story.story_id == story_id, Story.is_published.is_(True))
-            .order_by(Story.version.desc())
-        ).scalars().first()
-    if not row:
-        raise HTTPException(status_code=404, detail={"code": "STORY_NOT_FOUND"})
-    return row
+    return runtime_deps.load_story_pack(db, story_id, version)
 
 
 def _story_node(pack: dict, node_id: str) -> dict | None:
-    return runtime_pack.story_node(pack, node_id)
+    return runtime_deps.story_node(pack, node_id)
 
 
 def normalize_pack_for_runtime(pack_json: dict | None) -> dict:
-    return runtime_pack.normalize_pack_for_runtime(pack_json)
+    return runtime_deps.normalize_pack_for_runtime(pack_json)
 
 
-def _resolve_runtime_fallback(node: dict, current_node_id: str, node_ids: set[str]) -> tuple[dict, str, list[str]]:
-    return runtime_fallback.resolve_runtime_fallback(node, current_node_id, node_ids)
-
-
-def _fallback_executed_choice_id(fallback: dict, current_node_id: str) -> str:
-    return runtime_fallback.fallback_executed_choice_id(fallback, current_node_id)
-
-
-def _select_fallback_text_variant(
-    fallback: dict,
-    reason_code: str | None,
-    locale: str | None = None,
-) -> str | None:
-    return runtime_fallback.select_fallback_text_variant(fallback, reason_code, locale)
-
-
-def _select_story_choice(
-    *,
-    db: Session,
-    sess: StorySession,
-    player_input: str,
-    visible_choices: list[dict],
-    intents: list[dict] | None,
-    current_story_state: dict,
-) -> SelectionResult:
-    return selection.select_story_choice(
-        db=db,
-        sess=sess,
-        player_input=player_input,
-        visible_choices=visible_choices,
-        intents=intents,
-        current_story_state=current_story_state,
-        llm_runtime_getter=get_llm_runtime,
-    )
+def assert_stored_storypacks_v10_strict(*, sample_limit: int = 20) -> None:
+    runtime_deps.assert_stored_storypacks_v10_strict(sample_limit=sample_limit)
 
 
 def _story_choices_for_response(node: dict, state_json: dict | None) -> list[dict]:
-    out = []
-    state = normalize_state(state_json)
-    for choice in (node.get("choices") or []):
-        action_id = ((choice.get("action") or {}).get("action_id") or "action")
-        is_available, unavailable_reason = evaluate_choice_availability(choice, state)
-        item = {
-            "id": str(choice.get("choice_id")),
-            "text": str(choice.get("display_text", "")),
-            "type": str(action_id),
-            "is_available": bool(is_available),
-        }
-        if not is_available and unavailable_reason:
-            item["unavailable_reason"] = unavailable_reason
-        out.append(item)
-    return out
-
-
-def _apply_choice_effects(state: dict, effects: dict | None) -> dict:
-    if not effects:
-        return normalize_state(state)
-    out = dict(state)
-    for key in ("energy", "money", "knowledge", "affection"):
-        if key in effects and effects.get(key) is not None:
-            out[key] = int(out.get(key, 0)) + int(effects.get(key) or 0)
-    return normalize_state(out)
-
-
-def _compute_state_delta(before: dict, after: dict) -> dict:
-    delta: dict = {}
-    for key, before_value in before.items():
-        after_value = after.get(key)
-        if before_value == after_value:
-            continue
-        if isinstance(before_value, int) and isinstance(after_value, int):
-            delta[key] = after_value - before_value
-        else:
-            delta[key] = after_value
-    return delta
-
-
-def _format_effects_suffix(effects: dict | None) -> str:
-    if not isinstance(effects, dict):
-        return ""
-    parts: list[str] = []
-    for key in sorted(effects.keys(), key=lambda item: str(item)):
-        value = effects.get(key)
-        if value is None:
-            continue
-        try:
-            numeric = int(value)
-        except Exception:  # noqa: BLE001
-            continue
-        if numeric == 0:
-            continue
-        sign = "+" if numeric > 0 else ""
-        parts.append(f"{key} {sign}{numeric}")
-    if not parts:
-        return ""
-    return f" ({', '.join(parts)})"
+    return runtime_deps.story_choices_for_response(node, state_json)
 
 
 def create_session(db: Session, story_id: str, version: int | None = None) -> StorySession:
@@ -289,52 +185,8 @@ def get_session_state(db: Session, session_id: uuid.UUID) -> SessionStateOut:
     return _serialize_state(db, sess)
 
 
-def get_llm_trace(db: Session, session_id: uuid.UUID, limit: int = 50) -> dict:
-    return debug_views.get_llm_trace(db, session_id, limit=limit)
-
-
 def get_layer_inspector(db: Session, session_id: uuid.UUID, limit: int = 20) -> dict:
     return debug_views.get_layer_inspector(db, session_id, limit=limit)
-
-
-def _sum_step_tokens(db: Session, session_id: uuid.UUID, step_id: uuid.UUID) -> tuple[int, int]:
-    prompt_tokens = (
-        db.execute(
-            select(func.coalesce(func.sum(LLMUsageLog.prompt_tokens), 0)).where(
-                LLMUsageLog.session_id == session_id,
-                LLMUsageLog.step_id == step_id,
-            )
-        ).scalar_one()
-        or 0
-    )
-    completion_tokens = (
-        db.execute(
-            select(func.coalesce(func.sum(LLMUsageLog.completion_tokens), 0)).where(
-                LLMUsageLog.session_id == session_id,
-                LLMUsageLog.step_id == step_id,
-            )
-        ).scalar_one()
-        or 0
-    )
-    return int(prompt_tokens), int(completion_tokens)
-
-
-def _sum_step_usage(db: Session, session_id: uuid.UUID, step_id: uuid.UUID) -> tuple[int, int]:
-    return _sum_step_tokens(db, session_id, step_id)
-
-
-def _step_provider(db: Session, session_id: uuid.UUID, step_id: uuid.UUID) -> str:
-    latest_usage = db.execute(
-        select(LLMUsageLog)
-        .where(
-            LLMUsageLog.session_id == session_id,
-            LLMUsageLog.step_id == step_id,
-            LLMUsageLog.operation == "generate",
-            LLMUsageLog.status == "success",
-        )
-        .order_by(LLMUsageLog.created_at.desc())
-    ).scalars().first()
-    return latest_usage.provider if latest_usage else "none"
 
 
 def _run_story_runtime_pipeline(
@@ -343,51 +195,16 @@ def _run_story_runtime_pipeline(
     sess: StorySession,
     choice_id: str | None,
     player_input: str | None,
+    stage_emitter: Callable[[object], None] | None = None,
 ) -> dict:
-    def _bound_select_story_choice(
-        *,
-        player_input: str,
-        visible_choices: list[dict],
-        intents: list[dict] | None,
-        current_story_state: dict,
-    ) -> SelectionResult:
-        return _select_story_choice(
-            db=db,
-            sess=sess,
-            player_input=player_input,
-            visible_choices=visible_choices,
-            intents=intents,
-            current_story_state=current_story_state,
-        )
-
-    deps = StoryRuntimePipelineDeps(
-        load_story_pack=_load_story_pack,
-        normalize_pack_for_runtime=normalize_pack_for_runtime,
-        story_node=_story_node,
-        resolve_runtime_fallback=_resolve_runtime_fallback,
-        select_story_choice=_bound_select_story_choice,
-        fallback_executed_choice_id=_fallback_executed_choice_id,
-        select_fallback_text_variant=_select_fallback_text_variant,
-        sum_step_usage=_sum_step_usage,
-        step_provider=_step_provider,
-        apply_choice_effects=_apply_choice_effects,
-        compute_state_delta=_compute_state_delta,
-        format_effects_suffix=_format_effects_suffix,
-        story_choices_for_response=_story_choices_for_response,
-        advance_quest_state=advance_quest_state,
-        advance_runtime_events=advance_runtime_events,
-        resolve_run_ending=resolve_run_ending,
-        summarize_quest_for_narration=summarize_quest_for_narration,
-        llm_runtime_getter=get_llm_runtime,
-    )
     try:
-        return run_story_runtime_pipeline(
+        return runtime_orchestrator.run_story_runtime_step(
             db=db,
             sess=sess,
             choice_id=choice_id,
             player_input=player_input,
-            fallback_builtin_text=_STORY_FALLBACK_BUILTIN_TEXT,
-            deps=deps,
+            llm_runtime_getter=get_llm_runtime,
+            stage_emitter=stage_emitter,
         )
     except LLMUnavailableError as exc:
         raise HTTPException(status_code=503, detail={"code": "LLM_UNAVAILABLE", "message": str(exc)}) from exc
@@ -461,6 +278,7 @@ def step_session(
     choice_id: str | None,
     player_input: str | None = None,
     idempotency_key: str | None = None,
+    stage_emitter: Callable[[object], None] | None = None,
 ):
     normalized_choice_id = _normalized_optional_text(choice_id)
     normalized_player_input = _normalized_optional_text(player_input)
@@ -480,6 +298,7 @@ def step_session(
                 sess=sess,
                 choice_id=normalized_choice_id,
                 player_input=normalized_player_input,
+                stage_emitter=stage_emitter,
             )
 
     request_hash = _request_hash(choice_id=normalized_choice_id, player_input=normalized_player_input)
@@ -548,6 +367,7 @@ def step_session(
                 sess=sess,
                 choice_id=normalized_choice_id,
                 player_input=normalized_player_input,
+                stage_emitter=stage_emitter,
             )
             safe_payload = _safe_response_payload(response_payload)
             row = db.execute(
@@ -585,6 +405,65 @@ def step_session(
                 error_code="INTERNAL_ERROR",
             )
         raise
+
+
+def step_session_stream(
+    *,
+    session_id: uuid.UUID,
+    choice_id: str | None,
+    player_input: str | None = None,
+    idempotency_key: str | None = None,
+):
+    _done = object()
+    event_queue: queue.Queue[object] = queue.Queue()
+
+    def _emit_stage(event: object) -> None:
+        event_payload = event
+        if hasattr(event, "to_dict") and callable(getattr(event, "to_dict")):
+            event_payload = event.to_dict()
+        if isinstance(event_payload, dict):
+            event_queue.put(("stage", event_payload))
+
+    def _worker() -> None:
+        try:
+            with db_session.SessionLocal() as worker_db:
+                payload = step_session(
+                    worker_db,
+                    session_id,
+                    choice_id,
+                    player_input,
+                    idempotency_key=idempotency_key,
+                    stage_emitter=_emit_stage,
+                )
+            event_queue.put(("result", payload if isinstance(payload, dict) else {}))
+        except HTTPException as exc:
+            detail = exc.detail if isinstance(exc.detail, dict) else {"message": str(exc.detail)}
+            event_queue.put(("error", {"status": int(exc.status_code), "detail": detail}))
+        except Exception as exc:  # noqa: BLE001
+            event_queue.put(
+                (
+                    "error",
+                    {
+                        "status": 500,
+                        "detail": {
+                            "code": "INTERNAL_ERROR",
+                            "message": str(exc) or "step stream failed",
+                        },
+                    },
+                )
+            )
+        finally:
+            event_queue.put(_done)
+
+    threading.Thread(target=_worker, daemon=True).start()
+
+    while True:
+        item = event_queue.get()
+        if item is _done:
+            break
+        if not isinstance(item, tuple) or len(item) != 2:
+            continue
+        yield item
 
 
 def create_snapshot(db: Session, session_id: uuid.UUID) -> SessionSnapshot:

@@ -107,6 +107,15 @@
   margin-top: var(--space-2);
 }
 
+.layer-inspector-summary {
+  border: 1px solid rgba(31, 50, 65, 0.2);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.9);
+  padding: 10px 11px;
+  color: #203346;
+  line-height: 1.5;
+}
+
 .layer-step-card {
   border: 1px solid rgba(31, 50, 65, 0.24);
   border-radius: var(--radius-sm);
@@ -127,6 +136,45 @@
   display: grid;
   gap: 6px;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.layer-step-block {
+  border: 1px solid rgba(31, 50, 65, 0.16);
+  border-radius: 8px;
+  padding: 8px;
+  background: rgba(245, 249, 252, 0.95);
+}
+
+.layer-step-block h4 {
+  margin: 0;
+  color: #1f3e5a;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.layer-step-block p {
+  margin: 7px 0 8px;
+  color: #23354a;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.layer-step-block details {
+  margin: 0;
+}
+
+.layer-step-block summary {
+  cursor: pointer;
+  color: var(--accent-strong);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.layer-step-block pre {
+  margin-top: 6px;
 }
 
 .layer-step-grid pre {

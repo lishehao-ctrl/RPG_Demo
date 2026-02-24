@@ -1,20 +1,13 @@
 from __future__ import annotations
 
-import re
 import uuid
-from collections import Counter
-from datetime import datetime
 
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.db.models import ActionLog, LLMUsageLog, Session as StorySession, SessionStepIdempotency
-
-_TRACE_ERROR_KIND_RE = re.compile(r"(?:^|\|)\s*kind=([A-Z_]+)")
-_TRACE_RAW_SNIPPET_RE = re.compile(r"(?:^|\|)\s*raw=([^|]+)")
-_TRACE_TOKEN_REDACTION_RE = re.compile(r"\bsk-[A-Za-z0-9_\-]{8,}\b")
+from app.db.models import ActionLog, Session as StorySession
 
 
 def _require_session(db: Session, session_id: uuid.UUID) -> StorySession:
@@ -24,167 +17,10 @@ def _require_session(db: Session, session_id: uuid.UUID) -> StorySession:
     return sess
 
 
-def _phase_guess_for_llm_call(call: LLMUsageLog) -> str:
-    if call.step_id is None:
-        return "selection_phase_or_selector_repair"
-    return "narrative_phase_or_narrative_repair"
-
-
-def _sanitize_trace_raw_snippet(value: str | None, max_len: int = 200) -> str | None:
-    text = str(value or "").strip()
-    if not text:
-        return None
-    text = text.replace("\r", " ").replace("\n", " ").replace("\t", " ")
-    text = _TRACE_TOKEN_REDACTION_RE.sub("[REDACTED_KEY]", text)
-    text = " ".join(text.split())
-    text = text.replace("|", "/")
-    return text[:max_len] if text else None
-
-
-def _extract_trace_error_kind(error_message: str | None) -> str | None:
-    text = str(error_message or "")
-    match = _TRACE_ERROR_KIND_RE.search(text)
-    if not match:
-        return None
-    value = str(match.group(1) or "").strip().upper()
-    return value or None
-
-
-def _extract_trace_raw_snippet(error_message: str | None) -> str | None:
-    text = str(error_message or "")
-    match = _TRACE_RAW_SNIPPET_RE.search(text)
-    if not match:
-        return None
-    return _sanitize_trace_raw_snippet(match.group(1))
-
-
-def _trace_error_prefix(error_message: str | None) -> str | None:
-    text = str(error_message or "").strip()
-    if not text:
-        return None
-    base = text.split("| kind=", 1)[0].strip()
-    if not base:
-        return None
-    return base[:80]
-
-
-def get_llm_trace(db: Session, session_id: uuid.UUID, limit: int = 50) -> dict:
-    _require_session(db, session_id)
-    if str(settings.env).lower() != "dev":
-        raise HTTPException(status_code=404, detail={"code": "DEBUG_DISABLED"})
-
-    bounded_limit = max(1, min(int(limit), 200))
-    calls = db.execute(
-        select(LLMUsageLog)
-        .where(LLMUsageLog.session_id == session_id)
-        .order_by(LLMUsageLog.created_at.desc(), LLMUsageLog.id.desc())
-        .limit(bounded_limit)
-    ).scalars().all()
-    latest_idem = db.execute(
-        select(SessionStepIdempotency)
-        .where(SessionStepIdempotency.session_id == session_id)
-        .order_by(SessionStepIdempotency.updated_at.desc(), SessionStepIdempotency.created_at.desc())
-    ).scalars().first()
-
-    providers_counter: Counter[str] = Counter()
-    error_kind_counter: Counter[str] = Counter()
-    error_prefix_counter: Counter[str] = Counter()
-    success_calls = 0
-    error_calls = 0
-    llm_calls: list[dict] = []
-    for call in calls:
-        providers_counter[str(call.provider)] += 1
-        if str(call.status) == "success":
-            success_calls += 1
-        else:
-            error_calls += 1
-            if call.error_message:
-                prefix = _trace_error_prefix(call.error_message)
-                if prefix:
-                    error_prefix_counter[prefix] += 1
-            error_kind = _extract_trace_error_kind(call.error_message)
-            if error_kind:
-                error_kind_counter[error_kind] += 1
-        call_error_kind = _extract_trace_error_kind(call.error_message)
-        call_raw_snippet = _extract_trace_raw_snippet(call.error_message)
-        llm_calls.append(
-            {
-                "id": str(call.id),
-                "created_at": call.created_at.isoformat(),
-                "provider": str(call.provider),
-                "model": str(call.model),
-                "operation": str(call.operation),
-                "status": str(call.status),
-                "step_id": (str(call.step_id) if call.step_id else None),
-                "prompt_tokens": int(call.prompt_tokens or 0),
-                "completion_tokens": int(call.completion_tokens or 0),
-                "latency_ms": int(call.latency_ms or 0),
-                "error_message": call.error_message,
-                "error_kind": call_error_kind,
-                "raw_snippet": call_raw_snippet,
-                "phase_guess": _phase_guess_for_llm_call(call),
-            }
-        )
-
-    idempotency = None
-    if latest_idem is not None:
-        idempotency = {
-            "idempotency_key": str(latest_idem.idempotency_key),
-            "status": str(latest_idem.status),
-            "error_code": latest_idem.error_code,
-            "updated_at": latest_idem.updated_at.isoformat(),
-            "request_hash_prefix": str(latest_idem.request_hash or "")[:12],
-            "response_present": isinstance(latest_idem.response_json, dict),
-        }
-
-    provider_chain = [settings.llm_provider_primary] + list(settings.llm_provider_fallbacks)
-    provider_chain = [str(item) for item in provider_chain if str(item).strip()]
-
-    return {
-        "session_id": str(session_id),
-        "env": str(settings.env),
-        "provider_chain": provider_chain,
-        "model_generate": str(settings.llm_model_generate),
-        "runtime_limits": {
-            "llm_timeout_s": float(settings.llm_timeout_s),
-            "llm_total_deadline_s": float(settings.llm_total_deadline_s),
-            "llm_retry_attempts_network": int(settings.llm_retry_attempts_network),
-            "llm_max_retries": int(settings.llm_max_retries),
-            "circuit_window_s": float(settings.llm_circuit_breaker_window_s),
-            "circuit_fail_threshold": int(settings.llm_circuit_breaker_fail_threshold),
-            "circuit_open_s": float(settings.llm_circuit_breaker_open_s),
-        },
-        "latest_idempotency": idempotency,
-        "summary": {
-            "total_calls": len(calls),
-            "success_calls": success_calls,
-            "error_calls": error_calls,
-            "providers": dict(providers_counter),
-            "errors_by_kind": dict(error_kind_counter),
-            "errors_by_message_prefix": dict(error_prefix_counter),
-        },
-        "llm_calls": llm_calls,
-    }
-
-
 def _action_log_layer_debug(log: ActionLog) -> dict:
     classification = log.classification if isinstance(log.classification, dict) else {}
     layer_debug = classification.get("layer_debug") if isinstance(classification.get("layer_debug"), dict) else {}
     return dict(layer_debug or {})
-
-
-def _nearest_llm_step_id(db: Session, *, session_id: uuid.UUID, created_at: datetime) -> str | None:
-    value = db.execute(
-        select(LLMUsageLog.step_id)
-        .where(
-            LLMUsageLog.session_id == session_id,
-            LLMUsageLog.step_id.is_not(None),
-            LLMUsageLog.created_at <= created_at,
-        )
-        .order_by(LLMUsageLog.created_at.desc(), LLMUsageLog.id.desc())
-        .limit(1)
-    ).scalar_one_or_none()
-    return str(value) if value is not None else None
 
 
 def _world_layer_snapshot(state_after: dict) -> dict:
@@ -265,6 +101,8 @@ def get_layer_inspector(db: Session, session_id: uuid.UUID, limit: int = 20) -> 
     event_turns = 0
     guard_all_blocked_turns = 0
     guard_stall_turns = 0
+    dominant_route_alerts = 0
+    low_recovery_turns = 0
     latest_ending: str | None = None
 
     for idx, log in enumerate(logs):
@@ -286,6 +124,12 @@ def get_layer_inspector(db: Session, session_id: uuid.UUID, limit: int = 20) -> 
             guard_all_blocked_turns += 1
         if bool(flags.get("stall_guard_triggered")):
             guard_stall_turns += 1
+        turn_intensity = float(layer_debug.get("turn_intensity") or 0.0)
+        recovery_offered = bool(layer_debug.get("recovery_offered"))
+        if int(layer_debug.get("dominant_route_streak") or 0) >= 3:
+            dominant_route_alerts += 1
+        if turn_intensity >= 0.6 and not recovery_offered:
+            low_recovery_turns += 1
         if bool(flags.get("run_ended")) and not latest_ending:
             latest_ending = str(flags.get("ending_id") or "ended")
 
@@ -296,7 +140,6 @@ def get_layer_inspector(db: Session, session_id: uuid.UUID, limit: int = 20) -> 
         if step_index is None:
             step_index = len(logs) - idx
 
-        llm_step_id = _nearest_llm_step_id(db, session_id=session_id, created_at=log.created_at)
         steps.append(
             {
                 "step_index": int(step_index),
@@ -320,6 +163,10 @@ def get_layer_inspector(db: Session, session_id: uuid.UUID, limit: int = 20) -> 
                     "mapping_confidence": layer_debug.get("mapping_confidence"),
                     "fallback_reason": layer_debug.get("fallback_reason"),
                     "mapping_note": layer_debug.get("mapping_note"),
+                    "turn_intensity": layer_debug.get("turn_intensity"),
+                    "recovery_offered": layer_debug.get("recovery_offered"),
+                    "dominant_route_streak": layer_debug.get("dominant_route_streak"),
+                    "tension_note": layer_debug.get("tension_note"),
                 },
                 "consequence_layer": _consequence_snapshot(layer_debug, log.state_delta),
                 "ending_layer": {
@@ -329,7 +176,7 @@ def get_layer_inspector(db: Session, session_id: uuid.UUID, limit: int = 20) -> 
                 },
                 "raw_refs": {
                     "action_log_id": str(log.id),
-                    "llm_step_id": llm_step_id,
+                    "llm_step_id": None,
                     "created_at": log.created_at.isoformat(),
                 },
             }
@@ -350,6 +197,8 @@ def get_layer_inspector(db: Session, session_id: uuid.UUID, limit: int = 20) -> 
             "event_turns": int(event_turns),
             "guard_all_blocked_turns": int(guard_all_blocked_turns),
             "guard_stall_turns": int(guard_stall_turns),
+            "dominant_route_alerts": int(dominant_route_alerts),
+            "low_recovery_turns": int(low_recovery_turns),
             "ending_state": ending_state,
         },
     }

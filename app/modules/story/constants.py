@@ -9,4 +9,8 @@ AUTHOR_ASSIST_TASKS_V4 = (
     "consequence_balance",
     "ending_design",
     "consistency_check",
+    "continue_write",
+    "trim_content",
+    "spice_branch",
+    "tension_rebalance",
 )

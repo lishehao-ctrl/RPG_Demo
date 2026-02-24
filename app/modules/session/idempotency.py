@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
@@ -10,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.db.models import LLMUsageLog, SessionStepIdempotency
+from app.db.models import SessionStepIdempotency
 
 IDEMPOTENCY_STATUS_IN_PROGRESS = "in_progress"
 IDEMPOTENCY_STATUS_SUCCEEDED = "succeeded"
@@ -124,19 +123,3 @@ def persist_idempotency_failed(
         row.error_code = error_code
         row.updated_at = now
         row.expires_at = expiry
-        if error_code == "LLM_UNAVAILABLE":
-            db.add(
-                LLMUsageLog(
-                    session_id=session_id,
-                    provider=str(settings.llm_provider_primary),
-                    model=str(settings.llm_model_generate),
-                    operation="generate",
-                    step_id=uuid.uuid4(),
-                    prompt_tokens=0,
-                    completion_tokens=0,
-                    latency_ms=0,
-                    status="error",
-                    error_message=(error_message or error_code)[:500],
-                    created_at=now,
-                )
-            )

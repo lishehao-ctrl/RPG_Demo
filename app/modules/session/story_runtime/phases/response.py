@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import Any
 
@@ -47,6 +48,10 @@ def phase_finalize_step_response(
     fallback_reasons: list[str],
     input_mode_for_prompt: str,
     player_input: str | None,
+    state_patch_metrics: dict,
+    selection_latency_ms: int,
+    narration_latency_ms: int,
+    llm_retry_count: int = 0,
 ) -> dict:
     if resolution.using_fallback and settings.story_fallback_show_effects_in_text:
         effects_suffix = deps.format_effects_suffix(resolution.effects_for_state)
@@ -65,6 +70,13 @@ def phase_finalize_step_response(
     run_state_after = dict(run_state_after or {})
     progress_keypoints = compact_state_delta_for_prompt(state_delta, max_items=6)
     has_progress = any(key in progress_keypoints for key in ("energy", "money", "knowledge", "affection"))
+    if not has_progress:
+        has_progress = (
+            int((state_patch_metrics or {}).get("inventory_mutation_count", 0))
+            + int((state_patch_metrics or {}).get("npc_mutation_count", 0))
+            + int((state_patch_metrics or {}).get("status_mutation_count", 0))
+            + int((state_patch_metrics or {}).get("world_flag_mutation_count", 0))
+        ) > 0
     route_choice_id = str(resolution.executed_choice_id or resolution.resolved_choice_id or "").strip()
     previous_route_choice_id = str(run_state_after.get("last_route_choice_id") or "").strip()
     previous_route_streak = safe_int(run_state_after.get("dominant_route_streak"), 0)
@@ -157,6 +169,15 @@ def phase_finalize_step_response(
         tension_note=tension_note,
         guard_all_blocked_triggered=guard_all_blocked_triggered,
         guard_stall_triggered=guard_stall_triggered,
+        selection_latency_ms=selection_latency_ms,
+        narration_latency_ms=narration_latency_ms,
+        fallback_reason=resolution.fallback_reason_code,
+        inventory_mutation_count=int((state_patch_metrics or {}).get("inventory_mutation_count", 0)),
+        npc_mutation_count=int((state_patch_metrics or {}).get("npc_mutation_count", 0)),
+        short_memory_compacted_count=int((state_patch_metrics or {}).get("short_memory_compacted_count", 0)),
+        state_json_size_bytes=len(json.dumps(state_after, ensure_ascii=False, separators=(",", ":")).encode("utf-8")),
+        prompt_context_npc_count=min(3, len(((state_after or {}).get("npc_state") or {}))),
+        llm_retry_count=max(0, int(llm_retry_count or 0)),
     )
 
     log = ActionLog(

@@ -15,7 +15,7 @@ from sqlalchemy import select, update
 
 from app.db.models import Story
 from app.db.session import SessionLocal
-from app.modules.story.router import StoryPack
+from app.modules.story.schemas import StoryPack
 from app.modules.story.validation import validate_story_pack_structural
 
 DEFAULT_STORY_FILE = Path("examples/storypacks/campus_week_v1.json")

@@ -189,21 +189,49 @@
     return JSON.stringify(payload);
   }
 
-  async function requestJson(method, url, body, options = {}) {
+  function _isFormData(value) {
+    return typeof FormData !== "undefined" && value instanceof FormData;
+  }
+
+  function _hasContentType(headers) {
+    return Object.keys(headers).some((key) => String(key || "").toLowerCase() === "content-type");
+  }
+
+  function _resolveRequestBodyAndHeaders(body, options = {}) {
     const headers = {};
-    if (body !== undefined) headers["Content-Type"] = "application/json";
     const extraHeaders = options.headers || {};
-    const signal = options.signal;
     Object.keys(extraHeaders).forEach((key) => {
       headers[key] = extraHeaders[key];
     });
+
+    const isRawBody = Boolean(options.rawBody)
+      || _isFormData(body)
+      || (typeof Blob !== "undefined" && body instanceof Blob)
+      || (typeof URLSearchParams !== "undefined" && body instanceof URLSearchParams)
+      || (body instanceof ArrayBuffer)
+      || ArrayBuffer.isView(body)
+      || typeof body === "string";
+
+    if (body !== undefined && !isRawBody && !_hasContentType(headers)) {
+      headers["Content-Type"] = "application/json";
+    }
+
+    return {
+      headers,
+      requestBody: body === undefined ? undefined : (isRawBody ? body : JSON.stringify(body)),
+    };
+  }
+
+  async function requestJson(method, url, body, options = {}) {
+    const { headers, requestBody } = _resolveRequestBodyAndHeaders(body, options);
+    const signal = options.signal;
 
     let response;
     try {
       response = await fetch(url, {
         method,
         headers,
-        body: body !== undefined ? JSON.stringify(body) : undefined,
+        body: requestBody,
         signal,
       });
     } catch (error) {
@@ -300,21 +328,16 @@
   }
 
   async function callApiStream(method, url, body, options = {}) {
-    const headers = {};
-    if (body !== undefined) headers["Content-Type"] = "application/json";
-    const extraHeaders = options.headers || {};
+    const { headers, requestBody } = _resolveRequestBodyAndHeaders(body, options);
     const signal = options.signal;
     const onStage = typeof options.onStage === "function" ? options.onStage : null;
-    Object.keys(extraHeaders).forEach((key) => {
-      headers[key] = extraHeaders[key];
-    });
 
     let response;
     try {
       response = await fetch(url, {
         method,
         headers,
-        body: body !== undefined ? JSON.stringify(body) : undefined,
+        body: requestBody,
         signal,
       });
     } catch (error) {

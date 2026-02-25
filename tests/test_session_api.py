@@ -15,6 +15,7 @@ from app.db.models import ActionLog, Session as StorySession, SessionSnapshot, S
 from app.modules.llm.adapter import LLMRuntime
 from app.main import app
 from tests.support.db_runtime import enable_sqlite_fk_per_connection, prepare_sqlite_db
+from tests.support.story_seed import seed_story_pack
 
 
 def _prepare_db(tmp_path: Path) -> str:
@@ -84,9 +85,9 @@ def _make_story_pack(story_id: str, version: int = 1) -> dict:
 
 
 def _publish_story(client: TestClient, story_id: str = "session_api_story", pack: dict | None = None) -> dict:
+    _ = client
     pack = pack or _make_story_pack(story_id)
-    assert client.post("/stories", json=pack).status_code == 200
-    assert client.post(f"/stories/{story_id}/publish", params={"version": 1}).status_code == 200
+    seed_story_pack(pack=pack, is_published=True)
     return pack
 
 
@@ -206,6 +207,77 @@ def test_create_session_initializes_run_state(tmp_path: Path) -> None:
     assert run_state.get("ending_outcome") is None
     assert run_state.get("ended_at_step") is None
     assert run_state.get("fallback_count") == 0
+
+
+def test_create_session_deep_merges_initial_state_nested_dicts(tmp_path: Path) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    pack = _make_story_pack("session_api_story_deep_merge")
+    pack["initial_state"] = {
+        "inventory_state": {
+            "currency": {"gold": 123, "gems": 7},
+            "stack_items": {"potion_small": {"qty": 2}},
+        },
+        "external_status": {
+            "world_flags": {"festival_week": True},
+        },
+    }
+    _publish_story(client, story_id="session_api_story_deep_merge", pack=pack)
+
+    sid = _create_story_session(client, story_id="session_api_story_deep_merge")
+    got = client.get(f"/sessions/{sid}")
+    assert got.status_code == 200
+    state = got.json()["state_json"]
+
+    inventory = state["inventory_state"]
+    assert inventory["currency"]["gold"] == 123
+    assert inventory["currency"]["gems"] == 7
+    assert inventory["stack_items"]["potion_small"]["qty"] == 2
+    assert inventory["capacity"] == 40
+    assert set(inventory["equipment_slots"].keys()) == {"weapon", "armor", "accessory"}
+
+    external_status = state["external_status"]
+    assert external_status["world_flags"]["festival_week"] is True
+    assert isinstance(external_status["timers"], dict)
+
+
+def test_create_session_seeds_npc_state_from_defs_without_overwriting_existing(tmp_path: Path) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    pack = _make_story_pack("session_api_story_npc_seed")
+    pack["npc_defs"] = [
+        {
+            "npc_id": "alice",
+            "name": "Alice",
+            "relation_axes_init": {"trust": 35, "respect": 20},
+            "long_term_goals": ["pass_exam", "join_club"],
+        }
+    ]
+    pack["initial_state"] = {
+        "npc_state": {
+            "bob": {
+                "relation": {"trust": 10},
+                "mood": {},
+                "beliefs": {},
+                "active_goals": [],
+                "status_effects": [],
+                "short_memory": [],
+                "long_memory_refs": [],
+                "last_seen_step": 0,
+            }
+        }
+    }
+    _publish_story(client, story_id="session_api_story_npc_seed", pack=pack)
+
+    sid = _create_story_session(client, story_id="session_api_story_npc_seed")
+    got = client.get(f"/sessions/{sid}")
+    assert got.status_code == 200
+    npc_state = (got.json().get("state_json") or {}).get("npc_state") or {}
+    assert "bob" in npc_state
+    assert "alice" in npc_state
+    assert npc_state["alice"]["relation"]["trust"] == 35
+    assert npc_state["alice"]["relation"]["respect"] == 20
+    assert len(npc_state["alice"]["active_goals"]) >= 1
 
 
 def test_create_session_accepts_non_uuid_story_node_ids(tmp_path: Path) -> None:

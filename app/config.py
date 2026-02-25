@@ -54,20 +54,19 @@ class Settings(BaseSettings):
     story_fallback_llm_max_chars: int = 500
     story_fallback_show_effects_in_text: bool = False
     story_default_locale: str = "en"
+    story_input_max_chars: int = 1024
+    story_short_memory_limit: int = 12
+    story_long_memory_ref_limit: int = 120
+    story_prompt_context_npc_max: int = 3
+    story_prompt_context_npc_chars: int = 120
+    story_state_size_soft_limit_bytes: int = 65536
+    story_state_size_hard_limit_bytes: int = 131072
 
     llm_doubao_base_url: str = "https://ark.cn-beijing.volces.com/api/v3"
     llm_doubao_api_key: str = ""
     llm_doubao_temperature: float = 0.1
     llm_doubao_max_tokens: int | None = 512
-    llm_author_assist_max_tokens: int = 2048
-    llm_author_assist_expand_max_tokens: int = 1400
-    llm_author_assist_build_max_tokens: int = 2048
-    llm_author_assist_repair_max_tokens: int = 900
-    llm_author_assist_expand_temperature: float = 0.65
-    llm_author_assist_build_temperature: float = 0.15
-    llm_author_assist_repair_temperature: float = 0.0
     llm_prompt_protocol_v2_enabled: bool = True
-    llm_prompt_author_max_chars: int = 14000
     llm_prompt_play_max_chars: int = 7000
     llm_prompt_compaction_level: str = "aggressive"
 

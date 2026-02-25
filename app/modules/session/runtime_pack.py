@@ -45,6 +45,139 @@ def _normalize_effects_to_point(effects: dict | None) -> dict:
     return normalized
 
 
+def _as_dict(value: Any) -> dict:
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _normalize_inventory_ops(ops: list[dict] | None) -> list[dict]:
+    out: list[dict] = []
+    for raw in (ops or []):
+        if not isinstance(raw, dict):
+            continue
+        op = str(raw.get("op") or "").strip()
+        if not op:
+            continue
+        normalized = {"op": op}
+        if raw.get("item_id") is not None:
+            normalized["item_id"] = str(raw.get("item_id"))
+        if raw.get("qty") is not None and not isinstance(raw.get("qty"), bool):
+            normalized["qty"] = max(1, int(raw.get("qty")))
+        if raw.get("instance_id") is not None:
+            normalized["instance_id"] = str(raw.get("instance_id"))
+        if raw.get("slot") is not None:
+            normalized["slot"] = str(raw.get("slot"))
+        if raw.get("currency") is not None:
+            normalized["currency"] = str(raw.get("currency"))
+        if raw.get("amount") is not None and not isinstance(raw.get("amount"), bool):
+            normalized["amount"] = max(1, int(raw.get("amount")))
+        if raw.get("bound") is not None:
+            normalized["bound"] = bool(raw.get("bound"))
+        if raw.get("durability") is not None and not isinstance(raw.get("durability"), bool):
+            normalized["durability"] = max(0, min(100, int(raw.get("durability"))))
+        if isinstance(raw.get("props"), dict):
+            normalized["props"] = dict(raw.get("props") or {})
+        out.append(normalized)
+    return out
+
+
+def _normalize_npc_ops(ops: list[dict] | None) -> list[dict]:
+    out: list[dict] = []
+    for raw in (ops or []):
+        if not isinstance(raw, dict):
+            continue
+        npc_id = str(raw.get("npc_id") or "").strip()
+        if not npc_id:
+            continue
+        normalized = {"npc_id": npc_id}
+        for key in ("relation", "mood", "beliefs"):
+            values = raw.get(key)
+            if not isinstance(values, dict):
+                continue
+            data: dict[str, float] = {}
+            for raw_k, raw_v in values.items():
+                name = str(raw_k or "").strip()
+                if not name:
+                    continue
+                if isinstance(raw_v, bool) or not isinstance(raw_v, (int, float)):
+                    continue
+                data[name] = float(raw_v)
+            if data:
+                normalized[key] = data
+        out.append(normalized)
+    return out
+
+
+def _normalize_status_ops(ops: list[dict] | None) -> list[dict]:
+    out: list[dict] = []
+    for raw in (ops or []):
+        if not isinstance(raw, dict):
+            continue
+        status_id = str(raw.get("status_id") or "").strip()
+        op = str(raw.get("op") or "").strip().lower()
+        if not status_id or op not in {"add", "remove"}:
+            continue
+        normalized = {
+            "target": str(raw.get("target") or "player").strip().lower(),
+            "status_id": status_id,
+            "op": op,
+            "stacks": max(1, int(raw.get("stacks") or 1)),
+        }
+        if raw.get("npc_id") is not None:
+            normalized["npc_id"] = str(raw.get("npc_id"))
+        if raw.get("ttl_steps") is not None and not isinstance(raw.get("ttl_steps"), bool):
+            normalized["ttl_steps"] = max(1, int(raw.get("ttl_steps")))
+        out.append(normalized)
+    return out
+
+
+def _normalize_world_flag_ops(ops: list[dict] | None) -> list[dict]:
+    out: list[dict] = []
+    for raw in (ops or []):
+        if not isinstance(raw, dict):
+            continue
+        key = str(raw.get("key") or "").strip()
+        if not key:
+            continue
+        out.append({"key": key, "value": raw.get("value")})
+    return out
+
+
+def _normalize_effect_ops(
+    raw_effects: dict | None,
+    raw_action_effects_v2: dict | None = None,
+) -> dict:
+    effects = _as_dict(raw_effects)
+    extra = _as_dict(raw_action_effects_v2)
+
+    inventory_ops = _normalize_inventory_ops(
+        (effects.get("inventory_ops") if isinstance(effects.get("inventory_ops"), list) else [])
+        + (extra.get("inventory_ops") if isinstance(extra.get("inventory_ops"), list) else [])
+    )
+    npc_ops = _normalize_npc_ops(
+        (effects.get("npc_ops") if isinstance(effects.get("npc_ops"), list) else [])
+        + (extra.get("npc_ops") if isinstance(extra.get("npc_ops"), list) else [])
+    )
+    status_ops = _normalize_status_ops(
+        (effects.get("status_ops") if isinstance(effects.get("status_ops"), list) else [])
+        + (extra.get("status_ops") if isinstance(extra.get("status_ops"), list) else [])
+    )
+    world_flag_ops = _normalize_world_flag_ops(
+        (effects.get("world_flag_ops") if isinstance(effects.get("world_flag_ops"), list) else [])
+        + (extra.get("world_flag_ops") if isinstance(extra.get("world_flag_ops"), list) else [])
+    )
+
+    out: dict[str, list[dict]] = {}
+    if inventory_ops:
+        out["inventory_ops"] = inventory_ops
+    if npc_ops:
+        out["npc_ops"] = npc_ops
+    if status_ops:
+        out["status_ops"] = status_ops
+    if world_flag_ops:
+        out["world_flag_ops"] = world_flag_ops
+    return out
+
+
 def _normalize_numeric_threshold_map(values: dict | None) -> dict:
     if not isinstance(values, dict):
         return {}
@@ -303,7 +436,9 @@ def normalize_pack_for_runtime(pack_json: dict | None) -> dict:
     default_fallback = pack.get("default_fallback")
     if isinstance(default_fallback, dict):
         default_fallback = dict(default_fallback)
-        default_fallback["effects"] = _normalize_effects_to_point(default_fallback.get("effects"))
+        raw_default_effects = _as_dict(default_fallback.get("effects"))
+        default_fallback["effects"] = _normalize_effects_to_point(raw_default_effects)
+        default_fallback["effect_ops"] = _normalize_effect_ops(raw_default_effects)
         default_fallback["prereq"] = (
             dict((default_fallback.get("prereq") or {}))
             if isinstance(default_fallback.get("prereq"), dict)
@@ -333,7 +468,9 @@ def normalize_pack_for_runtime(pack_json: dict | None) -> dict:
             if isinstance(executor.get("action_params"), dict)
             else {}
         )
-        executor["effects"] = _normalize_effects_to_point(executor.get("effects"))
+        raw_executor_effects = _as_dict(executor.get("effects"))
+        executor["effects"] = _normalize_effects_to_point(raw_executor_effects)
+        executor["effect_ops"] = _normalize_effect_ops(raw_executor_effects)
         narration = executor.get("narration")
         if not isinstance(narration, dict):
             narration = {}
@@ -358,7 +495,12 @@ def normalize_pack_for_runtime(pack_json: dict | None) -> dict:
 
         for raw_choice in (node.get("choices") or []):
             choice = _normalize_story_choice(raw_choice)
-            choice["effects"] = _normalize_effects_to_point(choice.get("effects"))
+            raw_choice_effects = _as_dict(choice.get("effects"))
+            choice["effects"] = _normalize_effects_to_point(raw_choice_effects)
+            choice["effect_ops"] = _normalize_effect_ops(
+                raw_choice_effects,
+                _as_dict(choice.get("action_effects_v2")),
+            )
             visible_choices.append(choice)
 
         fallback = node.get("fallback")
@@ -371,7 +513,9 @@ def normalize_pack_for_runtime(pack_json: dict | None) -> dict:
             fallback_source = "implicit"
         else:
             fallback = dict(fallback)
-        fallback["effects"] = _normalize_effects_to_point(fallback.get("effects"))
+        raw_fallback_effects = _as_dict(fallback.get("effects"))
+        fallback["effects"] = _normalize_effects_to_point(raw_fallback_effects)
+        fallback["effect_ops"] = _normalize_effect_ops(raw_fallback_effects)
         fallback["prereq"] = (
             dict((fallback.get("prereq") or {}))
             if isinstance(fallback.get("prereq"), dict)
@@ -396,6 +540,9 @@ def normalize_pack_for_runtime(pack_json: dict | None) -> dict:
         if pack.get("global_fallback_choice_id") is not None
         else None
     )
+    pack["item_defs"] = [dict(item) for item in (pack.get("item_defs") or []) if isinstance(item, dict)]
+    pack["npc_defs"] = [dict(item) for item in (pack.get("npc_defs") or []) if isinstance(item, dict)]
+    pack["status_defs"] = [dict(item) for item in (pack.get("status_defs") or []) if isinstance(item, dict)]
     pack["quests"] = _normalize_quests_for_runtime(pack.get("quests"))
     pack["events"] = _normalize_events_for_runtime(pack.get("events"))
     pack["endings"] = _normalize_endings_for_runtime(pack.get("endings"))

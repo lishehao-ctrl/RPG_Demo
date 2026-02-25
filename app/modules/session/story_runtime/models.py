@@ -30,6 +30,7 @@ class CandidateChoice:
     label: str | None
     action: dict | None
     effects: dict
+    effect_ops: dict
     prereq_spec: dict | None
     next_node_id: str | None
     narration_skeleton: str | None
@@ -85,6 +86,7 @@ class StoryChoiceResolution:
     reroute_used: bool
     final_action_for_state: dict
     effects_for_state: dict
+    effect_ops_for_state: dict
     next_node_id: str
     executed_choice_id: str
     resolved_choice_id: str

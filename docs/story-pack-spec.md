@@ -15,6 +15,9 @@ This is the active authoring and validation contract for story packs accepted by
 - `start_node_id: str`
 - `nodes: StoryNode[]`
 - `characters: list[dict]` (optional)
+- `item_defs: ItemDef[]` (optional)
+- `npc_defs: NPCDef[]` (optional)
+- `status_defs: StatusDef[]` (optional)
 - `initial_state: dict` (optional)
 - `default_fallback: StoryFallback | null` (optional)
 - `fallback_executors: FallbackExecutor[]` (optional)
@@ -43,6 +46,7 @@ Hard-cut v10:
 - `action: StoryAction`
 - `requires: StoryChoiceRequires | null`
 - `effects: StoryChoiceEffects | null`
+- `action_effects_v2: StoryActionEffectsV2 | null` (optional; ops-only extension channel)
 - `next_node_id: str`
 - `is_key_decision: bool`
 
@@ -53,6 +57,54 @@ Hard-cut v10:
 Allowed per stat (`energy`, `money`, `knowledge`, `affection`):
 - scalar numeric value (`int` or `float`), or
 - `null`.
+
+Extended deterministic op channels (all optional):
+- `inventory_ops: InventoryOp[]`
+- `npc_ops: NPCOp[]`
+- `status_ops: StatusOp[]`
+- `world_flag_ops: WorldFlagOp[]`
+
+Runtime note:
+- scalar deltas and op channels are both deterministic and are applied in the same transition transaction.
+
+## StoryActionEffectsV2
+Ops-only extension channel for action-level effects:
+- `inventory_ops: InventoryOp[]`
+- `npc_ops: NPCOp[]`
+- `status_ops: StatusOp[]`
+- `world_flag_ops: WorldFlagOp[]`
+
+Runtime note:
+- `choice.effects.*_ops` and `choice.action_effects_v2.*_ops` are merged into one deterministic patch stream.
+
+## ItemDef
+- `item_id: str`
+- `name: str`
+- `kind: "stack" | "instance" | "equipment" | "key"`
+- `stackable: bool`
+- `max_stack: int | null`
+- `slot: "weapon" | "armor" | "accessory" | null`
+- `tags: list[str]`
+- `meta: dict`
+
+## NPCDef
+- `npc_id: str`
+- `name: str`
+- `role: str | null`
+- `persona: dict[str, number]`
+- `speech_style: list[str]`
+- `taboos: list[str]`
+- `long_term_goals: list[str]`
+- `relation_axes_init: dict[str, number]`
+
+## StatusDef
+- `status_id: str`
+- `name: str`
+- `target: "player" | "npc" | "both"`
+- `default_stacks: int`
+- `max_stacks: int | null`
+- `default_ttl_steps: int | null`
+- `meta: dict`
 
 Hard-cut v10:
 - list windows (`[min,max]`) are rejected.
@@ -164,9 +216,12 @@ Structural validator enforces:
 - start node existence,
 - dangling next-node checks,
 - duplicate id checks,
+- duplicate `item_defs/npc_defs/status_defs` ids,
 - fallback wiring integrity,
 - reserved fallback prefix rules,
 - node fallback references and global fallback executor references.
+- dangling effect-op references for choice/default/node-fallback/fallback-executor scopes (`item_id`, `npc_id`, `status_id`),
+- status target compatibility checks (`status_defs.target` vs `status_ops.target`),
 - quest id uniqueness,
 - stage id uniqueness within each quest,
 - milestone id uniqueness within each stage,
@@ -185,14 +240,20 @@ Structural validator enforces:
 - Runtime load path does not attempt legacy compatibility projection.
 
 ## Runtime Routing Summary
-1. Pass0 hard no-input -> direct fallback.
-2. Pass1 selection -> visible choice or direct fallback.
-3. Pass2 prereq -> possible single reroute to fallback, then degraded if rerouted target fails.
-4. QuestUpdate phase (after Pass2 state transition, before Pass3 narration):
+1. Input Policy Gate:
+- normalize and length-limit free input,
+- block injection-like strings and force safe fallback route.
+2. Pass0 hard no-input -> direct fallback.
+3. Pass1 selection -> visible choice or direct fallback.
+4. Pass2 prereq -> possible single reroute to fallback, then degraded if rerouted target fails.
+5. Deterministic transition:
+- apply action state change,
+- apply scalar effects and effect ops (`inventory_ops/npc_ops/status_ops/world_flag_ops`) in one transaction.
+6. QuestUpdate phase (after deterministic transition, before narration):
    - updates `state_json.quest_state`,
    - applies milestone/stage/completion rewards once,
    - writes quest progress markers into action log matched rules.
-5. EventPhase (after QuestUpdate):
+7. EventPhase (after QuestUpdate):
    - evaluates eligible events with deterministic weighted selection,
    - evaluates `trigger.node_id_is` against the current node (pre-transition `story_node_id`),
    - evaluates `day_in` / `slot_in` / state thresholds against post-transition state (`state_after`),
@@ -200,11 +261,14 @@ Structural validator enforces:
    - enforces `once_per_run` and `cooldown_steps`,
    - applies event effects through normal state clamp,
    - writes `type=runtime_event` markers into action log matched rules.
-6. EndingPhase (after EventPhase):
+8. EndingPhase (after EventPhase):
    - evaluates configured endings ordered by `(priority ASC, ending_id ASC)`,
    - if none matched, checks timeout by `run_config.max_days` and `run_config.max_steps`,
    - on ending, session is marked ended and ending metadata is written to run state.
-7. Pass3 narration -> narration generation + fallback narrative safety checks.
+9. Memory Compaction:
+- compacts NPC short-memory overflow to long-memory refs,
+- applies soft/hard state-size pressure trimming.
+10. Pass3 narration -> narration generation + fallback narrative safety checks.
 
 ## Outward Fallback Reason
 Story step outward `fallback_reason` values:
@@ -231,6 +295,33 @@ Stage v1 runtime rules:
 - on stage complete: apply `stage_rewards`,
 - if next stage exists: activate next stage,
 - if final stage completes: apply `completion_rewards` once and mark quest completed.
+
+## Runtime Inventory State (`state_json.inventory_state`)
+- `capacity: int`
+- `currency: dict[str, int]`
+- `stack_items: dict[item_id, {qty}]`
+- `instance_items: dict[instance_id, {item_id, durability, bound, props}]`
+- `equipment_slots: {weapon, armor, accessory}`
+
+Model rule:
+- mixed inventory model is used: stack for consumables, instance model for equipment/key items.
+
+## Runtime External Status (`state_json.external_status`)
+- `player_effects: list[{status_id, stacks, expires_at_step}]`
+- `world_flags: dict[str, scalar]`
+- `faction_rep: dict[str, int]`
+- `timers: dict[str, int]`
+
+## Runtime NPC State (`state_json.npc_state`)
+Per `npc_id`:
+- `relation: dict[str, int]`
+- `mood: dict[str, float]`
+- `beliefs: dict[str, float]`
+- `active_goals: list[{goal_id, priority, progress, status}]`
+- `status_effects: list[{status_id, stacks, expires_at_step}]`
+- `short_memory: list[dict]` (hot memory ring)
+- `long_memory_refs: list[str]` (cold memory refs)
+- `last_seen_step: int`
 
 ## Runtime Run State (`state_json.run_state`)
 - `step_index: int`

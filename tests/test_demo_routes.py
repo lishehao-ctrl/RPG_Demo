@@ -20,10 +20,9 @@ def test_demo_dev_and_play_pages_are_available() -> None:
 
     assert dev.status_code == 200
     assert play.status_code == 200
-    assert author.status_code == 200
+    assert author.status_code == 404
     assert "text/html" in dev.headers.get("content-type", "")
     assert "text/html" in play.headers.get("content-type", "")
-    assert "text/html" in author.headers.get("content-type", "")
 
     html = play.text
     for marker in [
@@ -64,78 +63,6 @@ def test_demo_dev_and_play_pages_are_available() -> None:
         "Free input usually triggers two model calls: selection, then narrative.",
     ]:
         assert marker in dev_html
-
-    author_html = author.text
-    for marker in [
-        'data-testid="author-shell"',
-        'data-testid="author-tab-author"',
-        'data-testid="author-tab-debug"',
-        'data-testid="author-debug-toggle"',
-        'data-testid="author-main-flow"',
-        'data-testid="author-page-compose"',
-        'data-testid="author-page-shape"',
-        'data-testid="author-page-build"',
-        'data-testid="author-next-steps"',
-        'data-testid="author-assist-retry-hint"',
-        'data-testid="author-fun-metrics"',
-        'data-testid="author-debug-panel"',
-        'data-testid="author-stepper"',
-        'data-testid="author-focus-core"',
-        'data-testid="author-structure-collapse"',
-        'data-testid="author-scene-advanced-toggle"',
-        'data-testid="author-review-advanced-toggle"',
-        'data-testid="author-entry-spark"',
-        'data-testid="author-entry-ingest"',
-        'data-testid="author-seed-input"',
-        'data-testid="author-source-input"',
-        'data-testid="author-continue-input"',
-        'data-testid="author-continue-write-btn"',
-        'data-testid="author-story-overview"',
-        'data-testid="author-assist-cancel-btn"',
-        'data-testid="author-trim-content-btn"',
-        'data-testid="author-spice-branch-btn"',
-        'data-testid="author-tension-rebalance-btn"',
-        'data-testid="author-auto-apply-hint"',
-        'data-testid="author-step-world"',
-        'data-testid="author-step-characters"',
-        'data-testid="author-step-plot"',
-        'data-testid="author-step-scenes"',
-        'data-testid="author-step-action"',
-        'data-testid="author-step-consequence"',
-        'data-testid="author-step-ending"',
-        'data-testid="author-step-advanced"',
-        'data-testid="author-step-review"',
-        'data-testid="author-global-brief"',
-        'data-testid="author-layer-intent-panel"',
-        'data-testid="author-assist-panel"',
-        'data-testid="author-writer-turn-feed"',
-        'data-testid="author-raw-layer-data"',
-        'data-testid="author-turn-card"',
-        'data-testid="author-playability-panel"',
-        'data-testid="author-playability-blocking"',
-        'data-testid="author-playability-metrics"',
-        'data-testid="author-llm-feedback"',
-        'data-testid="author-patch-preview"',
-        'data-testid="author-form"',
-        'data-testid="author-validate-panel"',
-        'data-testid="author-compile-preview"',
-        'data-testid="author-playtest-panel"',
-        'id="authorStoryId"',
-        'id="authorStoryOverviewList"',
-        'id="charactersNpcsNarrative"',
-        'id="charactersAxesNarrative"',
-        'id="actionCatalogNarrative"',
-        'id="consequenceNarrativeSummary"',
-        'id="endingNarrativeSummary"',
-        'id="validateAuthorBtn"',
-        'id="compileAuthorBtn"',
-        'id="undoPatchBtn"',
-        'id="saveDraftBtn"',
-        'id="playtestBtn"',
-        'id="compiledPreview"',
-    ]:
-        assert marker in author_html
-
 
 def test_demo_bootstrap_has_required_fields() -> None:
     client = TestClient(app)

@@ -45,21 +45,35 @@ The runtime uses this typed result for pass routing and degraded execution decis
 ## Step Pipeline
 `run_story_runtime_pipeline(...)` is phase-based:
 
-1. Pass0 hard no-input:
+1. Input Policy Gate:
+- for free-input requests, normalize whitespace and apply max-length cap,
+- block injection-like patterns and route directly to safe fallback selection.
+
+2. Pass0 hard no-input:
 - no `choice_id` and empty `player_input` route directly to fallback target.
 
-2. Pass1 selection:
+3. Pass1 selection:
 - button `choice_id` is deterministic selection,
 - free input uses selector + deterministic mapping,
 - invisible intents are mapping-only aliases that resolve to visible choice ids,
 - unusable mapping becomes direct fallback.
 
-3. Pass2 prereq + fallback routing:
+4. Pass2 prereq + fallback routing:
 - evaluate selected target prereq,
 - if initial visible target fails, reroute once to fallback target,
 - if rerouted target fails, degrade (`no action`, `effects=0`, `stay`) and do not reroute again.
 
-4. QuestUpdate phase:
+5. Deterministic transition:
+- apply base action transition,
+- apply scalar stat effects,
+- apply deterministic effect-op patch stream:
+  - `inventory_ops`
+  - `npc_ops`
+  - `status_ops`
+  - `world_flag_ops`
+- run NPC memory compaction under configured soft/hard size pressure thresholds.
+
+6. QuestUpdate phase:
 - runs after Pass2 state transition and before Pass3 narration,
 - evaluates rule-based quest triggers using step event (`from node`, `to node`, `executed choice`, `action_id`, `fallback_used`, `state_after`, `state_delta`),
 - updates `state_json.quest_state` (`active_quests`, stage pointers, stage milestone flags, completion flags, `recent_events`, `event_seq`),
@@ -67,7 +81,7 @@ The runtime uses this typed result for pass routing and degraded execution decis
 - evaluates only the current active stage for each active quest (linear single-active stage flow),
 - appends `type=quest_progress` entries into `ActionLog.matched_rules`.
 
-5. EventPhase:
+7. EventPhase:
 - runs after QuestUpdate and before ending resolution,
 - builds deterministic event seed from `session_id`, `step_id`, and `story_node_id`,
 - picks one eligible event by weighted draw,
@@ -75,7 +89,7 @@ The runtime uses this typed result for pass routing and degraded execution decis
 - applies event effects into state through existing normalize/clamp path,
 - appends `type=runtime_event` entries into `ActionLog.matched_rules`.
 
-6. EndingPhase:
+8. EndingPhase:
 - runs after EventPhase and before narration,
 - evaluates configured endings ordered by `(priority ASC, ending_id ASC)`,
 - if no ending matches, applies timeout ending policy from `run_config`:
@@ -83,7 +97,7 @@ The runtime uses this typed result for pass routing and degraded execution decis
   - `step_index >= max_steps`,
 - writes ending metadata into `state_json.run_state` and marks session ended.
 
-7. Pass3 narration:
+9. Pass3 narration:
 - generate narration and optionally polish fallback text.
 - LLM runtime is generate-only for both selection and narration paths.
 - token usage is logged for statistics (`tokens_in`, `tokens_out`, provider), but no budget enforcement is applied.
@@ -109,6 +123,28 @@ Quest runtime uses stage-based progression:
 - `ending_outcome`
 - `ended_at_step`
 - `fallback_count`
+
+## Extended Runtime State
+- `state_json.inventory_state`:
+  - mixed inventory model (`stack_items` + `instance_items` + `equipment_slots` + `currency` + `capacity`)
+- `state_json.external_status`:
+  - `player_effects`, `world_flags`, `faction_rep`, `timers`
+- `state_json.npc_state`:
+  - relation/mood/belief/goals/status plus hot/cold memory split (`short_memory`, `long_memory_refs`)
+
+Session creation seeds missing NPC runtime entries from `npc_defs` while preserving explicitly provided `initial_state.npc_state` entries.
+
+## Step Observability
+`ActionLog.classification.layer_debug` includes operational fields for runtime tuning:
+- `selection_latency_ms`
+- `narration_latency_ms`
+- `fallback_reason`
+- `inventory_mutation_count`
+- `npc_mutation_count`
+- `short_memory_compacted_count`
+- `state_json_size_bytes`
+- `prompt_context_npc_count`
+- `llm_retry_count`
 
 ## using_fallback and reroute_used
 `using_fallback` is true when final executed target differs from initially selected visible choice, or no visible selection happened.

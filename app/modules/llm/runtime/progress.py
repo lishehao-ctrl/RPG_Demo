@@ -11,8 +11,6 @@ class LLMStageEvent:
     label: str
     task: str | None = None
     request_kind: str | None = None
-    overview_source: str | None = None
-    overview_rows: list[dict[str, str]] | None = None
 
     def to_dict(self) -> dict[str, object]:
         payload: dict[str, object] = {
@@ -24,20 +22,6 @@ class LLMStageEvent:
             payload["task"] = str(self.task)
         if self.request_kind:
             payload["request_kind"] = str(self.request_kind)
-        if self.overview_source:
-            payload["overview_source"] = str(self.overview_source)
-        if isinstance(self.overview_rows, list):
-            normalized_rows: list[dict[str, str]] = []
-            for item in self.overview_rows:
-                if not isinstance(item, dict):
-                    continue
-                label = str(item.get("label") or "").strip()
-                value = str(item.get("value") or "").strip()
-                if not label or not value:
-                    continue
-                normalized_rows.append({"label": label, "value": value})
-            if normalized_rows:
-                payload["overview_rows"] = normalized_rows
         return payload
 
 
@@ -58,19 +42,8 @@ def stage_label(
 ) -> str:
     use_zh = normalize_stage_locale(locale) == "zh"
     code = str(stage_code or "").strip()
-    task_name = str(task or "").strip()
     req_kind = str(request_kind or "").strip().lower()
 
-    if code == "author.expand.start":
-        if task_name == "continue_write":
-            return "正在发送第一次续写请求..." if use_zh else "Sending first continuation request..."
-        return "正在发送第一次扩写请求..." if use_zh else "Sending first expansion request..."
-    if code == "author.build.start":
-        return "正在发送完整架构请求..." if use_zh else "Sending full story architecture request..."
-    if code == "author.cast.start":
-        return "正在发送角色架构请求..." if use_zh else "Sending cast architecture request..."
-    if code == "author.single.start":
-        return "正在发送辅助请求..." if use_zh else "Sending assist request..."
     if code == "play.selection.start":
         return "正在发送意图映射请求..." if use_zh else "Sending intent mapping request..."
     if code == "play.narration.start":
@@ -89,8 +62,6 @@ def build_stage_event(
     locale: str | None = None,
     task: str | None = None,
     request_kind: str | None = None,
-    overview_source: str | None = None,
-    overview_rows: list[dict[str, str]] | None = None,
 ) -> LLMStageEvent:
     locale_norm = normalize_stage_locale(locale)
     return LLMStageEvent(
@@ -104,8 +75,6 @@ def build_stage_event(
         ),
         task=(str(task).strip() if task is not None else None) or None,
         request_kind=(str(request_kind).strip() if request_kind is not None else None) or None,
-        overview_source=(str(overview_source).strip() if overview_source is not None else None) or None,
-        overview_rows=overview_rows,
     )
 
 
@@ -116,8 +85,6 @@ def emit_stage(
     locale: str | None = None,
     task: str | None = None,
     request_kind: str | None = None,
-    overview_source: str | None = None,
-    overview_rows: list[dict[str, str]] | None = None,
 ) -> None:
     if stage_emitter is None:
         return
@@ -126,8 +93,6 @@ def emit_stage(
         locale=locale,
         task=task,
         request_kind=request_kind,
-        overview_source=overview_source,
-        overview_rows=overview_rows,
     )
     try:
         stage_emitter(event)

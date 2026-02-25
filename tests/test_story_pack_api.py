@@ -11,6 +11,7 @@ from app.db import session as db_session
 from app.db.models import Story
 from app.main import app
 from tests.support.db_runtime import prepare_sqlite_db
+from tests.support.story_seed import seed_story_pack
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -195,13 +196,20 @@ def test_validate_optional_packwide_fallback_id_uniqueness(tmp_path: Path) -> No
         settings.story_fallback_id_unique_packwide = original
 
 
-def test_store_and_fetch_story_pack_roundtrip_keeps_raw_pack(tmp_path: Path) -> None:
+def test_store_endpoint_is_not_available(tmp_path: Path) -> None:
     _prepare_db(tmp_path)
     client = TestClient(app)
     pack = _pack()
 
     store = client.post("/stories", json=pack)
-    assert store.status_code == 200
+    assert store.status_code in {404, 405}
+
+
+def test_fetch_story_pack_roundtrip_keeps_raw_pack_from_seeded_db(tmp_path: Path) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    pack = _pack()
+    seed_story_pack(pack=pack, is_published=False)
 
     got = client.get("/stories/campus_life", params={"version": 1})
     assert got.status_code == 200
@@ -212,7 +220,14 @@ def test_store_and_fetch_story_pack_roundtrip_keeps_raw_pack(tmp_path: Path) -> 
         assert row.pack_json == pack
 
 
-def test_publish_and_fetch_published_version(tmp_path: Path) -> None:
+def test_publish_endpoint_is_not_available(tmp_path: Path) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    pub = client.post("/stories/campus_life/publish", params={"version": 1})
+    assert pub.status_code in {404, 405}
+
+
+def test_fetch_latest_published_version(tmp_path: Path) -> None:
     _prepare_db(tmp_path)
     client = TestClient(app)
 
@@ -220,13 +235,8 @@ def test_publish_and_fetch_published_version(tmp_path: Path) -> None:
     p2 = _pack()
     p2["version"] = 2
     p2["title"] = "Campus Life v2"
-
-    assert client.post("/stories", json=p1).status_code == 200
-    assert client.post("/stories", json=p2).status_code == 200
-
-    pub = client.post("/stories/campus_life/publish", params={"version": 2})
-    assert pub.status_code == 200
-    assert pub.json()["published_version"] == 2
+    seed_story_pack(pack=p1, is_published=False)
+    seed_story_pack(pack=p2, is_published=True)
 
     got = client.get("/stories/campus_life")
     assert got.status_code == 200
@@ -239,8 +249,7 @@ def test_list_stories_defaults_to_published_playable_only(tmp_path: Path) -> Non
     client = TestClient(app)
 
     pack = _pack()
-    assert client.post("/stories", json=pack).status_code == 200
-    assert client.post("/stories/campus_life/publish", params={"version": 1}).status_code == 200
+    seed_story_pack(pack=pack, is_published=True)
 
     with db_session.SessionLocal() as db:
         with db.begin():
@@ -267,7 +276,7 @@ def test_list_stories_defaults_to_published_playable_only(tmp_path: Path) -> Non
     assert by_id["broken_story"]["is_playable"] is False
 
 
-def test_publish_rejects_invalid_story_pack(tmp_path: Path) -> None:
+def test_publish_invalid_story_pack_endpoint_not_available(tmp_path: Path) -> None:
     _prepare_db(tmp_path)
     client = TestClient(app)
 
@@ -284,11 +293,7 @@ def test_publish_rejects_invalid_story_pack(tmp_path: Path) -> None:
             )
 
     publish = client.post("/stories/invalid_publish_story/publish", params={"version": 1})
-    assert publish.status_code == 400
-    detail = publish.json()["detail"]
-    assert detail["code"] == "STORY_INVALID_FOR_PUBLISH"
-    assert isinstance(detail.get("errors"), list)
-    assert detail["errors"]
+    assert publish.status_code in {404, 405}
 
 
 def test_startup_blocks_when_legacy_storypacks_are_present(tmp_path: Path) -> None:
@@ -345,6 +350,113 @@ def test_validate_accepts_valid_quests_schema(tmp_path: Path) -> None:
     resp = client.post("/stories/validate", json=pack)
     assert resp.status_code == 200
     assert resp.json()["valid"] is True
+
+
+def test_validate_accepts_inventory_npc_status_defs_and_effect_ops(tmp_path: Path) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    pack = _pack()
+    pack["item_defs"] = [
+        {"item_id": "potion_small", "name": "Small Potion", "kind": "stack", "stackable": True}
+    ]
+    pack["npc_defs"] = [
+        {"npc_id": "alice", "name": "Alice", "role": "classmate", "relation_axes_init": {"trust": 30}}
+    ]
+    pack["status_defs"] = [
+        {"status_id": "well_rested", "name": "Well Rested", "target": "player"}
+    ]
+    pack["nodes"][0]["choices"][0]["effects"] = {
+        "knowledge": 1,
+        "inventory_ops": [{"op": "add_stack", "item_id": "potion_small", "qty": 1}],
+        "npc_ops": [{"npc_id": "alice", "relation": {"trust": 2}}],
+        "status_ops": [{"target": "player", "status_id": "well_rested", "op": "add", "stacks": 1}],
+        "world_flag_ops": [{"key": "festival_week", "value": True}],
+    }
+
+    resp = client.post("/stories/validate", json=pack)
+    assert resp.status_code == 200
+    assert resp.json()["valid"] is True
+
+
+def test_validate_rejects_dangling_effect_ops_references(tmp_path: Path) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    pack = _pack()
+    pack["item_defs"] = [{"item_id": "potion_small", "name": "Small Potion"}]
+    pack["npc_defs"] = [{"npc_id": "alice", "name": "Alice"}]
+    pack["status_defs"] = [{"status_id": "well_rested", "name": "Well Rested"}]
+    pack["nodes"][0]["choices"][0]["effects"] = {
+        "inventory_ops": [{"op": "add_stack", "item_id": "missing_item", "qty": 1}],
+        "npc_ops": [{"npc_id": "missing_npc", "relation": {"trust": 2}}],
+        "status_ops": [{"target": "player", "status_id": "missing_status", "op": "add", "stacks": 1}],
+    }
+
+    resp = client.post("/stories/validate", json=pack)
+    assert resp.status_code == 200
+    assert resp.json()["valid"] is False
+    errors = resp.json()["errors"]
+    assert any("DANGLING_INVENTORY_OP_ITEM" in item for item in errors)
+    assert any("DANGLING_NPC_OP_TARGET" in item for item in errors)
+    assert any("DANGLING_STATUS_OP_ID" in item for item in errors)
+
+
+def test_validate_accepts_action_effects_v2_ops(tmp_path: Path) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    pack = _pack()
+    pack["item_defs"] = [{"item_id": "potion_small", "name": "Small Potion"}]
+    pack["npc_defs"] = [{"npc_id": "alice", "name": "Alice"}]
+    pack["status_defs"] = [{"status_id": "well_rested", "name": "Well Rested", "target": "player"}]
+    pack["nodes"][0]["choices"][0]["action_effects_v2"] = {
+        "inventory_ops": [{"op": "add_stack", "item_id": "potion_small", "qty": 1}],
+        "npc_ops": [{"npc_id": "alice", "relation": {"trust": 1}}],
+        "status_ops": [{"target": "player", "status_id": "well_rested", "op": "add", "stacks": 1}],
+        "world_flag_ops": [{"key": "festival_week", "value": True}],
+    }
+
+    resp = client.post("/stories/validate", json=pack)
+    assert resp.status_code == 200
+    assert resp.json()["valid"] is True
+
+
+def test_validate_rejects_dangling_effect_ops_refs_in_fallbacks_and_executors(tmp_path: Path) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    pack = _pack()
+    pack["item_defs"] = [{"item_id": "potion_small", "name": "Small Potion"}]
+    pack["npc_defs"] = [{"npc_id": "alice", "name": "Alice"}]
+    pack["status_defs"] = [{"status_id": "well_rested", "name": "Well Rested"}]
+    pack["default_fallback"]["effects"] = {
+        "inventory_ops": [{"op": "add_stack", "item_id": "missing_item", "qty": 1}],
+    }
+    pack["fallback_executors"][0]["effects"] = {
+        "npc_ops": [{"npc_id": "missing_npc", "relation": {"trust": 1}}],
+        "status_ops": [{"target": "player", "status_id": "missing_status", "op": "add", "stacks": 1}],
+    }
+
+    resp = client.post("/stories/validate", json=pack)
+    assert resp.status_code == 200
+    assert resp.json()["valid"] is False
+    errors = resp.json()["errors"]
+    assert any(item.startswith("DANGLING_INVENTORY_OP_ITEM:__default__:") for item in errors)
+    assert any(item.startswith("DANGLING_NPC_OP_TARGET:fallback_executor:fb_global:") for item in errors)
+    assert any(item.startswith("DANGLING_STATUS_OP_ID:fallback_executor:fb_global:") for item in errors)
+
+
+def test_validate_rejects_status_target_mismatch(tmp_path: Path) -> None:
+    _prepare_db(tmp_path)
+    client = TestClient(app)
+    pack = _pack()
+    pack["npc_defs"] = [{"npc_id": "alice", "name": "Alice"}]
+    pack["status_defs"] = [{"status_id": "well_rested", "name": "Well Rested", "target": "player"}]
+    pack["nodes"][0]["choices"][0]["effects"] = {
+        "status_ops": [{"target": "npc", "npc_id": "alice", "status_id": "well_rested", "op": "add", "stacks": 1}],
+    }
+
+    resp = client.post("/stories/validate", json=pack)
+    assert resp.status_code == 200
+    assert resp.json()["valid"] is False
+    assert any("STATUS_TARGET_MISMATCH" in item for item in resp.json()["errors"])
 
 
 def test_validate_rejects_dangling_quest_trigger_node(tmp_path: Path) -> None:

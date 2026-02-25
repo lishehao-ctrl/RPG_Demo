@@ -18,6 +18,7 @@ from tests.support.story_narrative_assertions import (
     assert_no_internal_story_tokens,
     assert_no_system_error_style_phrases,
 )
+from tests.support.story_seed import seed_story_pack
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -179,8 +180,8 @@ def _make_pack(
 
 
 def _publish_pack(client: TestClient, pack: dict) -> None:
-    assert client.post("/stories", json=pack).status_code == 200
-    assert client.post(f"/stories/{pack['story_id']}/publish", params={"version": pack["version"]}).status_code == 200
+    _ = client
+    seed_story_pack(pack=pack, is_published=True)
 
 
 def _load_example_story_pack(filename: str) -> dict:

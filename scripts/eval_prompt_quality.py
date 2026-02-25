@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare current prompt metrics against baseline and summarize runtime usage logs."""
+"""Compare current play prompt metrics against baseline and summarize runtime usage logs."""
 
 from __future__ import annotations
 
@@ -14,15 +14,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.modules.llm.prompts import (
-    build_author_assist_prompt,
-    build_author_idea_expand_prompt,
-    build_author_story_build_prompt,
+from app.modules.llm.prompts import (  # noqa: E402
     build_story_narration_prompt,
     build_story_selection_prompt,
 )
-
-TWO_STAGE_TASKS = {"seed_expand", "story_ingest", "continue_write"}
 
 
 def _estimate_tokens(text: str) -> int:
@@ -55,37 +50,9 @@ def _load_cases(path: Path) -> list[dict]:
     return [item for item in raw if isinstance(item, dict)]
 
 
-def _compute_prompt_metrics(author_cases: list[dict], play_cases: list[dict]) -> dict:
-    author_prompt_lengths: list[int] = []
-    author_prompt_tokens: list[int] = []
+def _compute_prompt_metrics(play_cases: list[dict]) -> dict:
     play_prompt_lengths: list[int] = []
     play_prompt_tokens: list[int] = []
-
-    default_blueprint = {
-        "core_conflict": {},
-        "tension_loop_plan": {},
-        "branch_design": {},
-        "lexical_anchors": {},
-    }
-
-    for case in author_cases:
-        task = str(case.get("task") or "seed_expand")
-        locale = str(case.get("locale") or "en")
-        context = case.get("context") if isinstance(case.get("context"), dict) else {}
-        prompts = [build_author_assist_prompt(task=task, locale=locale, context=context)]
-        if task in TWO_STAGE_TASKS:
-            prompts.append(build_author_idea_expand_prompt(task=task, locale=locale, context=context))
-            prompts.append(
-                build_author_story_build_prompt(
-                    task=task,
-                    locale=locale,
-                    context=context,
-                    idea_blueprint=default_blueprint,
-                )
-            )
-        for prompt in prompts:
-            author_prompt_lengths.append(len(prompt))
-            author_prompt_tokens.append(_estimate_tokens(prompt))
 
     for case in play_cases:
         ctype = str(case.get("type") or "selection").strip().lower()
@@ -104,8 +71,6 @@ def _compute_prompt_metrics(author_cases: list[dict], play_cases: list[dict]) ->
         play_prompt_tokens.append(_estimate_tokens(prompt))
 
     return {
-        "author_prompt_chars": _summary(author_prompt_lengths),
-        "author_prompt_tokens_est": _summary(author_prompt_tokens),
         "play_prompt_chars": _summary(play_prompt_lengths),
         "play_prompt_tokens_est": _summary(play_prompt_tokens),
     }
@@ -113,12 +78,7 @@ def _compute_prompt_metrics(author_cases: list[dict], play_cases: list[dict]) ->
 
 def _diff_summary(current: dict, baseline: dict) -> dict:
     out: dict[str, dict] = {}
-    for key in (
-        "author_prompt_chars",
-        "author_prompt_tokens_est",
-        "play_prompt_chars",
-        "play_prompt_tokens_est",
-    ):
+    for key in ("play_prompt_chars", "play_prompt_tokens_est"):
         cur = current.get(key) if isinstance(current.get(key), dict) else {}
         base = baseline.get(key) if isinstance(baseline.get(key), dict) else {}
         out[key] = {
@@ -138,7 +98,6 @@ def _usage_metrics(db_path: Path) -> dict:
             "db_exists": False,
             "row_count": 0,
             "p95_latency_ms": 0,
-            "author_invalid_output_rate": None,
             "play_parse_error_rate": None,
             "avg_prompt_tokens": 0,
         }
@@ -152,7 +111,6 @@ def _usage_metrics(db_path: Path) -> dict:
                 "db_exists": True,
                 "row_count": 0,
                 "p95_latency_ms": 0,
-                "author_invalid_output_rate": None,
                 "play_parse_error_rate": None,
                 "avg_prompt_tokens": 0,
             }
@@ -167,18 +125,6 @@ def _usage_metrics(db_path: Path) -> dict:
     prompt_tokens = [int(row[4] or 0) for row in rows]
     error_rows = [row for row in rows if str(row[1] or "") == "error"]
 
-    author_error_rows = [
-        row
-        for row in error_rows
-        if "assist" in str(row[2] or "").lower()
-        or "assist_" in str(row[2] or "").lower()
-    ]
-    author_invalid_rows = [
-        row
-        for row in author_error_rows
-        if "assist_schema_validate" in str(row[2] or "").lower() or "assist_json_parse" in str(row[2] or "").lower()
-    ]
-
     play_error_rows = [row for row in error_rows if "narrative_" in str(row[2] or "").lower()]
     play_parse_rows = [
         row
@@ -190,9 +136,6 @@ def _usage_metrics(db_path: Path) -> dict:
         "db_exists": True,
         "row_count": len(rows),
         "p95_latency_ms": _p95(latencies),
-        "author_invalid_output_rate": (
-            round(len(author_invalid_rows) / len(author_error_rows), 4) if author_error_rows else None
-        ),
         "play_parse_error_rate": round(len(play_parse_rows) / len(play_error_rows), 4) if play_error_rows else None,
         "avg_prompt_tokens": round(mean(prompt_tokens), 2) if prompt_tokens else 0,
     }
@@ -200,16 +143,14 @@ def _usage_metrics(db_path: Path) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Evaluate current prompt quality and compare against baseline.")
-    parser.add_argument("--author-fixtures", type=Path, default=Path("tests/prompt_fixtures/author_cases.json"))
     parser.add_argument("--play-fixtures", type=Path, default=Path("tests/prompt_fixtures/play_cases.json"))
     parser.add_argument("--baseline", type=Path, default=Path("artifacts/prompt_baseline.json"))
     parser.add_argument("--db", type=Path, default=Path("app.db"))
     parser.add_argument("--out", type=Path, default=Path("artifacts/prompt_quality.json"))
     args = parser.parse_args()
 
-    author_cases = _load_cases(args.author_fixtures)
     play_cases = _load_cases(args.play_fixtures)
-    current = _compute_prompt_metrics(author_cases, play_cases)
+    current = _compute_prompt_metrics(play_cases)
 
     baseline: dict = {}
     if args.baseline.exists():
@@ -223,7 +164,6 @@ def main() -> None:
         "comparison": _diff_summary(current, baseline) if baseline else {},
         "usage_metrics": _usage_metrics(args.db),
         "acceptance_targets": {
-            "author_invalid_output_rate": "down",
             "play_parse_error_rate": "down",
             "p95_latency_ms": "stable_or_down",
             "avg_prompt_tokens": "down",

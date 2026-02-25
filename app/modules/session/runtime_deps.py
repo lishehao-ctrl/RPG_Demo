@@ -6,9 +6,11 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.db import session as db_session
 from app.db.models import Session as StorySession, Story
 from app.modules.narrative.state_engine import normalize_state
+from app.modules.narrative.state_patch_engine import apply_effect_ops, compact_npc_memories
 from app.modules.session import fallback as runtime_fallback, runtime_pack, selection
 from app.modules.session.story_choice_gating import evaluate_choice_availability
 from app.modules.session.story_runtime.models import SelectionResult
@@ -149,6 +151,20 @@ def apply_choice_effects(state: dict, effects: dict | None) -> dict:
     return normalize_state(out)
 
 
+def apply_effect_ops_for_state(state: dict, effect_ops: dict | None) -> tuple[dict, dict]:
+    return apply_effect_ops(state, effect_ops)
+
+
+def compact_npc_memories_for_state(state: dict) -> tuple[dict, dict]:
+    return compact_npc_memories(
+        state,
+        short_memory_limit=max(1, int(settings.story_short_memory_limit)),
+        long_memory_ref_limit=max(1, int(settings.story_long_memory_ref_limit)),
+        state_size_soft_limit_bytes=max(1024, int(settings.story_state_size_soft_limit_bytes)),
+        state_size_hard_limit_bytes=max(2048, int(settings.story_state_size_hard_limit_bytes)),
+    )
+
+
 def compute_state_delta(before: dict, after: dict) -> dict:
     delta: dict = {}
     for key, before_value in before.items():
@@ -221,6 +237,8 @@ def build_story_runtime_pipeline_deps(
         fallback_executed_choice_id=fallback_executed_choice_id,
         select_fallback_text_variant=select_fallback_text_variant,
         apply_choice_effects=apply_choice_effects,
+        apply_effect_ops=apply_effect_ops_for_state,
+        compact_npc_memories=compact_npc_memories_for_state,
         compute_state_delta=compute_state_delta,
         format_effects_suffix=format_effects_suffix,
         story_choices_for_response=story_choices_for_response,

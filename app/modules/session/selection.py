@@ -9,6 +9,7 @@ from app.db.models import Session as StorySession
 from app.modules.llm.adapter import LLMUnavailableError, get_llm_runtime
 from app.modules.llm.prompts import build_story_selection_envelope, build_story_selection_prompt
 from app.modules.narrative.state_engine import normalize_state
+from app.modules.narrative.state_patch_engine import build_npc_prompt_context
 from app.modules.session.story_runtime.models import SelectionInputSource, SelectionResult
 
 
@@ -33,6 +34,13 @@ def _selection_state_snippet(current_story_state: dict, *, sess: StorySession) -
         out["run_step_index"] = run_state.get("step_index")
     if run_state.get("fallback_count") is not None:
         out["fallback_count"] = run_state.get("fallback_count")
+    npc_context = build_npc_prompt_context(
+        state,
+        max_npcs=max(1, int(settings.story_prompt_context_npc_max)),
+        max_chars=max(40, int(settings.story_prompt_context_npc_chars)),
+    )
+    out["npc_context"] = npc_context
+    out["prompt_context_npc_count"] = len(npc_context)
     return out
 
 

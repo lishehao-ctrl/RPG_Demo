@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.modules.llm.runtime.chat_completions_client import LLMOutputValidationError
-from app.modules.llm.runtime.errors import AuthorAssistParseError, NarrativeParseError
+from app.modules.llm.runtime.errors import NarrativeParseError
 from app.modules.llm.runtime.progress import StageEmitter, emit_stage
 from app.modules.llm.runtime.types import CircuitState, LLMTimeoutProfile
 
@@ -46,7 +46,7 @@ class TransportOps:
 
     @staticmethod
     def _is_retryable_error(exc: Exception) -> bool:
-        if isinstance(exc, (AuthorAssistParseError, NarrativeParseError, LLMOutputValidationError)):
+        if isinstance(exc, (NarrativeParseError, LLMOutputValidationError)):
             return True
         return TransportOps._is_retryable_network_error(exc)
 

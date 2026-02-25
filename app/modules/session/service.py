@@ -29,6 +29,16 @@ from app.modules.session.schemas import ChoiceOut, SessionStateOut
 replay_engine = ReplayEngine()
 
 
+def _deep_merge_dict(base: dict, override: dict) -> dict:
+    merged: dict = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge_dict(dict(merged.get(key) or {}), value)
+        else:
+            merged[key] = value
+    return merged
+
+
 def _get_or_create_default_character(db: Session) -> Character:
     char = db.execute(select(Character).where(Character.name == "Default Heroine")).scalar_one_or_none()
     if char:
@@ -152,6 +162,35 @@ def create_session(db: Session, story_id: str, version: int | None = None) -> St
             raise HTTPException(status_code=400, detail={"code": "INVALID_STORY_START_NODE"})
 
         initial_state = default_initial_state()
+        pack_initial_state = runtime_pack.get("initial_state")
+        if isinstance(pack_initial_state, dict):
+            initial_state = _deep_merge_dict(initial_state, pack_initial_state)
+
+        npc_defs = runtime_pack.get("npc_defs") if isinstance(runtime_pack.get("npc_defs"), list) else []
+        npc_state = dict(initial_state.get("npc_state") or {})
+        for npc_def in npc_defs:
+            if not isinstance(npc_def, dict):
+                continue
+            npc_id = str(npc_def.get("npc_id") or "").strip()
+            if not npc_id or npc_id in npc_state:
+                continue
+            relation_init = npc_def.get("relation_axes_init") if isinstance(npc_def.get("relation_axes_init"), dict) else {}
+            npc_state[npc_id] = {
+                "relation": {str(k): int(v) for k, v in relation_init.items() if isinstance(v, (int, float)) and not isinstance(v, bool)},
+                "mood": {},
+                "beliefs": {},
+                "active_goals": [
+                    {"goal_id": str(goal), "priority": 0.5, "progress": 0.0, "status": "active"}
+                    for goal in (npc_def.get("long_term_goals") or [])
+                    if str(goal).strip()
+                ][:3],
+                "status_effects": [],
+                "short_memory": [],
+                "long_memory_refs": [],
+                "last_seen_step": 0,
+            }
+        initial_state["npc_state"] = npc_state
+
         initial_state["quest_state"] = init_quest_state(runtime_pack.get("quests") or [])
         initial_state["run_state"] = normalize_run_state(None)
 

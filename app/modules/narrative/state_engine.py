@@ -5,6 +5,9 @@ TIME_SLOTS = ("morning", "afternoon", "night")
 TIME_ADVANCE_ACTIONS = {"study", "work", "rest", "date", "gift"}
 MAX_DAYS = 7
 QUEST_EVENT_HISTORY_LIMIT = 20
+INVENTORY_DEFAULT_CAPACITY = 40
+NPC_SHORT_MEMORY_LIMIT = 12
+NPC_LONG_MEMORY_REF_LIMIT = 120
 
 
 def default_initial_state() -> dict:
@@ -15,12 +18,37 @@ def default_initial_state() -> dict:
         "affection": 0,
         "day": 1,
         "slot": "morning",
+        "inventory_state": {
+            "capacity": INVENTORY_DEFAULT_CAPACITY,
+            "currency": {"gold": 50},
+            "stack_items": {},
+            "instance_items": {},
+            "equipment_slots": {
+                "weapon": None,
+                "armor": None,
+                "accessory": None,
+            },
+        },
+        "external_status": {
+            "player_effects": [],
+            "world_flags": {},
+            "faction_rep": {},
+            "timers": {},
+        },
+        "npc_state": {},
     }
 
 
 def _to_int(value: Any, default: int) -> int:
     try:
         return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _to_float(value: Any, default: float) -> float:
+    try:
+        return float(value)
     except (TypeError, ValueError):
         return default
 
@@ -36,6 +64,284 @@ def _unique_non_empty_strings(values: Any) -> list[str]:
             continue
         seen.add(text)
         out.append(text)
+    return out
+
+
+def _normalize_stack_items(raw: Any) -> dict:
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, dict[str, int]] = {}
+    for raw_item_id, raw_entry in raw.items():
+        item_id = str(raw_item_id or "").strip()
+        if not item_id:
+            continue
+        qty = 0
+        if isinstance(raw_entry, dict):
+            qty = _to_int(raw_entry.get("qty"), 0)
+        elif isinstance(raw_entry, (int, float)) and not isinstance(raw_entry, bool):
+            qty = int(raw_entry)
+        if qty <= 0:
+            continue
+        out[item_id] = {"qty": qty}
+    return out
+
+
+def _normalize_instance_items(raw: Any) -> dict:
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, dict] = {}
+    for raw_instance_id, raw_entry in raw.items():
+        instance_id = str(raw_instance_id or "").strip()
+        if not instance_id or not isinstance(raw_entry, dict):
+            continue
+        item_id = str(raw_entry.get("item_id") or "").strip()
+        if not item_id:
+            continue
+        durability = _to_int(raw_entry.get("durability"), 100)
+        durability = max(0, min(100, durability))
+        out[instance_id] = {
+            "item_id": item_id,
+            "durability": durability,
+            "bound": bool(raw_entry.get("bound", False)),
+            "props": dict(raw_entry.get("props") or {}) if isinstance(raw_entry.get("props"), dict) else {},
+        }
+    return out
+
+
+def _normalize_equipment_slots(raw: Any, instance_items: dict) -> dict:
+    default_slots = {"weapon": None, "armor": None, "accessory": None}
+    if not isinstance(raw, dict):
+        return default_slots
+    out = dict(default_slots)
+    for slot in default_slots:
+        instance_id = raw.get(slot)
+        if instance_id is None:
+            out[slot] = None
+            continue
+        text = str(instance_id or "").strip()
+        if not text or text not in instance_items:
+            out[slot] = None
+            continue
+        out[slot] = text
+    return out
+
+
+def normalize_inventory_state(inventory_state: dict | None) -> dict:
+    raw = inventory_state if isinstance(inventory_state, dict) else {}
+    capacity = _to_int(raw.get("capacity"), INVENTORY_DEFAULT_CAPACITY)
+    if capacity <= 0:
+        capacity = INVENTORY_DEFAULT_CAPACITY
+
+    currency_raw = raw.get("currency") if isinstance(raw.get("currency"), dict) else {}
+    currency: dict[str, int] = {}
+    for raw_code, raw_amount in currency_raw.items():
+        code = str(raw_code or "").strip()
+        if not code:
+            continue
+        amount = _to_int(raw_amount, 0)
+        if amount < 0:
+            amount = 0
+        currency[code] = amount
+    if "gold" not in currency:
+        currency["gold"] = 0
+
+    stack_items = _normalize_stack_items(raw.get("stack_items"))
+    instance_items = _normalize_instance_items(raw.get("instance_items"))
+    equipment_slots = _normalize_equipment_slots(raw.get("equipment_slots"), instance_items)
+
+    return {
+        "capacity": capacity,
+        "currency": currency,
+        "stack_items": stack_items,
+        "instance_items": instance_items,
+        "equipment_slots": equipment_slots,
+    }
+
+
+def _normalize_status_effects(raw: Any) -> list[dict]:
+    if not isinstance(raw, list):
+        return []
+    out: list[dict] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        status_id = str(item.get("status_id") or "").strip()
+        if not status_id:
+            continue
+        stacks = _to_int(item.get("stacks"), 1)
+        if stacks <= 0:
+            continue
+        expires_at_step_raw = item.get("expires_at_step")
+        expires_at_step = None
+        if expires_at_step_raw is not None and not isinstance(expires_at_step_raw, bool):
+            expires_at_step = _to_int(expires_at_step_raw, 0)
+            if expires_at_step <= 0:
+                expires_at_step = None
+        out.append(
+            {
+                "status_id": status_id,
+                "stacks": stacks,
+                "expires_at_step": expires_at_step,
+            }
+        )
+    return out
+
+
+def normalize_external_status(external_status: dict | None) -> dict:
+    raw = external_status if isinstance(external_status, dict) else {}
+
+    world_flags_raw = raw.get("world_flags") if isinstance(raw.get("world_flags"), dict) else {}
+    world_flags: dict[str, Any] = {}
+    for raw_key, raw_value in world_flags_raw.items():
+        key = str(raw_key or "").strip()
+        if not key:
+            continue
+        world_flags[key] = raw_value
+
+    faction_rep_raw = raw.get("faction_rep") if isinstance(raw.get("faction_rep"), dict) else {}
+    faction_rep: dict[str, int] = {}
+    for raw_key, raw_value in faction_rep_raw.items():
+        key = str(raw_key or "").strip()
+        if not key:
+            continue
+        faction_rep[key] = _to_int(raw_value, 0)
+
+    timers_raw = raw.get("timers") if isinstance(raw.get("timers"), dict) else {}
+    timers: dict[str, int] = {}
+    for raw_key, raw_value in timers_raw.items():
+        key = str(raw_key or "").strip()
+        if not key:
+            continue
+        value = _to_int(raw_value, 0)
+        if value <= 0:
+            continue
+        timers[key] = value
+
+    return {
+        "player_effects": _normalize_status_effects(raw.get("player_effects")),
+        "world_flags": world_flags,
+        "faction_rep": faction_rep,
+        "timers": timers,
+    }
+
+
+def _normalize_short_memory(raw: Any) -> list[dict]:
+    if not isinstance(raw, list):
+        return []
+    out: list[dict] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        mem_id = str(item.get("mem_id") or "").strip()
+        mem_type = str(item.get("type") or "event").strip()
+        content = str(item.get("content") or "").strip()
+        if not content:
+            continue
+        importance = _to_float(item.get("importance"), 0.5)
+        importance = max(0.0, min(1.0, importance))
+        created_step = _to_int(item.get("created_step"), 0)
+        ttl_steps = _to_int(item.get("ttl_steps"), 0)
+        if ttl_steps <= 0:
+            ttl_steps = None
+        out.append(
+            {
+                "mem_id": mem_id or None,
+                "type": mem_type,
+                "content": content,
+                "importance": importance,
+                "created_step": max(0, created_step),
+                "ttl_steps": ttl_steps,
+            }
+        )
+    if len(out) > NPC_SHORT_MEMORY_LIMIT:
+        out = out[-NPC_SHORT_MEMORY_LIMIT:]
+    return out
+
+
+def _normalize_long_memory_refs(raw: Any) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        value = str(item or "").strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        out.append(value)
+    if len(out) > NPC_LONG_MEMORY_REF_LIMIT:
+        out = out[-NPC_LONG_MEMORY_REF_LIMIT:]
+    return out
+
+
+def _normalize_npc_entry(raw: Any) -> dict:
+    source = raw if isinstance(raw, dict) else {}
+    relation_raw = source.get("relation") if isinstance(source.get("relation"), dict) else {}
+    mood_raw = source.get("mood") if isinstance(source.get("mood"), dict) else {}
+    beliefs_raw = source.get("beliefs") if isinstance(source.get("beliefs"), dict) else {}
+
+    relation: dict[str, int] = {}
+    for raw_key, raw_value in relation_raw.items():
+        key = str(raw_key or "").strip()
+        if not key:
+            continue
+        relation[key] = max(-100, min(100, _to_int(raw_value, 0)))
+
+    mood: dict[str, float] = {}
+    for raw_key, raw_value in mood_raw.items():
+        key = str(raw_key or "").strip()
+        if not key:
+            continue
+        mood[key] = max(-1.0, min(1.0, _to_float(raw_value, 0.0)))
+
+    beliefs: dict[str, float] = {}
+    for raw_key, raw_value in beliefs_raw.items():
+        key = str(raw_key or "").strip()
+        if not key:
+            continue
+        beliefs[key] = max(0.0, min(1.0, _to_float(raw_value, 0.0)))
+
+    active_goals = source.get("active_goals")
+    if not isinstance(active_goals, list):
+        active_goals = []
+    normalized_goals: list[dict] = []
+    for item in active_goals:
+        if not isinstance(item, dict):
+            continue
+        goal_id = str(item.get("goal_id") or "").strip()
+        if not goal_id:
+            continue
+        normalized_goals.append(
+            {
+                "goal_id": goal_id,
+                "priority": max(0.0, min(1.0, _to_float(item.get("priority"), 0.5))),
+                "progress": max(0.0, min(1.0, _to_float(item.get("progress"), 0.0))),
+                "status": str(item.get("status") or "active"),
+            }
+        )
+    if len(normalized_goals) > 8:
+        normalized_goals = normalized_goals[:8]
+
+    return {
+        "relation": relation,
+        "mood": mood,
+        "beliefs": beliefs,
+        "active_goals": normalized_goals,
+        "status_effects": _normalize_status_effects(source.get("status_effects")),
+        "short_memory": _normalize_short_memory(source.get("short_memory")),
+        "long_memory_refs": _normalize_long_memory_refs(source.get("long_memory_refs")),
+        "last_seen_step": max(0, _to_int(source.get("last_seen_step"), 0)),
+    }
+
+
+def normalize_npc_state(npc_state: dict | None) -> dict:
+    raw = npc_state if isinstance(npc_state, dict) else {}
+    out: dict[str, dict] = {}
+    for raw_npc_id, raw_entry in raw.items():
+        npc_id = str(raw_npc_id or "").strip()
+        if not npc_id:
+            continue
+        out[npc_id] = _normalize_npc_entry(raw_entry)
     return out
 
 
@@ -296,6 +602,9 @@ def normalize_state(state: dict | None) -> dict:
         normalized["slot"] = defaults["slot"]
     normalized["quest_state"] = normalize_quest_state(raw.get("quest_state"))
     normalized["run_state"] = normalize_run_state(raw.get("run_state"))
+    normalized["inventory_state"] = normalize_inventory_state(raw.get("inventory_state"))
+    normalized["external_status"] = normalize_external_status(raw.get("external_status"))
+    normalized["npc_state"] = normalize_npc_state(raw.get("npc_state"))
     return normalized
 
 

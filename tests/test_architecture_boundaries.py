@@ -46,16 +46,9 @@ def test_story_router_is_http_layer_only() -> None:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
     ]
     assert function_defs == [
-        "_sse_encode",
         "validate_story_pack",
-        "validate_author_story_pack",
-        "compile_author_story_pack",
-        "author_assist",
-        "author_assist_stream",
-        "store_story_pack",
         "list_story_packs",
         "get_story_pack",
-        "publish_story_pack",
     ]
 
     source = inspect.getsource(story_router)
@@ -65,25 +58,8 @@ def test_story_router_is_http_layer_only() -> None:
 
 def test_story_schema_and_service_modules_exist() -> None:
     assert hasattr(story_schemas, "StoryPack")
-    assert hasattr(story_schemas, "AuthorAssistRequest")
     assert hasattr(story_service_api, "story_pack_errors")
-    assert hasattr(story_service_api, "compile_author_payload_with_runtime_checks")
     assert hasattr(session_runtime_pack, "validate_runtime_pack_v10_strict")
-
-
-def test_authoring_module_remains_v4_only() -> None:
-    authoring_dir = Path("app/modules/story/authoring")
-    combined = "\n".join(path.read_text(encoding="utf-8") for path in authoring_dir.glob("*.py"))
-    forbidden = [
-        "compile_author_story_payload_v2",
-        "compile_author_story_payload_v3",
-        "author_v2_required_message",
-        "author_v3_required_message",
-        "_project_v4_to_v3_payload",
-        "_project_v3_to_v2_payload",
-    ]
-    for symbol in forbidden:
-        assert symbol not in combined
 
 
 def test_story_pack_schema_hard_cuts_legacy_author_source_v3() -> None:
@@ -94,7 +70,6 @@ def test_story_pack_schema_hard_cuts_legacy_author_source_v3() -> None:
 
 def test_forbidden_modules_do_not_import_llm() -> None:
     forbidden_roots = [
-        Path("app/modules/story/authoring"),
         Path("app/modules/narrative"),
     ]
     offenders: list[str] = []
@@ -122,7 +97,6 @@ def test_llm_touchpoints_are_limited_to_whitelist() -> None:
         "app/modules/session/selection.py",
         "app/modules/session/service.py",
         "app/modules/session/story_runtime/pipeline.py",
-        "app/modules/story/author_assist.py",
     }
     assert actual == expected, f"Unexpected LLM touchpoints: {sorted(actual)}"
 

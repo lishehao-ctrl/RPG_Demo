@@ -44,6 +44,106 @@ class StoryChoiceRequires(BaseModel):
     slot_in: list[Literal["morning", "afternoon", "night"]] | None = None
 
 
+class InventoryOp(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    op: Literal[
+        "add_stack",
+        "remove_stack",
+        "add_instance",
+        "remove_instance",
+        "equip",
+        "unequip",
+        "grant_currency",
+        "spend_currency",
+    ]
+    item_id: str | None = None
+    qty: int | None = None
+    instance_id: str | None = None
+    slot: str | None = None
+    currency: str | None = None
+    amount: int | None = None
+    bound: bool | None = None
+    durability: int | None = None
+    props: dict = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_inventory_op(self):
+        allowed_slots = {"weapon", "armor", "accessory"}
+        if self.op in {"add_stack", "remove_stack"}:
+            if not self.item_id:
+                raise ValueError("inventory op requires item_id")
+            if self.qty is None or int(self.qty) <= 0:
+                raise ValueError("inventory op requires qty > 0")
+        if self.op == "add_instance":
+            if not self.item_id:
+                raise ValueError("add_instance requires item_id")
+        if self.op == "remove_instance":
+            if not (self.instance_id or self.item_id):
+                raise ValueError("remove_instance requires instance_id or item_id")
+        if self.op in {"equip", "unequip"}:
+            if not self.slot:
+                raise ValueError(f"{self.op} requires slot")
+            normalized_slot = str(self.slot).strip().lower()
+            if normalized_slot not in allowed_slots:
+                raise ValueError(f"{self.op} slot must be one of {sorted(allowed_slots)}")
+            self.slot = normalized_slot
+            if self.op == "equip" and not self.instance_id:
+                raise ValueError("equip requires instance_id")
+        if self.op in {"grant_currency", "spend_currency"}:
+            if not self.currency:
+                raise ValueError(f"{self.op} requires currency")
+            if self.amount is None or int(self.amount) <= 0:
+                raise ValueError(f"{self.op} requires amount > 0")
+        return self
+
+
+class NPCOp(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    npc_id: str
+    relation: dict[str, int | float] = Field(default_factory=dict)
+    mood: dict[str, int | float] = Field(default_factory=dict)
+    beliefs: dict[str, int | float] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_npc_op(self):
+        for attr in ("relation", "mood", "beliefs"):
+            values = getattr(self, attr) or {}
+            for key, value in values.items():
+                if isinstance(value, bool) or not isinstance(value, (int, float)):
+                    raise ValueError(f"{attr}.{key} must be numeric")
+        return self
+
+
+class StatusOp(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    target: Literal["player", "npc"] = "player"
+    npc_id: str | None = None
+    status_id: str
+    op: Literal["add", "remove"]
+    stacks: int = 1
+    ttl_steps: int | None = None
+
+    @model_validator(mode="after")
+    def validate_status_op(self):
+        if self.target == "npc" and not self.npc_id:
+            raise ValueError("npc target requires npc_id")
+        if int(self.stacks) <= 0:
+            raise ValueError("status stacks must be > 0")
+        if self.ttl_steps is not None and int(self.ttl_steps) <= 0:
+            raise ValueError("ttl_steps must be > 0")
+        return self
+
+
+class WorldFlagOp(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: str
+    value: bool | int | float | str | None = None
+
+
 class StoryChoiceEffects(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -51,6 +151,10 @@ class StoryChoiceEffects(BaseModel):
     money: int | float | None = None
     knowledge: int | float | None = None
     affection: int | float | None = None
+    inventory_ops: list[InventoryOp] = Field(default_factory=list)
+    npc_ops: list[NPCOp] = Field(default_factory=list)
+    status_ops: list[StatusOp] = Field(default_factory=list)
+    world_flag_ops: list[WorldFlagOp] = Field(default_factory=list)
 
     @staticmethod
     def _validate_effect_value(value: Any, field_name: str) -> Any:
@@ -69,6 +173,15 @@ class StoryChoiceEffects(BaseModel):
         return self
 
 
+class StoryActionEffectsV2(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    inventory_ops: list[InventoryOp] = Field(default_factory=list)
+    npc_ops: list[NPCOp] = Field(default_factory=list)
+    status_ops: list[StatusOp] = Field(default_factory=list)
+    world_flag_ops: list[WorldFlagOp] = Field(default_factory=list)
+
+
 class StoryChoice(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -77,6 +190,7 @@ class StoryChoice(BaseModel):
     action: StoryAction
     requires: StoryChoiceRequires | None = None
     effects: StoryChoiceEffects | None = None
+    action_effects_v2: StoryActionEffectsV2 | None = None
     next_node_id: str
     is_key_decision: bool = False
 
@@ -217,6 +331,77 @@ class StoryEnding(BaseModel):
     epilogue: str
 
 
+class ItemDef(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    item_id: str
+    name: str
+    kind: Literal["stack", "instance", "equipment", "key"] = "stack"
+    stackable: bool = True
+    max_stack: int | None = None
+    slot: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    meta: dict = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_item_def(self):
+        allowed_slots = {"weapon", "armor", "accessory"}
+        if self.max_stack is not None and int(self.max_stack) <= 0:
+            raise ValueError("max_stack must be > 0")
+        if self.slot is not None:
+            normalized_slot = str(self.slot).strip().lower()
+            if normalized_slot not in allowed_slots:
+                raise ValueError(f"slot must be one of {sorted(allowed_slots)}")
+            self.slot = normalized_slot
+        if self.kind in {"equipment"} and not self.slot:
+            raise ValueError("equipment item requires slot")
+        return self
+
+
+class NPCDef(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    npc_id: str
+    name: str
+    role: str | None = None
+    persona: dict[str, int | float] = Field(default_factory=dict)
+    speech_style: list[str] = Field(default_factory=list)
+    taboos: list[str] = Field(default_factory=list)
+    long_term_goals: list[str] = Field(default_factory=list)
+    relation_axes_init: dict[str, int | float] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_npc_def(self):
+        for attr in ("persona", "relation_axes_init"):
+            values = getattr(self, attr) or {}
+            for key, value in values.items():
+                if isinstance(value, bool) or not isinstance(value, (int, float)):
+                    raise ValueError(f"{attr}.{key} must be numeric")
+        return self
+
+
+class StatusDef(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status_id: str
+    name: str
+    target: Literal["player", "npc", "both"] = "player"
+    default_stacks: int = 1
+    max_stacks: int | None = None
+    default_ttl_steps: int | None = None
+    meta: dict = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_status_def(self):
+        if int(self.default_stacks) <= 0:
+            raise ValueError("default_stacks must be > 0")
+        if self.max_stacks is not None and int(self.max_stacks) <= 0:
+            raise ValueError("max_stacks must be > 0")
+        if self.default_ttl_steps is not None and int(self.default_ttl_steps) <= 0:
+            raise ValueError("default_ttl_steps must be > 0")
+        return self
+
+
 class StoryIntent(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -298,6 +483,9 @@ class StoryPack(BaseModel):
     start_node_id: str
     nodes: list[StoryNode]
     characters: list[dict] = Field(default_factory=list)
+    item_defs: list[ItemDef] = Field(default_factory=list)
+    npc_defs: list[NPCDef] = Field(default_factory=list)
+    status_defs: list[StatusDef] = Field(default_factory=list)
     initial_state: dict = Field(default_factory=dict)
     default_fallback: StoryFallback | None = None
     fallback_executors: list[FallbackExecutor] = Field(default_factory=list)
@@ -312,67 +500,6 @@ class StoryPack(BaseModel):
 class ValidateResponse(BaseModel):
     valid: bool
     errors: list[str] = Field(default_factory=list)
-
-
-class AuthorDiagnostic(BaseModel):
-    code: str
-    path: str | None = None
-    message: str
-    suggestion: str | None = None
-
-
-class AuthorCompileDiagnostics(BaseModel):
-    errors: list[AuthorDiagnostic] = Field(default_factory=list)
-    warnings: list[AuthorDiagnostic] = Field(default_factory=list)
-    mappings: dict = Field(default_factory=dict)
-
-
-class PlayabilityMetrics(BaseModel):
-    ending_reach_rate: float = 0.0
-    stuck_turn_rate: float = 0.0
-    no_progress_rate: float = 0.0
-    branch_coverage: float = 0.0
-    choice_contrast_score: float = 0.0
-    dominant_strategy_rate: float = 0.0
-    recovery_window_rate: float = 0.0
-    tension_loop_score: float = 0.0
-
-
-class PlayabilityReport(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
-    pass_: bool = Field(alias="pass")
-    blocking_errors: list[AuthorDiagnostic] = Field(default_factory=list)
-    warnings: list[AuthorDiagnostic] = Field(default_factory=list)
-    metrics: PlayabilityMetrics = Field(default_factory=PlayabilityMetrics)
-
-
-class ValidateAuthorResponse(BaseModel):
-    valid: bool
-    errors: list[AuthorDiagnostic] = Field(default_factory=list)
-    warnings: list[AuthorDiagnostic] = Field(default_factory=list)
-    compiled_preview: dict | None = None
-    playability: PlayabilityReport
-
-
-class CompileAuthorResponse(BaseModel):
-    pack: dict
-    diagnostics: AuthorCompileDiagnostics
-
-
-class AuthorAssistRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    task: str
-    locale: str = "en"
-    context: dict = Field(default_factory=dict)
-
-
-class AuthorAssistResponse(BaseModel):
-    suggestions: dict = Field(default_factory=dict)
-    patch_preview: list[dict] = Field(default_factory=list)
-    warnings: list[str] = Field(default_factory=list)
-    model: str
 
 
 class StoryListItem(BaseModel):

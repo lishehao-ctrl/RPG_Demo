@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from time import perf_counter
 from typing import Any
 
 from fastapi import HTTPException
@@ -35,6 +36,8 @@ class StoryRuntimePipelineDeps:
     fallback_executed_choice_id: Callable[[dict, str], str]
     select_fallback_text_variant: Callable[[dict, str | None, str | None], str | None]
     apply_choice_effects: Callable[[dict, dict | None], dict]
+    apply_effect_ops: Callable[[dict, dict | None], tuple[dict, dict]]
+    compact_npc_memories: Callable[[dict], tuple[dict, dict]]
     compute_state_delta: Callable[[dict, dict], dict]
     format_effects_suffix: Callable[[dict | None], str]
     story_choices_for_response: Callable[[dict, dict | None], list[dict]]
@@ -56,6 +59,7 @@ def run_story_runtime_pipeline(
     stage_emitter: Callable[[object], None] | None = None,
 ) -> dict:
     context = phase_load_runtime_context(db=db, sess=sess, deps=deps)
+    selection_started_at = perf_counter()
     resolution = phase_resolve_choice(
         sess=sess,
         player_input=player_input,
@@ -63,6 +67,7 @@ def run_story_runtime_pipeline(
         context=context,
         deps=deps,
     )
+    selection_latency_ms = max(0, int((perf_counter() - selection_started_at) * 1000))
 
     next_node = deps.story_node(context.runtime_pack, resolution.next_node_id)
     if not next_node:
@@ -86,10 +91,11 @@ def run_story_runtime_pipeline(
         fallback_markers=context.fallback_markers,
         extra_markers=resolution.markers,
     )
-    state_before, state_after, state_delta = phase_compute_state_transition(
+    state_before, state_after, state_delta, state_patch_metrics = phase_compute_state_transition(
         sess=sess,
         final_action_for_state=resolution.final_action_for_state,
         effects_for_state=resolution.effects_for_state,
+        effect_ops_for_state=resolution.effect_ops_for_state,
         deps=deps,
     )
     action_state_delta = dict(state_delta or {})
@@ -154,6 +160,7 @@ def run_story_runtime_pipeline(
     )
 
     input_mode_for_prompt = resolve_input_mode_for_prompt(resolution, player_input)
+    narration_started_at = perf_counter()
     narration_result = phase_generate_narrative(
         db=db,
         sess=sess,
@@ -196,6 +203,7 @@ def run_story_runtime_pipeline(
         stage_emitter=stage_emitter,
         locale=locale,
     )
+    narration_latency_ms = max(0, int((perf_counter() - narration_started_at) * 1000))
 
     return phase_finalize_step_response(
         db=db,
@@ -217,4 +225,8 @@ def run_story_runtime_pipeline(
         fallback_reasons=fallback_reasons,
         input_mode_for_prompt=input_mode_for_prompt,
         player_input=player_input,
+        state_patch_metrics=state_patch_metrics,
+        selection_latency_ms=selection_latency_ms,
+        narration_latency_ms=narration_latency_ms,
+        llm_retry_count=0,
     )

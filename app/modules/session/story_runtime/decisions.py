@@ -24,6 +24,7 @@ def _candidate_from_visible_choice(choice: dict) -> CandidateChoice:
         label=str(choice.get("display_text")) if choice.get("display_text") is not None else None,
         action=dict((choice.get("action") or {})),
         effects=dict((choice.get("effects") or {})),
+        effect_ops=dict((choice.get("effect_ops") or {})),
         prereq_spec=dict((choice.get("requires") or {})),
         next_node_id=str(choice.get("next_node_id") or ""),
         narration_skeleton=None,
@@ -39,6 +40,7 @@ def _candidate_from_fallback_executor(executor: dict) -> CandidateChoice:
         label=str(executor.get("label")) if executor.get("label") is not None else None,
         action=dict((executor.get("action") or {})) if isinstance(executor.get("action"), dict) else None,
         effects=dict((executor.get("effects") or {})),
+        effect_ops=dict((executor.get("effect_ops") or {})),
         prereq_spec=dict((executor.get("prereq") or {})) if isinstance(executor.get("prereq"), dict) else None,
         next_node_id=(str(executor.get("next_node_id")) if executor.get("next_node_id") is not None else None),
         narration_skeleton=(str((executor.get("narration") or {}).get("skeleton")) if isinstance(executor.get("narration"), dict) and (executor.get("narration") or {}).get("skeleton") is not None else None),
@@ -61,6 +63,7 @@ def _candidate_from_runtime_fallback_spec(
         label=None,
         action=dict((fallback_spec.get("action") or {})),
         effects=dict((fallback_spec.get("effects") or {})),
+        effect_ops=dict((fallback_spec.get("effect_ops") or {})),
         prereq_spec=dict((fallback_spec.get("prereq") or {})) if isinstance(fallback_spec.get("prereq"), dict) else None,
         next_node_id=fallback_next_node_id,
         narration_skeleton=None,
@@ -201,6 +204,7 @@ def resolve_story_choice(
                 label=final_target.label,
                 action={},
                 effects={},
+                effect_ops={},
                 prereq_spec=final_target.prereq_spec,
                 next_node_id=current_node_id,
                 narration_skeleton=final_target.narration_skeleton,
@@ -218,6 +222,7 @@ def resolve_story_choice(
             label=final_target.label,
             action={},
             effects={},
+            effect_ops={},
             prereq_spec=final_target.prereq_spec,
             next_node_id=current_node_id,
             narration_skeleton=final_target.narration_skeleton,
@@ -230,6 +235,7 @@ def resolve_story_choice(
     next_node_id = str(final_target.next_node_id or current_node_id)
     final_action_for_state = dict(final_target.action or {})
     effects_for_state = dict(final_target.effects or {})
+    effect_ops_for_state = dict(final_target.effect_ops or {})
 
     using_fallback = (
         selected_visible_choice_id is None
@@ -255,6 +261,7 @@ def resolve_story_choice(
         reroute_used=reroute_used,
         final_action_for_state=final_action_for_state,
         effects_for_state=effects_for_state,
+        effect_ops_for_state=effect_ops_for_state,
         next_node_id=next_node_id,
         executed_choice_id=executed_choice_id,
         resolved_choice_id=resolved_choice_id,

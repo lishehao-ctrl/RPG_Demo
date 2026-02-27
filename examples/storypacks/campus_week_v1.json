@@ -1,0 +1,281 @@
+{
+  "schema_version": "2.0",
+  "story_id": "campus_week_v1",
+  "title": "Campus Week",
+  "start_node_id": "n_start",
+  "npc_defs": [
+    {
+      "npc_id": "npc_maya",
+      "name": "Maya",
+      "initial_affection": 0,
+      "initial_trust": 0,
+      "affection_thresholds": [-60, -20, 20, 60],
+      "trust_thresholds": [-60, -20, 20, 60]
+    }
+  ],
+  "npc_reaction_policies": [
+    {
+      "npc_id": "npc_maya",
+      "rules": [
+        {
+          "tier": "Hostile",
+          "source": "choice",
+          "effects": [
+            {
+              "target_type": "player",
+              "metric": "affection",
+              "center": -1,
+              "intensity": 0
+            }
+          ],
+          "narrative_hint": "Maya reacts with visible distrust, making social progress harder."
+        },
+        {
+          "tier": "Neutral",
+          "source": "choice",
+          "effects": [
+            {
+              "target_type": "player",
+              "metric": "energy",
+              "center": -1,
+              "intensity": 0
+            }
+          ],
+          "narrative_hint": "Maya quietly tests your consistency before offering full support."
+        },
+        {
+          "tier": "Warm",
+          "source": "choice",
+          "effects": [
+            {
+              "target_type": "player",
+              "metric": "knowledge",
+              "center": 1,
+              "intensity": 0
+            }
+          ],
+          "narrative_hint": "Maya backs your move and shares useful context."
+        }
+      ]
+    }
+  ],
+  "global_fallbacks": [
+    {
+      "fallback_id": "fb_safe_1",
+      "text": "The world catches your detour and steers you back toward the main thread.",
+      "target_node_id": "n_hub",
+      "range_effects": [
+        {
+          "target_type": "player",
+          "metric": "energy",
+          "center": -1,
+          "intensity": 1
+        }
+      ],
+      "reactive_npc_ids": ["npc_maya"]
+    },
+    {
+      "fallback_id": "fb_safe_2",
+      "text": "Your action is acknowledged, then routed into the active storyline.",
+      "target_node_id": "n_hub",
+      "range_effects": [
+        {
+          "target_type": "player",
+          "metric": "knowledge",
+          "center": 1,
+          "intensity": 1
+        }
+      ],
+      "ending_id": "ending_enemy_fail",
+      "reactive_npc_ids": ["npc_maya"]
+    }
+  ],
+  "ending_defs": [
+    {
+      "ending_id": "ending_enemy_fail",
+      "title": "Enemy Camp Collapse",
+      "outcome": "fail",
+      "camp": "enemy",
+      "epilogue": "You drifted into enemy territory without leverage and were contained before your plan matured.",
+      "prompt_profile_id": "ending_default_v2"
+    },
+    {
+      "ending_id": "ending_enemy_success",
+      "title": "Enemy Camp Infiltration Success",
+      "outcome": "success",
+      "camp": "enemy",
+      "epilogue": "You embedded deep in the enemy camp and turned their structure to your strategic advantage.",
+      "prompt_profile_id": "ending_default_v2"
+    }
+  ],
+  "nodes": [
+    {
+      "node_id": "n_start",
+      "title": "Morning Start",
+      "scene_brief": "You stand in front of the teaching building as the day begins.",
+      "node_fallback_id": "fb_safe_1",
+      "choices": [
+        {
+          "choice_id": "c_study",
+          "text": "Go study in the library",
+          "intent_tags": ["study", "learn", "library"],
+          "next_node_id": "n_library",
+          "range_effects": [
+            {
+              "target_type": "player",
+              "metric": "knowledge",
+              "center": 2,
+              "intensity": 1
+            },
+            {
+              "target_type": "player",
+              "metric": "energy",
+              "center": -1,
+              "intensity": 1
+            }
+          ],
+          "reactive_npc_ids": ["npc_maya"]
+        },
+        {
+          "choice_id": "c_work",
+          "text": "Take a part-time shift",
+          "intent_tags": ["work", "job", "money"],
+          "next_node_id": "n_work",
+          "range_effects": [
+            {
+              "target_type": "player",
+              "metric": "money",
+              "center": 3,
+              "intensity": 1
+            },
+            {
+              "target_type": "player",
+              "metric": "energy",
+              "center": -2,
+              "intensity": 1
+            }
+          ],
+          "reactive_npc_ids": ["npc_maya"]
+        },
+        {
+          "choice_id": "c_confess",
+          "text": "Open up to Maya about your long-term plan",
+          "intent_tags": ["maya", "talk", "trust", "confess"],
+          "next_node_id": "n_hub",
+          "gate_rules": [
+            {
+              "npc_id": "npc_maya",
+              "min_trust_tier": "Warm"
+            }
+          ],
+          "range_effects": [
+            {
+              "target_type": "npc",
+              "target_id": "npc_maya",
+              "metric": "affection",
+              "center": 2,
+              "intensity": 1
+            },
+            {
+              "target_type": "npc",
+              "target_id": "npc_maya",
+              "metric": "trust",
+              "center": 1,
+              "intensity": 1
+            }
+          ],
+          "reactive_npc_ids": ["npc_maya"]
+        },
+        {
+          "choice_id": "c_join_enemy",
+          "text": "Take the enemy deal and go undercover immediately",
+          "intent_tags": ["enemy", "undercover", "infiltrate", "deal"],
+          "next_node_id": "n_hub",
+          "range_effects": [
+            {
+              "target_type": "player",
+              "metric": "knowledge",
+              "center": 1,
+              "intensity": 0
+            }
+          ],
+          "ending_id": "ending_enemy_success",
+          "reactive_npc_ids": ["npc_maya"]
+        }
+      ]
+    },
+    {
+      "node_id": "n_hub",
+      "title": "Campus Hub",
+      "scene_brief": "You return to the central walkway where students move in every direction.",
+      "choices": [
+        {
+          "choice_id": "c_rest",
+          "text": "Rest on the bench",
+          "intent_tags": ["rest", "recover", "bench"],
+          "next_node_id": "n_start",
+          "range_effects": [
+            {
+              "target_type": "player",
+              "metric": "energy",
+              "center": 3,
+              "intensity": 1
+            }
+          ],
+          "reactive_npc_ids": ["npc_maya"]
+        }
+      ]
+    },
+    {
+      "node_id": "n_library",
+      "title": "Library",
+      "scene_brief": "Quiet shelves and soft lamp light pull you into focused study.",
+      "choices": [
+        {
+          "choice_id": "c_back_1",
+          "text": "Head back to the main path",
+          "intent_tags": ["back", "return", "hub"],
+          "next_node_id": "n_hub",
+          "range_effects": [
+            {
+              "target_type": "player",
+              "metric": "knowledge",
+              "center": 1,
+              "intensity": 1
+            },
+            {
+              "target_type": "npc",
+              "target_id": "npc_maya",
+              "metric": "trust",
+              "center": 1,
+              "intensity": 1
+            }
+          ],
+          "reactive_npc_ids": ["npc_maya"]
+        }
+      ]
+    },
+    {
+      "node_id": "n_work",
+      "title": "Part-time Shop",
+      "scene_brief": "A line forms at the register and the shift moves fast.",
+      "choices": [
+        {
+          "choice_id": "c_back_2",
+          "text": "Clock out and return to campus",
+          "intent_tags": ["back", "return", "campus"],
+          "next_node_id": "n_hub",
+          "range_effects": [
+            {
+              "target_type": "player",
+              "metric": "money",
+              "center": 1,
+              "intensity": 1
+            }
+          ],
+          "reactive_npc_ids": ["npc_maya"]
+        }
+      ]
+    }
+  ]
+}

@@ -358,6 +358,15 @@ def _ensure_default_user(db: Session, *, user_id: str | None = None) -> User:
     return row
 
 
+def _assert_story_owner(db: Session, *, story_id: str, actor_user_id: str | None) -> Story:
+    story = db.execute(select(Story).where(Story.story_id == story_id)).scalar_one_or_none()
+    if story is None:
+        raise ValueError("story not found")
+    if actor_user_id and str(story.owner_user_id) != str(actor_user_id):
+        raise PermissionError("story ownership mismatch")
+    return story
+
+
 def create_or_update_story_draft(
     db: Session,
     *,
@@ -397,7 +406,14 @@ def create_or_update_story_draft(
     return story_id, next_version, "draft"
 
 
-def publish_story_version(db: Session, *, story_id: str, version: int) -> tuple[str, int, str]:
+def publish_story_version(
+    db: Session,
+    *,
+    story_id: str,
+    version: int,
+    actor_user_id: str | None = None,
+) -> tuple[str, int, str]:
+    _assert_story_owner(db, story_id=story_id, actor_user_id=actor_user_id)
     target = db.execute(
         select(StoryVersion).where(
             StoryVersion.story_id == story_id,
@@ -443,6 +459,37 @@ def get_published_story_pack(db: Session, *, story_id: str) -> tuple[int, dict]:
     return version, dict(row.pack_json)
 
 
+def list_published_story_catalog(db: Session) -> list[dict]:
+    rows = db.execute(
+        select(
+            Story.story_id.label("story_id"),
+            Story.title.label("title"),
+            Story.active_published_version.label("published_version"),
+            Story.updated_at.label("updated_at"),
+        )
+        .join(
+            StoryVersion,
+            (StoryVersion.story_id == Story.story_id)
+            & (StoryVersion.version == Story.active_published_version)
+            & (StoryVersion.status == "published"),
+        )
+        .where(Story.active_published_version.is_not(None))
+        .order_by(Story.updated_at.desc(), Story.story_id.asc())
+    ).all()
+
+    out: list[dict] = []
+    for row in rows:
+        out.append(
+            {
+                "story_id": str(row.story_id),
+                "title": str(row.title),
+                "published_version": int(row.published_version),
+                "updated_at": row.updated_at,
+            }
+        )
+    return out
+
+
 def get_story_pack(db: Session, *, story_id: str, version: int | None) -> tuple[int, dict]:
     if version is not None:
         row = db.execute(
@@ -457,3 +504,116 @@ def get_story_pack(db: Session, *, story_id: str, version: int | None) -> tuple[
         return int(row.version), dict(row.pack_json)
 
     return get_published_story_pack(db, story_id=story_id)
+
+
+def list_story_versions(
+    db: Session,
+    *,
+    story_id: str,
+    actor_user_id: str | None = None,
+) -> list[StoryVersion]:
+    _assert_story_owner(db, story_id=story_id, actor_user_id=actor_user_id)
+    rows = (
+        db.execute(select(StoryVersion).where(StoryVersion.story_id == story_id).order_by(StoryVersion.version.desc()))
+        .scalars()
+        .all()
+    )
+    return list(rows)
+
+
+def get_story_version_detail(
+    db: Session,
+    *,
+    story_id: str,
+    version: int,
+    actor_user_id: str | None = None,
+) -> StoryVersion:
+    _assert_story_owner(db, story_id=story_id, actor_user_id=actor_user_id)
+    row = db.execute(
+        select(StoryVersion).where(
+            StoryVersion.story_id == story_id,
+            StoryVersion.version == version,
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        raise ValueError("story version not found")
+    return row
+
+
+def create_story_draft_from_published(
+    db: Session,
+    *,
+    story_id: str,
+    title: str | None = None,
+    actor_user_id: str | None = None,
+) -> tuple[str, int, str]:
+    story = _assert_story_owner(db, story_id=story_id, actor_user_id=actor_user_id)
+    if story.active_published_version is None:
+        raise ValueError("published story not found")
+
+    source = db.execute(
+        select(StoryVersion).where(
+            StoryVersion.story_id == story_id,
+            StoryVersion.version == int(story.active_published_version),
+            StoryVersion.status == "published",
+        )
+    ).scalar_one_or_none()
+    if source is None:
+        raise ValueError("published story version not found")
+
+    owner = _ensure_default_user(db, user_id=story.owner_user_id)
+    latest = db.execute(
+        select(StoryVersion).where(StoryVersion.story_id == story_id).order_by(StoryVersion.version.desc())
+    ).scalars().first()
+    next_version = 1 if latest is None else int(latest.version) + 1
+    pack = dict(source.pack_json)
+    pack_model = StoryPackV1.model_validate(pack)
+    checksum = _pack_checksum(pack)
+
+    row = StoryVersion(
+        story_id=story_id,
+        version=next_version,
+        status="draft",
+        pack_json=pack,
+        pack_schema_version=str(pack_model.schema_version),
+        checksum=checksum,
+        created_by=owner.id,
+    )
+    db.add(row)
+    if title is not None and str(title).strip():
+        story.title = str(title).strip()
+    story.updated_at = utc_now_naive()
+    db.flush()
+    return story_id, next_version, "draft"
+
+
+def update_story_draft_version(
+    db: Session,
+    *,
+    story_id: str,
+    version: int,
+    pack: dict,
+    title: str | None = None,
+    actor_user_id: str | None = None,
+) -> tuple[str, int, str]:
+    story = _assert_story_owner(db, story_id=story_id, actor_user_id=actor_user_id)
+    row = db.execute(
+        select(StoryVersion).where(
+            StoryVersion.story_id == story_id,
+            StoryVersion.version == version,
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        raise ValueError("story version not found")
+    if row.status != "draft":
+        raise RuntimeError("only draft version can be updated")
+
+    pack_model = StoryPackV1.model_validate(pack)
+    row.pack_json = pack
+    row.pack_schema_version = str(pack_model.schema_version)
+    row.checksum = _pack_checksum(pack)
+    if title is not None and str(title).strip():
+        story.title = str(title).strip()
+    story.updated_at = utc_now_naive()
+    db.flush()
+    return story_id, version, "draft"

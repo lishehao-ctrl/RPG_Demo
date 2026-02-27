@@ -1,0 +1,897 @@
+{
+  "schema_version": "2.0",
+  "story_id": "city_signal_v1",
+  "title": "City Signal",
+  "start_node_id": "n_rooftop_start",
+  "npc_defs": [
+    {
+      "npc_id": "npc_iris",
+      "name": "Iris",
+      "initial_affection": 0,
+      "initial_trust": 0,
+      "affection_thresholds": [-60, -20, 20, 60],
+      "trust_thresholds": [-60, -20, 20, 60]
+    }
+  ],
+  "npc_reaction_policies": [
+    {
+      "npc_id": "npc_iris",
+      "rules": [
+        {
+          "tier": "Hostile",
+          "source": "choice",
+          "effects": [
+            {
+              "target_type": "player",
+              "metric": "energy",
+              "center": -1,
+              "intensity": 0
+            }
+          ],
+          "narrative_hint": "Iris pushes back hard, slowing your momentum."
+        },
+        {
+          "tier": "Neutral",
+          "source": "choice",
+          "effects": [
+            {
+              "target_type": "npc",
+              "target_id": "npc_iris",
+              "metric": "trust",
+              "center": 1,
+              "intensity": 0
+            }
+          ],
+          "narrative_hint": "Iris stays cautious but starts leaning your way."
+        },
+        {
+          "tier": "Warm",
+          "source": "choice",
+          "effects": [
+            {
+              "target_type": "player",
+              "metric": "knowledge",
+              "center": 1,
+              "intensity": 0
+            }
+          ],
+          "narrative_hint": "Iris commits and shares crucial context."
+        },
+        {
+          "tier": "Neutral",
+          "source": "fallback",
+          "effects": [
+            {
+              "target_type": "npc",
+              "target_id": "npc_iris",
+              "metric": "trust",
+              "center": -1,
+              "intensity": 0
+            }
+          ],
+          "narrative_hint": "Repeated detours lower Iris's confidence in your plan."
+        }
+      ]
+    }
+  ],
+  "global_fallbacks": [],
+  "ending_defs": [
+    {
+      "ending_id": "ending_player_success",
+      "title": "Signal of Truth",
+      "outcome": "success",
+      "camp": "player",
+      "epilogue": "You expose the network's control channel and shield the city before dawn.",
+      "prompt_profile_id": "ending_default_v2"
+    },
+    {
+      "ending_id": "ending_world_neutral",
+      "title": "Managed Quiet",
+      "outcome": "neutral",
+      "camp": "world",
+      "epilogue": "The crisis is contained, but power quietly redistributes in the shadows.",
+      "prompt_profile_id": "ending_default_v2"
+    },
+    {
+      "ending_id": "ending_enemy_success",
+      "title": "Inside the Syndicate",
+      "outcome": "success",
+      "camp": "enemy",
+      "epilogue": "You slip into the syndicate command stream and strengthen their hand from within.",
+      "prompt_profile_id": "ending_default_v2"
+    },
+    {
+      "ending_id": "ending_player_fail",
+      "title": "Mission Collapse",
+      "outcome": "fail",
+      "camp": "player",
+      "epilogue": "One bad tradeoff fractures the operation and your network dissolves overnight.",
+      "prompt_profile_id": "ending_default_v2"
+    }
+  ],
+  "ending_policy": {
+    "include_default_endings": true,
+    "ending_overrides": []
+  },
+  "fallback_policy": {
+    "include_default_fallbacks": true,
+    "fallback_overrides": [
+      {
+        "fallback_id": "fb_no_match",
+        "reason_code": "NO_MATCH",
+        "text": "Your move lands, but the signal snaps you back to the active thread.",
+        "target_node_id": "n_hub_crossroads",
+        "mainline_nudge": "Act on one visible objective tied to the current operation.",
+        "prompt_profile_id": "fallback_default_v1",
+        "range_effects": [
+          {
+            "target_type": "player",
+            "metric": "energy",
+            "center": -1,
+            "intensity": 1
+          }
+        ],
+        "reactive_npc_ids": ["npc_iris"]
+      },
+      {
+        "fallback_id": "fb_low_conf",
+        "reason_code": "LOW_CONF",
+        "text": "The city accepts your uncertain move and redirects it into a safer lane.",
+        "target_node_id": "n_hub_crossroads",
+        "mainline_nudge": "Pick a concrete action from the current scene goals.",
+        "prompt_profile_id": "fallback_default_v1",
+        "range_effects": [
+          {
+            "target_type": "player",
+            "metric": "knowledge",
+            "center": 1,
+            "intensity": 1
+          }
+        ],
+        "reactive_npc_ids": ["npc_iris"]
+      },
+      {
+        "fallback_id": "fb_input_policy",
+        "reason_code": "INPUT_POLICY",
+        "text": "Unsafe framing is discarded and the operation keeps moving.",
+        "target_node_id": "n_hub_crossroads",
+        "mainline_nudge": "Describe only in-world actions connected to your mission.",
+        "prompt_profile_id": "fallback_default_v1",
+        "range_effects": [
+          {
+            "target_type": "player",
+            "metric": "energy",
+            "center": -2,
+            "intensity": 1
+          }
+        ],
+        "reactive_npc_ids": ["npc_iris"]
+      },
+      {
+        "fallback_id": "fb_off_topic",
+        "reason_code": "OFF_TOPIC",
+        "text": "The noise is acknowledged, then filtered out of the mission stream.",
+        "target_node_id": "n_hub_crossroads",
+        "mainline_nudge": "Reconnect your next action to the active threat line.",
+        "prompt_profile_id": "fallback_default_v1",
+        "range_effects": [
+          {
+            "target_type": "player",
+            "metric": "affection",
+            "center": -1,
+            "intensity": 1
+          }
+        ],
+        "reactive_npc_ids": ["npc_iris"]
+      }
+    ],
+    "forced_fallback_ending_id": "ending_forced_fail",
+    "forced_fallback_threshold": 3
+  },
+  "nodes": [
+    {
+      "node_id": "n_rooftop_start",
+      "title": "Rooftop Wake",
+      "scene_brief": "Rain hits old antennas as you catch a rogue beacon over the sleeping city.",
+      "choices": [
+        {
+          "choice_id": "c_trace_beacon",
+          "text": "Trace the beacon signature from the roof",
+          "intent_tags": ["trace", "signal", "beacon", "analyze"],
+          "next_node_id": "n_archive",
+          "range_effects": [
+            {
+              "target_type": "player",
+              "metric": "knowledge",
+              "center": 2,
+              "intensity": 1
+            },
+            {
+              "target_type": "player",
+              "metric": "energy",
+              "center": -1,
+              "intensity": 1
+            },
+            {
+              "target_type": "npc",
+              "target_id": "npc_iris",
+              "metric": "trust",
+              "center": 4,
+              "intensity": 0
+            }
+          ],
+          "reactive_npc_ids": ["npc_iris"]
+        },
+        {
+          "choice_id": "c_meet_fixer",
+          "text": "Meet the fixer under the neon bridge",
+          "intent_tags": ["fixer", "contact", "neon", "intel"],
+          "next_node_id": "n_alley",
+          "range_effects": [
+            {
+              "target_type": "player",
+              "metric": "money",
+              "center": -1,
+              "intensity": 1
+            },
+            {
+              "target_type": "player",
+              "metric": "knowledge",
+              "center": 1,
+              "intensity": 1
+            }
+          ],
+          "reactive_npc_ids": ["npc_iris"]
+        },
+        {
+          "choice_id": "c_rush_checkpoint",
+          "text": "Rush the checkpoint before shift change",
+          "intent_tags": ["checkpoint", "rush", "patrol"],
+          "next_node_id": "n_checkpoint",
+          "range_effects": [
+            {
+              "target_type": "player",
+              "metric": "energy",
+              "center": -2,
+              "intensity": 1
+            },
+            {
+              "target_type": "player",
+              "metric": "money",
+              "center": 1,
+              "intensity": 1
+            }
+          ],
+          "reactive_npc_ids": ["npc_iris"]
+        },
+        {
+          "choice_id": "c_take_syndicate_offer",
+          "text": "Take the syndicate offer and go inside now",
+          "intent_tags": ["syndicate", "offer", "infiltrate", "enemy"],
+          "next_node_id": "n_hub_crossroads",
+          "range_effects": [
+            {
+              "target_type": "player",
+              "metric": "knowledge",
+              "center": 1,
+              "intensity": 0
+            }
+          ],
+          "ending_id": "ending_enemy_success",
+          "reactive_npc_ids": ["npc_iris"]
+        },
+        {
+          "choice_id": "c_open_black_box",
+          "text": "Open the black box feed with Iris",
+          "intent_tags": ["black box", "iris", "unlock", "feed"],
+          "next_node_id": "n_control_tower",
+          "gate_rules": [
+            {
+              "npc_id": "npc_iris",
+              "min_trust_tier": "Warm"
+            }
+          ],
+          "range_effects": [
+            {
+              "target_type": "player",
+              "metric": "knowledge",
+              "center": 2,
+              "intensity": 1
+            },
+            {
+              "target_type": "npc",
+              "target_id": "npc_iris",
+              "metric": "trust",
+              "center": 2,
+              "intensity": 1
+            }
+          ],
+          "reactive_npc_ids": ["npc_iris"]
+        }
+      ]
+    },
+    {
+      "node_id": "n_archive",
+      "title": "Signal Archive",
+      "scene_brief": "You drop into a dead newsroom archive where old relay logs still breathe.",
+      "choices": [
+        {
+          "choice_id": "c_decode_logs",
+          "text": "Decode the hidden relay logs",
+          "intent_tags": ["decode", "logs", "relay", "pattern"],
+          "next_node_id": "n_subway",
+          "range_effects": [
+            {
+              "target_type": "player",
+              "metric": "knowledge",
+              "center": 3,
+              "intensity": 1
+            },
+            {
+              "target_type": "npc",
+              "target_id": "npc_iris",
+              "metric": "trust",
+              "center": 6,
+              "intensity": 0
+            }
+          ],
+          "reactive_npc_ids": ["npc_iris"]
+        },
+        {
+          "choice_id": "c_call_iris",
+          "text": "Call Iris and align your routes",
+          "intent_tags": ["call", "iris", "align", "route"],
+          "next_node_id": "n_hub_crossroads",
+          "range_effects": [
+            {
+              "target_type": "npc",
+              "target_id": "npc_iris",
+              "metric": "trust",
+              "center": 8,
+              "intensity": 0
+            },
+            {
+              "target_type": "npc",
+              "target_id": "npc_iris",
+              "metric": "affection",
+              "center": 2,
+              "intensity": 1
+            }
+          ],
+          "reactive_npc_ids": ["npc_iris"]
+        },
+        {
+          "choice_id": "c_back_hub_from_archive",
+          "text": "Head back to the crossroads",
+          "intent_tags": ["back", "crossroads", "return"],
+          "next_node_id": "n_hub_crossroads",
+          "range_effects": [
+            {
+              "target_type": "player",
+              "metric": "energy",
+              "center": -1,
+              "intensity": 1
+            }
+          ],
+          "reactive_npc_ids": ["npc_iris"]
+        }
+      ]
+    },
+    {
+      "node_id": "n_alley",
+      "title": "Neon Alley",
+      "scene_brief": "Vendors vanish as your fixer slides a burner phone across wet concrete.",
+      "choices": [
+        {
+          "choice_id": "c_buy_keycard",
+          "text": "Buy the forged keycard",
+          "intent_tags": ["buy", "keycard", "forge", "access"],
+          "next_node_id": "n_subway",
+          "range_effects": [
+            {
+              "target_type": "player",
+              "metric": "money",
+              "center": -3,
+              "intensity": 1
+            },
+            {
+              "target_type": "player",
+              "metric": "knowledge",
+              "center": 1,
+              "intensity": 1
+            }
+          ],
+          "reactive_npc_ids": ["npc_iris"]
+        },
+        {
+          "choice_id": "c_tail_courier",
+          "text": "Tail the syndicate courier",
+          "intent_tags": ["tail", "courier", "follow", "syndicate"],
+          "next_node_id": "n_decoy_route",
+          "range_effects": [
+            {
+              "target_type": "player",
+              "metric": "energy",
+              "center": -2,
+              "intensity": 1
+            },
+            {
+              "target_type": "player",
+              "metric": "knowledge",
+              "center": 2,
+              "intensity": 1
+            }
+          ],
+          "reactive_npc_ids": ["npc_iris"]
+        },
+        {
+          "choice_id": "c_back_hub_from_alley",
+          "text": "Pull back to the crossroads",
+          "intent_tags": ["back", "retreat", "crossroads"],
+          "next_node_id": "n_hub_crossroads",
+          "range_effects": [
+            {
+              "target_type": "player",
+              "metric": "energy",
+              "center": -1,
+              "intensity": 1
+            }
+          ],
+          "reactive_npc_ids": ["npc_iris"]
+        }
+      ]
+    },
+    {
+      "node_id": "n_checkpoint",
+      "title": "Rail Checkpoint",
+      "scene_brief": "A rotating patrol grid scans every lane near the elevated rail line.",
+      "choices": [
+        {
+          "choice_id": "c_scan_patrol",
+          "text": "Scan patrol timing from cover",
+          "intent_tags": ["scan", "patrol", "timing", "cover"],
+          "next_node_id": "n_decoy_route",
+          "range_effects": [
+            {
+              "target_type": "player",
+              "metric": "knowledge",
+              "center": 2,
+              "intensity": 1
+            },
+            {
+              "target_type": "player",
+              "metric": "energy",
+              "center": -1,
+              "intensity": 1
+            }
+          ],
+          "reactive_npc_ids": ["npc_iris"]
+        },
+        {
+          "choice_id": "c_bluff_guard",
+          "text": "Bluff the guard with forged clearance",
+          "intent_tags": ["bluff", "guard", "clearance", "fake"],
+          "next_node_id": "n_hub_crossroads",
+          "range_effects": [
+            {
+              "target_type": "player",
+              "metric": "money",
+              "center": 1,
+              "intensity": 1
+            },
+            {
+              "target_type": "player",
+              "metric": "energy",
+              "center": -1,
+              "intensity": 1
+            }
+          ],
+          "reactive_npc_ids": ["npc_iris"]
+        },
+        {
+          "choice_id": "c_retreat",
+          "text": "Retreat before the sweep closes",
+          "intent_tags": ["retreat", "fallback", "withdraw"],
+          "next_node_id": "n_hub_crossroads",
+          "range_effects": [
+            {
+              "target_type": "player",
+              "metric": "energy",
+              "center": 1,
+              "intensity": 1
+            }
+          ],
+          "reactive_npc_ids": ["npc_iris"]
+        }
+      ]
+    },
+    {
+      "node_id": "n_subway",
+      "title": "Subway Tunnel",
+      "scene_brief": "The tunnel hums with abandoned relays and a faint emergency channel.",
+      "choices": [
+        {
+          "choice_id": "c_recover_cache",
+          "text": "Recover the sealed cache in the tunnel wall",
+          "intent_tags": ["recover", "cache", "sealed", "loot"],
+          "next_node_id": "n_server_room",
+          "range_effects": [
+            {
+              "target_type": "player",
+              "metric": "knowledge",
+              "center": 2,
+              "intensity": 1
+            },
+            {
+              "target_type": "player",
+              "metric": "money",
+              "center": 2,
+              "intensity": 1
+            }
+          ],
+          "reactive_npc_ids": ["npc_iris"]
+        },
+        {
+          "choice_id": "c_rescue_iris",
+          "text": "Rescue Iris from the trapped relay cage",
+          "intent_tags": ["rescue", "iris", "relay", "save"],
+          "next_node_id": "n_safehouse",
+          "range_effects": [
+            {
+              "target_type": "npc",
+              "target_id": "npc_iris",
+              "metric": "trust",
+              "center": 10,
+              "intensity": 0
+            },
+            {
+              "target_type": "npc",
+              "target_id": "npc_iris",
+              "metric": "affection",
+              "center": 4,
+              "intensity": 1
+            },
+            {
+              "target_type": "player",
+              "metric": "energy",
+              "center": -1,
+              "intensity": 1
+            }
+          ],
+          "reactive_npc_ids": ["npc_iris"]
+        },
+        {
+          "choice_id": "c_back_hub_from_subway",
+          "text": "Return to the crossroads",
+          "intent_tags": ["back", "crossroads", "return"],
+          "next_node_id": "n_hub_crossroads",
+          "range_effects": [
+            {
+              "target_type": "player",
+              "metric": "energy",
+              "center": -1,
+              "intensity": 1
+            }
+          ],
+          "reactive_npc_ids": ["npc_iris"]
+        }
+      ]
+    },
+    {
+      "node_id": "n_decoy_route",
+      "title": "Decoy Route",
+      "scene_brief": "A false convoy pattern splits into mirrored lanes across the industrial belt.",
+      "choices": [
+        {
+          "choice_id": "c_follow_decoy",
+          "text": "Follow the live decoy stream",
+          "intent_tags": ["follow", "decoy", "stream", "trace"],
+          "next_node_id": "n_server_room",
+          "range_effects": [
+            {
+              "target_type": "player",
+              "metric": "knowledge",
+              "center": 2,
+              "intensity": 1
+            },
+            {
+              "target_type": "player",
+              "metric": "energy",
+              "center": -2,
+              "intensity": 1
+            }
+          ],
+          "reactive_npc_ids": ["npc_iris"]
+        },
+        {
+          "choice_id": "c_sabotage_decoy",
+          "text": "Sabotage the decoy line and collect salvage",
+          "intent_tags": ["sabotage", "decoy", "salvage", "disrupt"],
+          "next_node_id": "n_hub_crossroads",
+          "range_effects": [
+            {
+              "target_type": "player",
+              "metric": "money",
+              "center": 2,
+              "intensity": 1
+            },
+            {
+              "target_type": "player",
+              "metric": "knowledge",
+              "center": 1,
+              "intensity": 1
+            }
+          ],
+          "reactive_npc_ids": ["npc_iris"]
+        },
+        {
+          "choice_id": "c_back_hub_from_decoy",
+          "text": "Break contact and return",
+          "intent_tags": ["break", "return", "back"],
+          "next_node_id": "n_hub_crossroads",
+          "range_effects": [
+            {
+              "target_type": "player",
+              "metric": "energy",
+              "center": -1,
+              "intensity": 1
+            }
+          ],
+          "reactive_npc_ids": ["npc_iris"]
+        }
+      ]
+    },
+    {
+      "node_id": "n_safehouse",
+      "title": "Safehouse",
+      "scene_brief": "Inside a shuttered radio shop, you and Iris map the final breach path.",
+      "choices": [
+        {
+          "choice_id": "c_plan_with_iris",
+          "text": "Plan the final run with Iris",
+          "intent_tags": ["plan", "iris", "final", "strategy"],
+          "next_node_id": "n_control_tower",
+          "gate_rules": [
+            {
+              "npc_id": "npc_iris",
+              "min_trust_tier": "Warm"
+            }
+          ],
+          "range_effects": [
+            {
+              "target_type": "player",
+              "metric": "knowledge",
+              "center": 2,
+              "intensity": 1
+            },
+            {
+              "target_type": "npc",
+              "target_id": "npc_iris",
+              "metric": "trust",
+              "center": 4,
+              "intensity": 1
+            }
+          ],
+          "reactive_npc_ids": ["npc_iris"]
+        },
+        {
+          "choice_id": "c_rest_and_brief",
+          "text": "Rest, brief, and reset the route",
+          "intent_tags": ["rest", "brief", "reset", "recover"],
+          "next_node_id": "n_hub_crossroads",
+          "range_effects": [
+            {
+              "target_type": "player",
+              "metric": "energy",
+              "center": 3,
+              "intensity": 1
+            },
+            {
+              "target_type": "npc",
+              "target_id": "npc_iris",
+              "metric": "affection",
+              "center": 2,
+              "intensity": 1
+            }
+          ],
+          "reactive_npc_ids": ["npc_iris"]
+        },
+        {
+          "choice_id": "c_abandon_plan",
+          "text": "Abandon the plan and disappear",
+          "intent_tags": ["abandon", "quit", "disappear", "leave"],
+          "next_node_id": "n_hub_crossroads",
+          "range_effects": [
+            {
+              "target_type": "player",
+              "metric": "knowledge",
+              "center": -1,
+              "intensity": 1
+            }
+          ],
+          "ending_id": "ending_player_fail",
+          "reactive_npc_ids": ["npc_iris"]
+        }
+      ]
+    },
+    {
+      "node_id": "n_server_room",
+      "title": "Server Room",
+      "scene_brief": "An underground exchange node glows under backup power and hardwired locks.",
+      "choices": [
+        {
+          "choice_id": "c_extract_master_key",
+          "text": "Extract the master key from core memory",
+          "intent_tags": ["extract", "master key", "core", "memory"],
+          "next_node_id": "n_control_tower",
+          "range_effects": [
+            {
+              "target_type": "player",
+              "metric": "knowledge",
+              "center": 4,
+              "intensity": 1
+            },
+            {
+              "target_type": "player",
+              "metric": "energy",
+              "center": -1,
+              "intensity": 1
+            }
+          ],
+          "reactive_npc_ids": ["npc_iris"]
+        },
+        {
+          "choice_id": "c_sell_data",
+          "text": "Sell a redacted data bundle to neutral brokers",
+          "intent_tags": ["sell", "data", "broker", "neutral"],
+          "next_node_id": "n_hub_crossroads",
+          "range_effects": [
+            {
+              "target_type": "player",
+              "metric": "money",
+              "center": 5,
+              "intensity": 1
+            }
+          ],
+          "ending_id": "ending_world_neutral",
+          "reactive_npc_ids": ["npc_iris"]
+        },
+        {
+          "choice_id": "c_back_hub_from_server",
+          "text": "Cut power and return to the crossroads",
+          "intent_tags": ["cut", "power", "return", "back"],
+          "next_node_id": "n_hub_crossroads",
+          "range_effects": [
+            {
+              "target_type": "player",
+              "metric": "energy",
+              "center": -1,
+              "intensity": 1
+            }
+          ],
+          "reactive_npc_ids": ["npc_iris"]
+        }
+      ]
+    },
+    {
+      "node_id": "n_control_tower",
+      "title": "Control Tower",
+      "scene_brief": "The city command uplink opens for one short window before sunrise.",
+      "choices": [
+        {
+          "choice_id": "c_broadcast_truth",
+          "text": "Broadcast the full truth signal",
+          "intent_tags": ["broadcast", "truth", "signal", "release"],
+          "next_node_id": "n_hub_crossroads",
+          "range_effects": [
+            {
+              "target_type": "player",
+              "metric": "knowledge",
+              "center": 1,
+              "intensity": 0
+            }
+          ],
+          "ending_id": "ending_player_success",
+          "reactive_npc_ids": ["npc_iris"]
+        },
+        {
+          "choice_id": "c_fake_broadcast",
+          "text": "Deploy a controlled fake broadcast",
+          "intent_tags": ["fake", "broadcast", "controlled", "cover"],
+          "next_node_id": "n_hub_crossroads",
+          "range_effects": [
+            {
+              "target_type": "player",
+              "metric": "money",
+              "center": 1,
+              "intensity": 0
+            }
+          ],
+          "ending_id": "ending_world_neutral",
+          "reactive_npc_ids": ["npc_iris"]
+        },
+        {
+          "choice_id": "c_signal_syndicate",
+          "text": "Signal the syndicate to lock the channel",
+          "intent_tags": ["signal", "syndicate", "lock", "channel"],
+          "next_node_id": "n_hub_crossroads",
+          "range_effects": [
+            {
+              "target_type": "player",
+              "metric": "knowledge",
+              "center": -1,
+              "intensity": 0
+            }
+          ],
+          "ending_id": "ending_enemy_success",
+          "reactive_npc_ids": ["npc_iris"]
+        }
+      ]
+    },
+    {
+      "node_id": "n_hub_crossroads",
+      "title": "Crossroads",
+      "scene_brief": "At the tram junction, every route is open and every delay has a cost.",
+      "choices": [
+        {
+          "choice_id": "c_push_final",
+          "text": "Push the final run while the window is open",
+          "intent_tags": ["push", "final", "window", "run"],
+          "next_node_id": "n_control_tower",
+          "gate_rules": [
+            {
+              "npc_id": "npc_iris",
+              "min_trust_tier": "Warm"
+            }
+          ],
+          "range_effects": [
+            {
+              "target_type": "player",
+              "metric": "energy",
+              "center": -1,
+              "intensity": 1
+            },
+            {
+              "target_type": "player",
+              "metric": "knowledge",
+              "center": 1,
+              "intensity": 1
+            }
+          ],
+          "reactive_npc_ids": ["npc_iris"]
+        },
+        {
+          "choice_id": "c_lay_low",
+          "text": "Lay low and reset from the rooftop",
+          "intent_tags": ["lay low", "reset", "rooftop", "wait"],
+          "next_node_id": "n_rooftop_start",
+          "range_effects": [
+            {
+              "target_type": "player",
+              "metric": "energy",
+              "center": 2,
+              "intensity": 1
+            }
+          ],
+          "reactive_npc_ids": ["npc_iris"]
+        },
+        {
+          "choice_id": "c_take_enemy_deal_from_hub",
+          "text": "Take the enemy deal from the crossroads",
+          "intent_tags": ["enemy", "deal", "crossroads", "betray"],
+          "next_node_id": "n_hub_crossroads",
+          "range_effects": [
+            {
+              "target_type": "player",
+              "metric": "money",
+              "center": 1,
+              "intensity": 0
+            }
+          ],
+          "ending_id": "ending_enemy_success",
+          "reactive_npc_ids": ["npc_iris"]
+        }
+      ]
+    }
+  ]
+}

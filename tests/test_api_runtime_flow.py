@@ -5,16 +5,13 @@ import json
 import threading
 import time
 
-import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from app.db.models import ActionLog, SessionStepIdempotency
+from app.db.models import ActionLog
 from app.db.session import SessionLocal
 from app.main import app
 from app.modules.llm_boundary.errors import LLMUnavailableError
-from app.modules.runtime.schemas import StepRequest
-from app.modules.runtime.service import StreamAbortedError, run_step_with_replay_flag
 
 _STEP_KEY_COUNTER = itertools.count(1)
 
@@ -48,30 +45,6 @@ def _step(client: TestClient, sid: str, payload: dict, *, key: str | None = None
         json=payload,
         headers={"X-Idempotency-Key": idem_key},
     )
-
-
-def _parse_sse_events(raw: str) -> list[dict]:
-    events: list[dict] = []
-    blocks = [item for item in raw.split("\n\n") if item.strip()]
-    for block in blocks:
-        event_name = "message"
-        data_lines: list[str] = []
-        for line in block.splitlines():
-            if not line:
-                continue
-            if line.startswith("event:"):
-                event_name = line.split(":", 1)[1].strip() or "message"
-            elif line.startswith("data:"):
-                data_lines.append(line.split(":", 1)[1].strip())
-        payload: dict = {}
-        joined = "\n".join(data_lines)
-        if joined:
-            try:
-                payload = json.loads(joined)
-            except json.JSONDecodeError:
-                payload = {"raw": joined}
-        events.append({"event": event_name, "payload": payload})
-    return events
 
 
 def test_runtime_happy_path_choice_step() -> None:
@@ -202,204 +175,17 @@ def test_step_requires_idempotency_header() -> None:
     assert missing.json()["detail"]["code"] == "MISSING_IDEMPOTENCY_KEY"
 
 
-def test_step_stream_requires_idempotency_header() -> None:
+def test_step_stream_endpoint_removed_returns_404() -> None:
     client = TestClient(app)
     _publish_story(client)
     sid = client.post("/api/v1/sessions", json={"story_id": "campus_week_v1"}).json()["session_id"]
 
-    missing = client.post(f"/api/v1/sessions/{sid}/step/stream", json={"choice_id": "c_study"})
-    assert missing.status_code == 400
-    assert missing.json()["detail"]["code"] == "MISSING_IDEMPOTENCY_KEY"
-
-
-def test_step_stream_choice_emits_meta_phase_final_done() -> None:
-    client = TestClient(app)
-    _publish_story(client)
-    sid = client.post("/api/v1/sessions", json={"story_id": "campus_week_v1"}).json()["session_id"]
-
-    with client.stream(
-        "POST",
+    missing = client.post(
         f"/api/v1/sessions/{sid}/step/stream",
         json={"choice_id": "c_study"},
-        headers={"X-Idempotency-Key": "stream-choice-1"},
-    ) as resp:
-        assert resp.status_code == 200
-        raw = "".join(resp.iter_text())
-
-    events = _parse_sse_events(raw)
-    names = [item["event"] for item in events]
-    assert "meta" in names
-    assert "phase" in names
-    assert "final" in names
-    assert names[-1] == "done"
-
-    final_payload = next(item["payload"] for item in events if item["event"] == "final")
-    assert final_payload["executed_choice_id"] == "c_study"
-    assert final_payload["session_status"] in {"active", "ended"}
-
-
-def test_step_stream_free_input_emits_narrative_delta() -> None:
-    client = TestClient(app)
-    _publish_story(client)
-    sid = client.post("/api/v1/sessions", json={"story_id": "campus_week_v1"}).json()["session_id"]
-
-    with client.stream(
-        "POST",
-        f"/api/v1/sessions/{sid}/step/stream",
-        json={"player_input": "off_topic sing"},
-        headers={"X-Idempotency-Key": "stream-free-1"},
-    ) as resp:
-        assert resp.status_code == 200
-        raw = "".join(resp.iter_text())
-
-    events = _parse_sse_events(raw)
-    delta_events = [item for item in events if item["event"] == "narrative_delta"]
-    assert len(delta_events) >= 1
-
-    final_payload = next(item["payload"] for item in events if item["event"] == "final")
-    assert isinstance(final_payload["narrative_text"], str)
-    assert final_payload["narrative_text"].strip() != ""
-
-
-def test_step_stream_replay_returns_replay_then_final() -> None:
-    client = TestClient(app)
-    _publish_story(client)
-    sid = client.post("/api/v1/sessions", json={"story_id": "campus_week_v1"}).json()["session_id"]
-
-    # first request creates the idempotency success record
-    first = _step(client, sid, {"choice_id": "c_study"}, key="stream-replay-1")
-    assert first.status_code == 200
-
-    with client.stream(
-        "POST",
-        f"/api/v1/sessions/{sid}/step/stream",
-        json={"choice_id": "c_study"},
-        headers={"X-Idempotency-Key": "stream-replay-1"},
-    ) as resp:
-        assert resp.status_code == 200
-        raw = "".join(resp.iter_text())
-
-    events = _parse_sse_events(raw)
-    names = [item["event"] for item in events]
-    assert "replay" in names
-    assert "final" in names
-    assert names[-1] == "done"
-
-
-def test_step_stream_marks_failed_on_llm_unavailable(monkeypatch) -> None:
-    client = TestClient(app)
-    _publish_story(client)
-    sid = client.post("/api/v1/sessions", json={"story_id": "campus_week_v1"}).json()["session_id"]
-    before = client.get(f"/api/v1/sessions/{sid}").json()
-
-    class _BrokenLLM:
-        def narrative(self, **kwargs):
-            del kwargs
-            raise LLMUnavailableError("forced unavailable stream")
-
-    monkeypatch.setattr("app.modules.runtime.router.get_llm_boundary", lambda: _BrokenLLM())
-
-    with client.stream(
-        "POST",
-        f"/api/v1/sessions/{sid}/step/stream",
-        json={"choice_id": "c_study"},
-        headers={"X-Idempotency-Key": "stream-llm-fail-1"},
-    ) as resp:
-        assert resp.status_code == 200
-        raw = "".join(resp.iter_text())
-
-    events = _parse_sse_events(raw)
-    error_payload = next(item["payload"] for item in events if item["event"] == "error")
-    assert error_payload["code"] == "LLM_UNAVAILABLE"
-
-    after = client.get(f"/api/v1/sessions/{sid}").json()
-    assert after["story_node_id"] == before["story_node_id"]
-    assert after["state_json"] == before["state_json"]
-
-
-def test_step_stream_marks_failed_when_abort_check_trips() -> None:
-    client = TestClient(app)
-    _publish_story(client)
-    sid = client.post("/api/v1/sessions", json={"story_id": "campus_week_v1"}).json()["session_id"]
-    before = client.get(f"/api/v1/sessions/{sid}").json()
-
-    abort_state = {"abort": False}
-
-    class _AbortableLLM:
-        def narrative(self, **kwargs):
-            on_delta = kwargs.get("on_delta")
-            if callable(on_delta):
-                on_delta("alpha ")
-            abort_state["abort"] = True
-            if callable(on_delta):
-                on_delta("beta ")
-
-            class _Narrative:
-                narrative_text = "alpha beta"
-
-            return _Narrative()
-
-    with SessionLocal() as db:
-        with pytest.raises(StreamAbortedError):
-            run_step_with_replay_flag(
-                db,
-                session_id=sid,
-                payload=StepRequest(choice_id="c_study"),
-                idempotency_key="stream-abort-1",
-                llm_boundary=_AbortableLLM(),
-                abort_check=lambda: bool(abort_state["abort"]),
-                on_narrative_delta=lambda _: None,
-            )
-
-    row = None
-    deadline = time.time() + 2.0
-    while time.time() < deadline:
-        with SessionLocal() as db:
-            row = db.execute(
-                select(SessionStepIdempotency).where(
-                    SessionStepIdempotency.session_id == sid,
-                    SessionStepIdempotency.idempotency_key == "stream-abort-1",
-                )
-            ).scalar_one_or_none()
-            if row is not None and row.status != "in_progress":
-                break
-        time.sleep(0.05)
-
-    assert row is not None
-    assert row.status == "failed"
-    assert row.error_code == "STREAM_ABORTED"
-
-    after = client.get(f"/api/v1/sessions/{sid}").json()
-    assert after["story_node_id"] == before["story_node_id"]
-    assert after["state_json"] == before["state_json"]
-
-    with SessionLocal() as db:
-        logs = db.execute(select(ActionLog).where(ActionLog.session_id == sid)).scalars().all()
-        assert len(logs) == 0
-
-
-def test_step_stream_ending_is_non_stream_but_returns_final() -> None:
-    client = TestClient(app)
-    _publish_story(client)
-    sid = client.post("/api/v1/sessions", json={"story_id": "campus_week_v1"}).json()["session_id"]
-
-    with client.stream(
-        "POST",
-        f"/api/v1/sessions/{sid}/step/stream",
-        json={"choice_id": "c_join_enemy"},
-        headers={"X-Idempotency-Key": "stream-ending-1"},
-    ) as resp:
-        assert resp.status_code == 200
-        raw = "".join(resp.iter_text())
-
-    events = _parse_sse_events(raw)
-    names = [item["event"] for item in events]
-    assert "final" in names
-    assert "narrative_delta" not in names
-
-    final_payload = next(item["payload"] for item in events if item["event"] == "final")
-    assert final_payload["run_ended"] is True
-    assert isinstance(final_payload["ending_id"], str)
+        headers={"X-Idempotency-Key": "removed-stream-1"},
+    )
+    assert missing.status_code == 404
 
 
 def test_existing_step_endpoint_unchanged() -> None:

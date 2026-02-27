@@ -1,12 +1,8 @@
 from __future__ import annotations
 
-import json
-import queue
-import threading
 from time import perf_counter
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
-from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal, get_db
@@ -29,12 +25,10 @@ from app.modules.runtime.service import (
     RuntimeForbiddenError,
     RuntimeInvalidChoiceError,
     RuntimeNotFoundError,
-    StreamAbortedError,
     SessionStepConflictError,
     create_session,
     get_session_state,
     run_step,
-    run_step_with_replay_flag,
 )
 from app.modules.telemetry.service import record_step_failure, record_step_success
 
@@ -50,44 +44,6 @@ def _actor_user_id(*, player_token: str | None) -> str | None:
         user_id = resolve_token_user_id(identity_db, token=cleaned, role="player")
         identity_db.commit()
         return user_id
-
-
-def _sse_pack(event: str, payload: dict | None = None) -> bytes:
-    data = json.dumps(payload or {}, ensure_ascii=False, separators=(",", ":"))
-    return f"event: {event}\ndata: {data}\n\n".encode("utf-8")
-
-
-def _error_payload(*, code: str, message: str) -> dict:
-    return {
-        "code": str(code or "ERROR"),
-        "message": str(message or ""),
-    }
-
-
-def _stream_runtime_error(exc: Exception) -> tuple[str, str]:
-    if isinstance(exc, StreamAbortedError):
-        return "STREAM_ABORTED", str(exc)
-    if isinstance(exc, RuntimeForbiddenError):
-        return "FORBIDDEN", str(exc)
-    if isinstance(exc, RuntimeNotFoundError):
-        return "NOT_FOUND", str(exc)
-    if isinstance(exc, RuntimeChoiceLockedError):
-        return "CHOICE_LOCKED", str(exc)
-    if isinstance(exc, RuntimeInvalidChoiceError):
-        return "INVALID_CHOICE", str(exc)
-    if isinstance(exc, IdempotencyInProgressError):
-        return "REQUEST_IN_PROGRESS", str(exc)
-    if isinstance(exc, IdempotencyPayloadMismatchError):
-        return "IDEMPOTENCY_PAYLOAD_MISMATCH", str(exc)
-    if isinstance(exc, SessionStepConflictError):
-        return "SESSION_STEP_CONFLICT", str(exc)
-    if isinstance(exc, RuntimeConflictError):
-        return "RUNTIME_CONFLICT", str(exc)
-    if isinstance(exc, LLMUnavailableError):
-        return "LLM_UNAVAILABLE", str(exc)
-    if isinstance(exc, ValueError):
-        return "BAD_REQUEST", str(exc)
-    return "STEP_FAILED", str(exc)
 
 
 @router.post("/sessions", response_model=SessionCreateResponse, status_code=status.HTTP_201_CREATED)
@@ -193,88 +149,3 @@ def step_api(
         record_step_failure(error_code="BAD_REQUEST")
         raise HTTPException(status_code=400, detail={"code": "BAD_REQUEST", "message": str(exc)}) from exc
 
-
-@router.post("/sessions/{session_id}/step/stream")
-def step_stream_api(
-    session_id: str,
-    payload: StepRequest,
-    x_idempotency_key: str | None = Header(default=None),
-    player_token: str | None = Depends(require_player_token),
-) -> StreamingResponse:
-    idem_key = str(x_idempotency_key or "").strip()
-    if not idem_key:
-        raise HTTPException(
-            status_code=400,
-            detail={"code": "MISSING_IDEMPOTENCY_KEY", "message": "X-Idempotency-Key header is required"},
-        )
-
-    actor_user_id = _actor_user_id(player_token=player_token)
-    event_queue: queue.Queue[tuple[str, dict] | None] = queue.Queue()
-    abort_event = threading.Event()
-
-    def push(event: str, payload_obj: dict | None = None) -> None:
-        event_queue.put((event, payload_obj or {}))
-
-    def worker() -> None:
-        started = perf_counter()
-        with SessionLocal() as db_local:
-            try:
-                push(
-                    "meta",
-                    {
-                        "session_id": session_id,
-                        "idempotency_key": idem_key,
-                        "selection_mode": "explicit_choice" if payload.choice_id else "free_input",
-                    },
-                )
-                response, replayed = run_step_with_replay_flag(
-                    db_local,
-                    session_id=session_id,
-                    payload=payload,
-                    idempotency_key=idem_key,
-                    llm_boundary=get_llm_boundary(),
-                    actor_user_id=actor_user_id,
-                    abort_check=abort_event.is_set,
-                    on_phase=lambda phase, phase_payload=None: push(
-                        "phase",
-                        {"name": phase, "payload": phase_payload or {}},
-                    ),
-                    on_narrative_delta=lambda text: push("narrative_delta", {"text": text}),
-                )
-                elapsed_ms = (perf_counter() - started) * 1000.0
-                record_step_success(latency_ms=elapsed_ms, step=response)
-                if replayed:
-                    push("replay", {"replayed": True})
-                push("final", response.model_dump())
-                push("done", {"ok": True})
-            except Exception as exc:  # noqa: BLE001
-                code, message = _stream_runtime_error(exc)
-                record_step_failure(error_code=code)
-                push("error", _error_payload(code=code, message=message))
-                push("done", {"ok": False})
-            finally:
-                event_queue.put(None)
-
-    thread = threading.Thread(target=worker, daemon=True)
-    thread.start()
-
-    def event_iter():
-        try:
-            while True:
-                item = event_queue.get()
-                if item is None:
-                    break
-                event_name, payload_obj = item
-                yield _sse_pack(event_name, payload_obj)
-        finally:
-            abort_event.set()
-
-    return StreamingResponse(
-        event_iter(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
-    )

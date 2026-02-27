@@ -132,19 +132,6 @@ _PLAY_HTML = '''<!doctype html>
         display: inline;
       }
 
-      .narrative-caret {
-        display: none;
-        width: 0.55ch;
-        margin-left: 2px;
-        border-left: 2px solid var(--accent);
-        vertical-align: text-bottom;
-        animation: blink 0.85s step-end infinite;
-      }
-
-      .narrative-caret.live {
-        display: inline-block;
-      }
-
       .choices {
         display: grid;
         gap: 8px;
@@ -277,13 +264,6 @@ _PLAY_HTML = '''<!doctype html>
         font-size: 0.84rem;
       }
 
-      .live-status {
-        min-height: 1.05rem;
-        margin-bottom: 10px;
-        color: #2f4d39;
-        font-size: 0.8rem;
-      }
-
       details.adv {
         margin-top: 12px;
         border: 1px solid var(--line);
@@ -303,10 +283,6 @@ _PLAY_HTML = '''<!doctype html>
         to { transform: translateX(120%); }
       }
 
-      @keyframes blink {
-        50% { opacity: 0; }
-      }
-
       @keyframes pulse {
         0%, 100% { box-shadow: 0 0 0 0 rgba(20, 83, 67, 0.35); }
         50% { box-shadow: 0 0 0 5px rgba(20, 83, 67, 0); }
@@ -314,7 +290,6 @@ _PLAY_HTML = '''<!doctype html>
 
       @media (prefers-reduced-motion: reduce) {
         .narrative.loading::after,
-        .narrative-caret,
         button.ctrl.pending {
           animation: none;
         }
@@ -347,10 +322,8 @@ _PLAY_HTML = '''<!doctype html>
         <section class="grid">
           <section class="panel">
             <h2>Narrative</h2>
-            <div class="live-status" id="live-status"></div>
             <div class="narrative" id="narrative">
               <span class="narrative-line" id="narrative-line">Your story response will appear here.</span>
-              <span class="narrative-caret" id="narrative-caret"></span>
             </div>
 
             <h2>Actions</h2>
@@ -401,17 +374,6 @@ _PLAY_HTML = '''<!doctype html>
         catalogLoading: false,
         catalog: [],
         idemCounter: 0,
-        stream: {
-          active: false,
-          phase: "",
-          partialText: "",
-          pendingText: "",
-          chunkCount: 0,
-          charCount: 0,
-          flushScheduled: false,
-          flushHandle: null,
-          replayed: false,
-        },
         sessionMeta: {
           session_id: null,
           story_id: queryStoryId || "",
@@ -430,10 +392,8 @@ _PLAY_HTML = '''<!doctype html>
         sceneTitle: document.getElementById("scene-title"),
         sceneBrief: document.getElementById("scene-brief"),
         storyChip: document.getElementById("story-chip"),
-        liveStatus: document.getElementById("live-status"),
         narrative: document.getElementById("narrative"),
         narrativeLine: document.getElementById("narrative-line"),
-        narrativeCaret: document.getElementById("narrative-caret"),
         choices: document.getElementById("choices"),
         freeInput: document.getElementById("free-input"),
         freeStepBtn: document.getElementById("free-step-btn"),
@@ -529,159 +489,21 @@ _PLAY_HTML = '''<!doctype html>
         state.lastStep = null;
         state.error = "";
         state.idemCounter = 0;
-        cancelFrame(state.stream.flushHandle);
-        state.stream.active = false;
-        state.stream.phase = "";
-        state.stream.partialText = "";
-        state.stream.pendingText = "";
-        state.stream.chunkCount = 0;
-        state.stream.charCount = 0;
-        state.stream.flushScheduled = false;
-        state.stream.flushHandle = null;
-        state.stream.replayed = false;
         state.sessionMeta.session_id = null;
         state.sessionMeta.story_version = null;
         state.sessionMeta.story_node_id = null;
         el.freeInput.value = "";
-        el.narrative.classList.remove("loading");
-        el.narrativeCaret.classList.remove("live");
-        setLiveStatus("");
+        setNarrativeLoading(false);
         setError("");
       }
 
-      function streamCapable() {
-        return typeof ReadableStream !== "undefined";
+      function setNarrativeLoading(enabled) {
+        el.narrative.classList.toggle("loading", Boolean(enabled));
       }
 
-      function scheduleFrame(callback) {
-        if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
-          return window.requestAnimationFrame(callback);
-        }
-        return window.setTimeout(callback, 16);
-      }
-
-      function cancelFrame(handle) {
-        if (handle === null || handle === undefined) return;
-        if (typeof window !== "undefined" && typeof window.cancelAnimationFrame === "function") {
-          window.cancelAnimationFrame(handle);
-          return;
-        }
-        window.clearTimeout(handle);
-      }
-
-      function normalizeSSEChunk(raw) {
-        return String(raw || "").replace(/\\r\\n/g, "\\n").replace(/\\r/g, "\\n");
-      }
-
-      function parseSSEFieldValue(line, prefix) {
-        let value = line.slice(prefix.length);
-        if (value.startsWith(" ")) {
-          value = value.slice(1);
-        }
-        return value;
-      }
-
-      function mapPhaseLabel(name) {
-        const phase = String(name || "").trim();
-        if (phase === "selection_start") return "Interpreting action...";
-        if (phase === "selection_done") return "Selection resolved.";
-        if (phase === "narration_start") return "Generating narration...";
-        if (phase === "narration_done") return "Narration complete.";
-        if (phase === "finalizing") return "Finalizing...";
-        return "";
-      }
-
-      function parseSSEBlock(rawBlock) {
-        const lines = String(rawBlock || "").split("\\n");
-        let event = "message";
-        const dataLines = [];
-        for (const line of lines) {
-          if (!line) continue;
-          if (line.startsWith(":")) continue;
-          if (line.startsWith("event:")) {
-            event = parseSSEFieldValue(line, "event:") || "message";
-            continue;
-          }
-          if (line.startsWith("data:")) {
-            dataLines.push(parseSSEFieldValue(line, "data:"));
-          }
-        }
-        const rawData = dataLines.join("\\n");
-        let payload = {};
-        if (rawData) {
-          try {
-            payload = JSON.parse(rawData);
-          } catch (_) {
-            payload = { raw: rawData };
-          }
-        }
-        return { event, payload };
-      }
-
-      function setLiveStatus(message) {
-        el.liveStatus.textContent = String(message || "");
-      }
-
-      function flushNarrativeQueue() {
-        if (!state.stream.pendingText) {
-          state.stream.flushScheduled = false;
-          state.stream.flushHandle = null;
-          return;
-        }
-        state.stream.partialText += state.stream.pendingText;
-        state.stream.pendingText = "";
-        state.stream.chunkCount += 1;
-        state.stream.charCount = state.stream.partialText.length;
-        el.narrativeLine.textContent = state.stream.partialText;
-        state.stream.flushScheduled = false;
-        state.stream.flushHandle = null;
-      }
-
-      function enqueueNarrativeDelta(text) {
-        const safeText = String(text || "");
-        if (!safeText) return;
-        state.stream.pendingText += safeText;
-        if (state.stream.flushScheduled) return;
-        state.stream.flushScheduled = true;
-        state.stream.flushHandle = scheduleFrame(() => {
-          flushNarrativeQueue();
-        });
-      }
-
-      function flushNarrativeNow() {
-        cancelFrame(state.stream.flushHandle);
-        flushNarrativeQueue();
-      }
-
-      function startNarrativeStream() {
-        cancelFrame(state.stream.flushHandle);
-        state.stream.active = true;
-        state.stream.phase = "";
-        state.stream.partialText = "";
-        state.stream.pendingText = "";
-        state.stream.chunkCount = 0;
-        state.stream.charCount = 0;
-        state.stream.flushScheduled = false;
-        state.stream.flushHandle = null;
-        state.stream.replayed = false;
-        el.narrative.classList.add("loading");
-        el.narrativeCaret.classList.add("live");
-        el.narrativeLine.textContent = "";
-        setLiveStatus("Preparing request...");
-      }
-
-      function finishNarrativeStream() {
-        flushNarrativeNow();
-        state.stream.active = false;
-        state.stream.phase = "";
-        el.narrative.classList.remove("loading");
-        el.narrativeCaret.classList.remove("live");
-        if (!state.stream.partialText && state.lastStep && state.lastStep.narrative_text) {
-          el.narrativeLine.textContent = state.lastStep.narrative_text;
-        }
-        if (!state.error) {
-          setLiveStatus("");
-        }
+      function setPendingNarrativePlaceholder() {
+        if (!state.session) return;
+        el.narrativeLine.textContent = "Generating narration...";
       }
 
       function nextIdempotencyKey() {
@@ -742,6 +564,8 @@ _PLAY_HTML = '''<!doctype html>
         if (state.pending) return;
         state.pending = true;
         setError("");
+        setPendingNarrativePlaceholder();
+        render();
         try {
           await actionFn();
         } catch (err) {
@@ -756,6 +580,7 @@ _PLAY_HTML = '''<!doctype html>
         if (state.pending) return;
         state.pending = true;
         setStorySelectError("");
+        render();
         try {
           await actionFn();
         } catch (err) {
@@ -779,109 +604,7 @@ _PLAY_HTML = '''<!doctype html>
         applySessionCreated(created);
       }
 
-      async function readStepStream({ payload, idemKey }) {
-        const url = `/api/v1/sessions/${state.session.session_id}/step/stream`;
-        const res = await fetch(url, {
-          method: "POST",
-          headers: {
-            ...playerHeaders(true),
-            "X-Idempotency-Key": idemKey,
-          },
-          body: JSON.stringify(payload),
-        });
-
-        if (!res.ok) {
-          const text = await res.text();
-          let parsed;
-          try { parsed = text ? JSON.parse(text) : {}; } catch (_) { parsed = { raw: text }; }
-          const detail = parsed && parsed.detail ? parsed.detail : parsed;
-          const code = detail && detail.code ? detail.code : `HTTP_${res.status}`;
-          const message = detail && detail.message ? detail.message : JSON.stringify(detail);
-          throw new Error(`${code}: ${message}`);
-        }
-
-        const contentType = String(res.headers.get("content-type") || "");
-        if (!contentType.includes("text/event-stream") || !res.body || typeof res.body.getReader !== "function") {
-          return null;
-        }
-
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let done = false;
-        let buffer = "";
-        let finalStep = null;
-
-        const consumeBlocks = (forceRemainder = false) => {
-          let splitIndex = buffer.indexOf("\\n\\n");
-          while (splitIndex >= 0) {
-            const block = buffer.slice(0, splitIndex);
-            buffer = buffer.slice(splitIndex + 2);
-            const parsed = parseSSEBlock(block);
-            const eventName = parsed.event;
-            const eventPayload = parsed.payload || {};
-
-            if (eventName === "phase") {
-              const name = eventPayload.name || "";
-              state.stream.phase = String(name || "");
-              setLiveStatus(mapPhaseLabel(name));
-            } else if (eventName === "narrative_delta") {
-              const text = String(eventPayload.text || "");
-              enqueueNarrativeDelta(text);
-            } else if (eventName === "replay") {
-              state.stream.replayed = true;
-              setLiveStatus("Replayed from idempotency cache.");
-            } else if (eventName === "error") {
-              const code = String(eventPayload.code || "STEP_FAILED");
-              const message = String(eventPayload.message || "stream step failed");
-              throw new Error(`${code}: ${message}`);
-            } else if (eventName === "final") {
-              finalStep = eventPayload;
-            }
-
-            splitIndex = buffer.indexOf("\\n\\n");
-          }
-
-          if (forceRemainder && /[^\\n]/.test(buffer)) {
-            const parsed = parseSSEBlock(buffer);
-            buffer = "";
-            const eventName = parsed.event;
-            const eventPayload = parsed.payload || {};
-
-            if (eventName === "phase") {
-              const name = eventPayload.name || "";
-              state.stream.phase = String(name || "");
-              setLiveStatus(mapPhaseLabel(name));
-            } else if (eventName === "narrative_delta") {
-              const text = String(eventPayload.text || "");
-              enqueueNarrativeDelta(text);
-            } else if (eventName === "replay") {
-              state.stream.replayed = true;
-              setLiveStatus("Replayed from idempotency cache.");
-            } else if (eventName === "error") {
-              const code = String(eventPayload.code || "STEP_FAILED");
-              const message = String(eventPayload.message || "stream step failed");
-              throw new Error(`${code}: ${message}`);
-            } else if (eventName === "final") {
-              finalStep = eventPayload;
-            }
-          }
-        };
-
-        while (!done) {
-          const part = await reader.read();
-          done = Boolean(part.done);
-          const decoded = decoder.decode(part.value || new Uint8Array(), { stream: !done });
-          buffer += normalizeSSEChunk(decoded);
-          consumeBlocks(false);
-        }
-
-        consumeBlocks(true);
-        flushNarrativeNow();
-
-        return finalStep;
-      }
-
-      async function stepLegacy(payload, idemKey) {
+      async function stepOnce(payload, idemKey) {
         return requestJSON(`/api/v1/sessions/${state.session.session_id}/step`, {
           method: "POST",
           headers: {
@@ -892,39 +615,24 @@ _PLAY_HTML = '''<!doctype html>
         });
       }
 
-      async function stepWithStream(payload) {
+      async function stepWithOneShot(payload) {
         if (!state.session || !state.session.session_id) {
           throw new Error("Start a session first");
         }
         const idemKey = nextIdempotencyKey();
-        let step = null;
-        startNarrativeStream();
-        try {
-          if (streamCapable()) {
-            step = await readStepStream({ payload, idemKey });
-          }
-          if (!step) {
-            setLiveStatus("Streaming unavailable. Falling back...");
-            step = await stepLegacy(payload, idemKey);
-          }
-        } finally {
-          finishNarrativeStream();
-        }
-        if (step && typeof step.narrative_text === "string" && step.narrative_text) {
-          state.stream.partialText = step.narrative_text;
-          state.stream.pendingText = "";
-          state.stream.charCount = step.narrative_text.length;
-          el.narrativeLine.textContent = step.narrative_text;
+        const step = await stepOnce(payload, idemKey);
+        if (step && typeof step.narrative_text === "string") {
+          el.narrativeLine.textContent = step.narrative_text || "";
         }
         applyStep(step);
       }
 
       async function stepWithChoice(choiceId) {
-        await stepWithStream({ choice_id: choiceId });
+        await stepWithOneShot({ choice_id: choiceId });
       }
 
       async function stepWithInput(text) {
-        await stepWithStream({ player_input: text });
+        await stepWithOneShot({ player_input: text });
       }
 
       function resetAll() {
@@ -943,8 +651,8 @@ _PLAY_HTML = '''<!doctype html>
 
         el.sceneTitle.textContent = node.title || "Current Scene";
         el.sceneBrief.textContent = node.scene_brief || "";
-        if (state.stream.active && state.stream.partialText) {
-          el.narrativeLine.textContent = state.stream.partialText;
+        if (state.pending && state.session) {
+          el.narrativeLine.textContent = "Generating narration...";
         } else if (state.lastStep && state.lastStep.narrative_text) {
           el.narrativeLine.textContent = state.lastStep.narrative_text;
         } else {
@@ -1081,6 +789,7 @@ _PLAY_HTML = '''<!doctype html>
         const inPlaying = state.mode === "playing";
         el.storySelectScreen.style.display = inPlaying ? "none" : "block";
         el.playScreen.style.display = inPlaying ? "block" : "none";
+        setNarrativeLoading(inPlaying && state.pending && Boolean(state.session));
         el.storyChip.textContent = `Story: ${state.sessionMeta.story_id}`;
         renderStorySelect();
         renderScene();
@@ -1351,41 +1060,6 @@ _PLAY_DEV_HTML = '''<!doctype html>
         max-height: 460px;
       }
 
-      .stream-box {
-        border: 1px solid var(--line);
-        border-radius: 10px;
-        background: #fff;
-        padding: 8px;
-      }
-
-      .stream-status {
-        font-size: 0.76rem;
-        color: #355143;
-        margin-bottom: 6px;
-        min-height: 1rem;
-      }
-
-      .stream-stats {
-        font-size: 0.74rem;
-        color: var(--muted);
-        margin-bottom: 6px;
-      }
-
-      .stream-text {
-        min-height: 66px;
-        max-height: 180px;
-        overflow: auto;
-        white-space: pre-wrap;
-        overflow-wrap: anywhere;
-        word-break: break-word;
-        unicode-bidi: plaintext;
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        background: #f5f8f3;
-        padding: 6px;
-        font-size: 0.76rem;
-      }
-
       details.raw {
         margin-top: 8px;
         border: 1px solid var(--line);
@@ -1480,13 +1154,6 @@ _PLAY_DEV_HTML = '''<!doctype html>
           <h2 style="margin-top: 10px">Telemetry</h2>
           <div class="overview" id="dev-telemetry-cards"></div>
 
-          <h2 style="margin-top: 10px">Live Stream</h2>
-          <div class="stream-box">
-            <div class="stream-status" id="dev-live-status"></div>
-            <div class="stream-stats" id="dev-live-stats"></div>
-            <div class="stream-text" id="dev-live-text"></div>
-          </div>
-
           <h2 style="margin-top: 10px">Story Versions</h2>
           <div class="list" id="dev-versions-list"></div>
 
@@ -1529,17 +1196,6 @@ _PLAY_DEV_HTML = '''<!doctype html>
         bundle: null,
         selectedStep: null,
         idemCounter: 0,
-        stream: {
-          active: false,
-          phase: "",
-          chunkCount: 0,
-          charCount: 0,
-          text: "",
-          pendingText: "",
-          flushScheduled: false,
-          flushHandle: null,
-          replayed: false,
-        },
       };
 
       const d = {
@@ -1556,9 +1212,6 @@ _PLAY_DEV_HTML = '''<!doctype html>
         timelineList: document.getElementById("dev-timeline-list"),
         overviewCards: document.getElementById("dev-overview-cards"),
         telemetryCards: document.getElementById("dev-telemetry-cards"),
-        liveStatus: document.getElementById("dev-live-status"),
-        liveStats: document.getElementById("dev-live-stats"),
-        liveText: document.getElementById("dev-live-text"),
         versionsList: document.getElementById("dev-versions-list"),
         selectionPane: document.getElementById("dev-selection-pane"),
         statePane: document.getElementById("dev-state-pane"),
@@ -1606,149 +1259,6 @@ _PLAY_DEV_HTML = '''<!doctype html>
           throw new Error(`${code}: ${message}`);
         }
         return payload;
-      }
-
-      function streamCapable() {
-        return typeof ReadableStream !== "undefined";
-      }
-
-      function scheduleFrame(callback) {
-        if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
-          return window.requestAnimationFrame(callback);
-        }
-        return window.setTimeout(callback, 16);
-      }
-
-      function cancelFrame(handle) {
-        if (handle === null || handle === undefined) return;
-        if (typeof window !== "undefined" && typeof window.cancelAnimationFrame === "function") {
-          window.cancelAnimationFrame(handle);
-          return;
-        }
-        window.clearTimeout(handle);
-      }
-
-      function normalizeSSEChunk(raw) {
-        return String(raw || "").replace(/\\r\\n/g, "\\n").replace(/\\r/g, "\\n");
-      }
-
-      function parseSSEFieldValue(line, prefix) {
-        let value = line.slice(prefix.length);
-        if (value.startsWith(" ")) {
-          value = value.slice(1);
-        }
-        return value;
-      }
-
-      function parseSSEBlock(rawBlock) {
-        const lines = String(rawBlock || "").split("\\n");
-        let event = "message";
-        const dataLines = [];
-        for (const line of lines) {
-          if (!line) continue;
-          if (line.startsWith(":")) continue;
-          if (line.startsWith("event:")) {
-            event = parseSSEFieldValue(line, "event:") || "message";
-            continue;
-          }
-          if (line.startsWith("data:")) {
-            dataLines.push(parseSSEFieldValue(line, "data:"));
-          }
-        }
-        let payload = {};
-        const dataText = dataLines.join("\\n");
-        if (dataText) {
-          try {
-            payload = JSON.parse(dataText);
-          } catch (_) {
-            payload = { raw: dataText };
-          }
-        }
-        return { event, payload };
-      }
-
-      function mapPhaseLabel(name) {
-        const phase = String(name || "").trim();
-        if (phase === "selection_start") return "Interpreting action...";
-        if (phase === "selection_done") return "Selection resolved.";
-        if (phase === "narration_start") return "Generating narration...";
-        if (phase === "narration_done") return "Narration complete.";
-        if (phase === "finalizing") return "Finalizing...";
-        return "";
-      }
-
-      function resetLiveStreamPanel() {
-        cancelFrame(debugState.stream.flushHandle);
-        debugState.stream.active = false;
-        debugState.stream.phase = "";
-        debugState.stream.chunkCount = 0;
-        debugState.stream.charCount = 0;
-        debugState.stream.text = "";
-        debugState.stream.pendingText = "";
-        debugState.stream.flushScheduled = false;
-        debugState.stream.flushHandle = null;
-        debugState.stream.replayed = false;
-        d.liveStatus.textContent = "";
-        d.liveStats.textContent = "";
-        d.liveText.textContent = "";
-      }
-
-      function setLiveStreamStatus(message) {
-        d.liveStatus.textContent = String(message || "");
-      }
-
-      function setLiveStreamStats() {
-        const status = debugState.stream.active ? "streaming" : "idle";
-        const replay = debugState.stream.replayed ? "yes" : "no";
-        d.liveStats.textContent = `status=${status} chunks=${debugState.stream.chunkCount} chars=${debugState.stream.charCount} replay=${replay}`;
-      }
-
-      function flushLiveStreamText() {
-        if (!debugState.stream.pendingText) {
-          debugState.stream.flushScheduled = false;
-          debugState.stream.flushHandle = null;
-          return;
-        }
-        debugState.stream.text += debugState.stream.pendingText;
-        debugState.stream.pendingText = "";
-        debugState.stream.chunkCount += 1;
-        debugState.stream.charCount = debugState.stream.text.length;
-        d.liveText.textContent = debugState.stream.text;
-        debugState.stream.flushScheduled = false;
-        debugState.stream.flushHandle = null;
-        setLiveStreamStats();
-      }
-
-      function enqueueLiveStreamText(text) {
-        const safeText = String(text || "");
-        if (!safeText) return;
-        debugState.stream.pendingText += safeText;
-        if (debugState.stream.flushScheduled) return;
-        debugState.stream.flushScheduled = true;
-        debugState.stream.flushHandle = scheduleFrame(() => {
-          flushLiveStreamText();
-        });
-      }
-
-      function flushLiveStreamNow() {
-        cancelFrame(debugState.stream.flushHandle);
-        flushLiveStreamText();
-      }
-
-      function beginLiveStream() {
-        resetLiveStreamPanel();
-        debugState.stream.active = true;
-        setLiveStreamStatus("Preparing request...");
-        setLiveStreamStats();
-      }
-
-      function endLiveStream() {
-        flushLiveStreamNow();
-        debugState.stream.active = false;
-        if (!d.error.textContent) {
-          setLiveStreamStatus("");
-        }
-        setLiveStreamStats();
       }
 
       function nextIdempotencyKey() {
@@ -1850,134 +1360,18 @@ _PLAY_DEV_HTML = '''<!doctype html>
         await syncBundle();
       }
 
-      async function streamStep(payload) {
+      async function stepOnce(payload) {
         const sid = currentSessionId();
         if (!sid) throw new Error("Session ID is required");
         const idemKey = nextIdempotencyKey();
-        beginLiveStream();
-
-        let finalStep = null;
-        try {
-          if (streamCapable()) {
-            const res = await fetch(`/api/v1/sessions/${sid}/step/stream`, {
-              method: "POST",
-              headers: {
-                ...playerHeaders(true),
-                "X-Idempotency-Key": idemKey,
-              },
-              body: JSON.stringify(payload),
-            });
-
-            if (!res.ok) {
-              const text = await res.text();
-              let parsed;
-              try { parsed = text ? JSON.parse(text) : {}; } catch (_) { parsed = { raw: text }; }
-              const detail = parsed && parsed.detail ? parsed.detail : parsed;
-              const code = detail && detail.code ? detail.code : `HTTP_${res.status}`;
-              const message = detail && detail.message ? detail.message : JSON.stringify(detail);
-              throw new Error(`${code}: ${message}`);
-            }
-
-            const contentType = String(res.headers.get("content-type") || "");
-            if (contentType.includes("text/event-stream") && res.body && typeof res.body.getReader === "function") {
-              const reader = res.body.getReader();
-              const decoder = new TextDecoder();
-              let done = false;
-              let buffer = "";
-
-              const consumeBlocks = (forceRemainder = false) => {
-                let splitIndex = buffer.indexOf("\\n\\n");
-                while (splitIndex >= 0) {
-                  const block = buffer.slice(0, splitIndex);
-                  buffer = buffer.slice(splitIndex + 2);
-                  const parsed = parseSSEBlock(block);
-                  const eventName = parsed.event;
-                  const eventPayload = parsed.payload || {};
-
-                  if (eventName === "phase") {
-                    const phaseName = String(eventPayload.name || "");
-                    debugState.stream.phase = phaseName;
-                    setLiveStreamStatus(mapPhaseLabel(phaseName));
-                  } else if (eventName === "narrative_delta") {
-                    const text = String(eventPayload.text || "");
-                    enqueueLiveStreamText(text);
-                  } else if (eventName === "replay") {
-                    debugState.stream.replayed = true;
-                    setLiveStreamStatus("Replayed from idempotency cache.");
-                    setLiveStreamStats();
-                  } else if (eventName === "final") {
-                    finalStep = eventPayload;
-                  } else if (eventName === "error") {
-                    const code = String(eventPayload.code || "STEP_FAILED");
-                    const message = String(eventPayload.message || "stream step failed");
-                    throw new Error(`${code}: ${message}`);
-                  }
-
-                  splitIndex = buffer.indexOf("\\n\\n");
-                }
-
-                if (forceRemainder && /[^\\n]/.test(buffer)) {
-                  const parsed = parseSSEBlock(buffer);
-                  buffer = "";
-                  const eventName = parsed.event;
-                  const eventPayload = parsed.payload || {};
-
-                  if (eventName === "phase") {
-                    const phaseName = String(eventPayload.name || "");
-                    debugState.stream.phase = phaseName;
-                    setLiveStreamStatus(mapPhaseLabel(phaseName));
-                  } else if (eventName === "narrative_delta") {
-                    const text = String(eventPayload.text || "");
-                    enqueueLiveStreamText(text);
-                  } else if (eventName === "replay") {
-                    debugState.stream.replayed = true;
-                    setLiveStreamStatus("Replayed from idempotency cache.");
-                    setLiveStreamStats();
-                  } else if (eventName === "final") {
-                    finalStep = eventPayload;
-                  } else if (eventName === "error") {
-                    const code = String(eventPayload.code || "STEP_FAILED");
-                    const message = String(eventPayload.message || "stream step failed");
-                    throw new Error(`${code}: ${message}`);
-                  }
-                }
-              };
-
-              while (!done) {
-                const part = await reader.read();
-                done = Boolean(part.done);
-                const decoded = decoder.decode(part.value || new Uint8Array(), { stream: !done });
-                buffer += normalizeSSEChunk(decoded);
-                consumeBlocks(false);
-              }
-
-              consumeBlocks(true);
-              flushLiveStreamNow();
-            }
-          }
-
-          if (!finalStep) {
-            setLiveStreamStatus("Streaming unavailable. Falling back...");
-            finalStep = await requestJSON(`/api/v1/sessions/${sid}/step`, {
-              method: "POST",
-              headers: {
-                ...playerHeaders(true),
-                "X-Idempotency-Key": idemKey,
-              },
-              body: JSON.stringify(payload),
-            });
-          }
-        } finally {
-          endLiveStream();
-        }
-
-        if (finalStep && typeof finalStep.narrative_text === "string" && finalStep.narrative_text) {
-          debugState.stream.text = finalStep.narrative_text;
-          debugState.stream.pendingText = "";
-          debugState.stream.charCount = finalStep.narrative_text.length;
-          d.liveText.textContent = finalStep.narrative_text;
-          setLiveStreamStats();
-        }
+        const finalStep = await requestJSON(`/api/v1/sessions/${sid}/step`, {
+          method: "POST",
+          headers: {
+            ...playerHeaders(true),
+            "X-Idempotency-Key": idemKey,
+          },
+          body: JSON.stringify(payload),
+        });
 
         await syncBundle();
         return finalStep;
@@ -1986,13 +1380,13 @@ _PLAY_DEV_HTML = '''<!doctype html>
       async function stepChoice() {
         const choiceId = String(d.choiceId.value || "").trim();
         if (!choiceId) throw new Error("Choice ID is required");
-        await streamStep({ choice_id: choiceId });
+        await stepOnce({ choice_id: choiceId });
       }
 
       async function stepInput() {
         const text = String(d.playerInput.value || "").trim();
         if (!text) throw new Error("Free input is required");
-        await streamStep({ player_input: text });
+        await stepOnce({ player_input: text });
       }
 
       function renderSessionList() {
@@ -2183,7 +1577,6 @@ _PLAY_DEV_HTML = '''<!doctype html>
         renderVersions();
         renderInspector();
         renderButtons();
-        setLiveStreamStats();
       }
 
       function resetAll() {
@@ -2193,7 +1586,6 @@ _PLAY_DEV_HTML = '''<!doctype html>
         debugState.bundle = null;
         debugState.selectedStep = null;
         debugState.idemCounter = 0;
-        resetLiveStreamPanel();
 
         d.sessionId.value = "";
         d.choiceId.value = "";

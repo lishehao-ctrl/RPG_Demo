@@ -53,6 +53,22 @@ Health:
 - Player UI: `GET /play`
 - Story debug UI: `GET /play-dev`
 
+## Safe Testing (Isolated Test DB)
+
+- `pytest` is configured to use an isolated test database by default.
+- Default test DB: `sqlite:///./.pytest_runtime.db`
+- You can override it explicitly:
+
+```bash
+TEST_DATABASE_URL=sqlite:///./.pytest_runtime_custom.db pytest -q
+```
+
+- Safety guard:
+  - If pytest resolves to `sqlite:///./app.db`, tests fail fast to prevent wiping dev data.
+- Important:
+  - `app.db` is for local runtime only.
+  - Do not point pytest at `app.db`.
+
 ## Web UI
 
 ### `/play` (Immersive Player UI)
@@ -71,11 +87,10 @@ Health:
   - no manual refresh flow
   - no story version input flow
   - no activity feed
-- Streaming UX:
-  - step requests use `POST /api/v1/sessions/{session_id}/step/stream` when supported
-  - narrative text is rendered incrementally (`narrative_delta`)
-  - waiting state shows lightweight shimmer/caret/pulse animation
-  - browser/runtime fallback: automatically uses legacy `POST /step`
+- One-shot UX:
+  - step requests use `POST /api/v1/sessions/{session_id}/step`
+  - narrative text is rendered once per completed step (`narrative_text`)
+  - waiting state shows lightweight shimmer/pulse animation
 - Technical fields are reduced to session metadata only in `Advanced details`.
 
 ### `/play-dev` (Story Debug UI)
@@ -84,10 +99,9 @@ Health:
   - load sessions list
   - single `Sync` action hydrates overview + timeline + telemetry + versions + latest step detail
   - inspector tabs (`Selection`, `State Diff`, `LLM Trace`, `Classification`, `Raw JSON`)
-- Live stream panel:
-  - shows stream phase in real time
-  - accumulates streamed narration chunks and chunk/char counters
-  - still auto-syncs bundle after each completed step
+- Step execution:
+  - uses one-shot runtime step API (`POST /step`)
+  - auto-syncs bundle after each completed step
 - `/play-dev` uses both tokens when needed:
   - `X-Player-Token` for runtime stepping
   - `X-Author-Token` for debug/story/telemetry reads
@@ -117,21 +131,6 @@ Health:
   - Missing header -> `400 MISSING_IDEMPOTENCY_KEY`
   - Concurrent CAS conflict -> `409 SESSION_STEP_CONFLICT`
   - response includes `session_status` and `current_node`
-- `POST /api/v1/sessions/{session_id}/step/stream`
-  - request body is identical to `/step` (`choice_id` or `player_input`)
-  - requires `X-Idempotency-Key`
-  - returns `text/event-stream`
-  - event protocol:
-    - `meta`: session + key metadata
-    - `phase`: `selection_start|selection_done|narration_start|narration_done|finalizing`
-    - `narrative_delta`: incremental narration text chunks
-    - `replay`: idempotency replay hit
-    - `final`: full `StepResponse` payload (same shape as `/step`)
-    - `error`: stream error payload (`code`, `message`)
-    - `done`: stream finished
-  - ending step policy: ending generation remains non-stream bundle; stream still emits `phase` + `final`
-  - early client disconnects mark the idempotency record as `failed` with `STREAM_ABORTED`; session state stays unchanged
-
 ### Telemetry API
 - `GET /api/v1/telemetry/runtime`
   - `total_step_requests`

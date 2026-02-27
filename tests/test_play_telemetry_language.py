@@ -46,11 +46,9 @@ def test_play_page_available() -> None:
     assert "change-story-btn" in res.text
     assert "Advanced details" in res.text
     assert "Free Input" in res.text
-    assert "live-status" in res.text
-    assert "narrative-caret" in res.text
-    assert 'dataLines.push(line.slice(5).trim())' not in res.text
-    assert 'parseSSEFieldValue(line, "data:")' in res.text
-    assert "normalizeSSEChunk" in res.text
+    assert "narrative-line" in res.text
+    assert "Generating narration..." in res.text
+    assert "step/stream" not in res.text
     assert "X-Player-Token (optional)" not in res.text
     assert "Story Version" not in res.text
     assert "Refresh" not in res.text
@@ -66,11 +64,10 @@ def test_play_dev_page_available() -> None:
     assert "Start Session" in res.text
     assert "Step Choice" in res.text
     assert "Step Free Input" in res.text
-    assert "Live Stream" in res.text
-    assert "dev-live-status" in res.text
-    assert "dev-live-text" in res.text
-    assert 'dataLines.push(line.slice(5).trim())' not in res.text
-    assert 'parseSSEFieldValue(line, "data:")' in res.text
+    assert "Live Stream" not in res.text
+    assert "dev-live-status" not in res.text
+    assert "dev-live-text" not in res.text
+    assert "step/stream" not in res.text
     assert "Inspector" in res.text
     assert "dev-overview-btn" not in res.text
     assert "dev-timeline-btn" not in res.text

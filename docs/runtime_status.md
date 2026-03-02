@@ -3,7 +3,7 @@
 This file maps `docs/architecture.md` sections to current implementation status.
 
 ## Implemented
-- Accept-All runtime loop (Pass A + Pass B) with deterministic outcome resolution.
+- OpenAI strict runtime loop (Pass A + Pass B) with deterministic outcome resolution.
 - `fail_forward` mandatory linter validation.
 - OpenAI-only routing policy:
   - `openai`: quality-first failfast on route error/invalid move/low confidence

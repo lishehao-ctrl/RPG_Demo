@@ -233,7 +233,8 @@ Narration renders `narration_slots` into player-facing text using a strict templ
 - User-side quality markers (`good|bad`) linked to session and turn index
 - Acceptance metrics:
   - meaningful_accept_rate (state/progress changed)
-  - fallback_with_progress_rate
+  - llm_route_success_rate
+  - step_error_rate
 
 ### Canary tests (must remain green)
 - Healthy-path provider behavior: valid text/button inputs produce 200 and advance or change state (except inactive session)

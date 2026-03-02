@@ -1,4 +1,4 @@
-# Accept-All Narrative RPG (Backend-First)
+# RPG Backend (Strict Runtime)
 
 Backend-first interactive narrative RPG service with OpenAI-only runtime behavior:
 - `openai` provider uses quality-first failfast for LLM route/narration failures.
@@ -13,12 +13,12 @@ Backend-first interactive narrative RPG service with OpenAI-only runtime behavio
 
 ## Architecture
 Code is split by responsibilities:
-- `app/domain`: Story Pack DSL schema + linter
-- `app/generator`: deterministic story generator (`planner/builder/prompt_compiler/service`)
-- `app/runtime`: Pass A routing + Pass B deterministic resolution + narration composition
-- `app/llm`: OpenAI provider abstraction (`OpenAIProvider`)
-- `app/storage`: SQLModel entities + repositories
-- `app/api`: REST API (stories/sessions)
+- `rpg_backend/domain`: Story Pack DSL schema + linter
+- `rpg_backend/generator`: deterministic story generator (`planner/builder/prompt_compiler/service`)
+- `rpg_backend/runtime`: Pass A routing + Pass B deterministic resolution + narration composition
+- `rpg_backend/llm`: OpenAI provider abstraction (`OpenAIProvider`)
+- `rpg_backend/storage`: SQLModel entities + repositories
+- `rpg_backend/api`: REST API (stories/sessions)
 
 Runtime architecture source of truth:
 - `docs/story_architecture_v3.md`
@@ -34,7 +34,7 @@ pip install -e '.[dev]'
 Run server:
 
 ```bash
-uvicorn app.main:app --reload
+uvicorn rpg_backend.main:app --reload
 ```
 
 Health check:
@@ -281,7 +281,6 @@ This writes aggregate metrics:
 - `completion_rate`
 - `avg_steps`
 - `meaningful_accept_rate`
-- `fallback_with_progress_rate`
 - `palette_diversity`
 
 For replay:
@@ -306,14 +305,12 @@ Gate expectations:
 
 Additional observability metrics:
 - `llm_route_success_rate`
-- `fallback_error_rate`
-- `fallback_low_confidence_rate`
 - `step_error_rate`
 
 Connectivity precheck:
 - before full evaluation, the script resolves the OpenAI host and runs one minimal route probe.
 - if precheck fails, the script exits non-zero and writes `precheck` diagnostics in the report (`dns_unreachable` / `connect_error` / `auth_error` / etc).
-- this prevents fallback-only runs from appearing as a false green gate.
+- this prevents network/config failures from appearing as a false green gate.
 - `precheck.error_type=unsupported_chat_completions_api` means your endpoint does not support chat completions API; switch to a compatible endpoint.
 
 Restricted environment option:
@@ -363,7 +360,8 @@ Hard gate thresholds:
 - `completion_rate == 1.0`
 - `avg_steps in [14, 16]`
 - `meaningful_accept_rate >= 0.90`
-- `fallback_error_rate <= 0.05`
+- `llm_route_success_rate >= 0.80`
+- `step_error_rate == 0.0`
 - `judge_overall_avg >= 7.5`
 - `judge_prompt_fidelity_avg >= 7.0`
 - `case_overall_score_min >= 6.0`
@@ -450,7 +448,7 @@ pytest -q -m live_openai_critical -o addopts='-q'
 ```
 
 Canary tests included:
-- `tests/test_canary_accept_all.py`
+- `tests/test_canary_runtime_input_tolerance.py`
 - `tests/test_canary_fail_forward.py`
 - `tests/test_canary_low_confidence_progress.py`
 - `tests/test_canary_story_completion.py`

@@ -3,6 +3,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from app.config.settings import get_settings
+from app.llm.base import LLMProvider
+
 PACK_PATH = Path("sample_data/story_pack_v1.json")
 
 
@@ -88,3 +91,84 @@ def test_step_tolerates_missing_or_invalid_input_shape(client) -> None:
         "global.help_me_progress",
         "global.clarify",
     }
+
+
+def test_session_create_returns_503_when_openai_provider_misconfigured(client, monkeypatch) -> None:
+    story_id, version = _bootstrap_story(client)
+    monkeypatch.setenv("APP_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("APP_LLM_OPENAI_BASE_URL", "")
+    monkeypatch.setenv("APP_LLM_OPENAI_API_KEY", "")
+    monkeypatch.setenv("APP_LLM_OPENAI_MODEL", "")
+    get_settings.cache_clear()
+
+    response = client.post("/sessions", json={"story_id": story_id, "version": version})
+    assert response.status_code == 503
+    assert "llm provider misconfigured" in response.json()["detail"]
+    get_settings.cache_clear()
+
+
+def test_session_create_succeeds_when_only_route_model_configured(client, monkeypatch) -> None:
+    story_id, version = _bootstrap_story(client)
+    monkeypatch.setenv("APP_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("APP_LLM_OPENAI_BASE_URL", "https://example.com/compatible-mode")
+    monkeypatch.setenv("APP_LLM_OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("APP_LLM_OPENAI_MODEL", "")
+    monkeypatch.setenv("APP_LLM_OPENAI_ROUTE_MODEL", "route-only-model")
+    monkeypatch.setenv("APP_LLM_OPENAI_NARRATION_MODEL", "")
+    get_settings.cache_clear()
+
+    response = client.post("/sessions", json={"story_id": story_id, "version": version})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["story_id"] == story_id
+    assert body["version"] == version
+    get_settings.cache_clear()
+
+
+def test_session_create_succeeds_when_only_narration_model_configured(client, monkeypatch) -> None:
+    story_id, version = _bootstrap_story(client)
+    monkeypatch.setenv("APP_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("APP_LLM_OPENAI_BASE_URL", "https://example.com/compatible-mode")
+    monkeypatch.setenv("APP_LLM_OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("APP_LLM_OPENAI_MODEL", "")
+    monkeypatch.setenv("APP_LLM_OPENAI_ROUTE_MODEL", "")
+    monkeypatch.setenv("APP_LLM_OPENAI_NARRATION_MODEL", "narration-only-model")
+    get_settings.cache_clear()
+
+    response = client.post("/sessions", json={"story_id": story_id, "version": version})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["story_id"] == story_id
+    assert body["version"] == version
+    get_settings.cache_clear()
+
+
+class _RouteFailureProvider(LLMProvider):
+    def route_intent(self, scene_context, text):  # noqa: ANN001, ANN201
+        raise RuntimeError("route failed")
+
+    def render_narration(self, slots, style_guard):  # noqa: ANN001, ANN201
+        return f"{slots['echo']} {slots['commit']} {slots['hook']}"
+
+
+def test_step_still_200_when_provider_route_throws(client, monkeypatch) -> None:
+    from app.api import sessions as sessions_api
+
+    story_id, version = _bootstrap_story(client)
+    session_resp = client.post("/sessions", json={"story_id": story_id, "version": version})
+    session_id = session_resp.json()["session_id"]
+
+    monkeypatch.setattr(sessions_api, "get_llm_provider", lambda: _RouteFailureProvider())
+    response = client.post(
+        f"/sessions/{session_id}/step",
+        json={
+            "client_action_id": "route-fail-1",
+            "input": {"type": "text", "text": "nonsense input"},
+            "dev_mode": False,
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["recognized"]["move_id"] in {"global.help_me_progress", "global.clarify"}
+    assert body["recognized"]["route_source"] == "fallback_error"
+    assert body["narration_text"]

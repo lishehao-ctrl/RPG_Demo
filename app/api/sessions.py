@@ -14,6 +14,7 @@ from app.api.schemas import (
 )
 from app.domain.constants import GLOBAL_HELP_ME_PROGRESS_MOVE_ID
 from app.domain.pack_schema import StoryPack
+from app.llm.base import LLMProviderConfigError
 from app.llm.factory import get_llm_provider
 from app.runtime.service import RuntimeService
 from app.storage.engine import get_session
@@ -58,6 +59,14 @@ def _normalize_step_input(raw_input) -> dict[str, str]:
     return {"type": "text", "text": text}
 
 
+def _build_runtime_or_503() -> RuntimeService:
+    try:
+        provider = get_llm_provider()
+    except LLMProviderConfigError as exc:
+        raise HTTPException(status_code=503, detail=f"llm provider misconfigured: {exc}") from exc
+    return RuntimeService(provider)
+
+
 @router.post("", response_model=SessionCreateResponse)
 def create_session_endpoint(payload: SessionCreateRequest, db: Session = Depends(get_session)) -> SessionCreateResponse:
     story = get_story(db, payload.story_id)
@@ -69,7 +78,7 @@ def create_session_endpoint(payload: SessionCreateRequest, db: Session = Depends
         raise HTTPException(status_code=404, detail="story version not found")
 
     pack = StoryPack.model_validate(story_version.pack_json)
-    runtime = RuntimeService(get_llm_provider())
+    runtime = _build_runtime_or_503()
     scene_id, beat_index, state, beat_progress = runtime.initialize_session_state(pack)
 
     session = create_session(
@@ -132,7 +141,7 @@ def step_session_endpoint(
         raise HTTPException(status_code=404, detail="story version not found")
 
     pack = StoryPack.model_validate(story_version.pack_json)
-    runtime = RuntimeService(get_llm_provider())
+    runtime = _build_runtime_or_503()
     working_state = json.loads(json.dumps(session.state_json))
     working_beat_progress = json.loads(json.dumps(session.beat_progress_json))
 

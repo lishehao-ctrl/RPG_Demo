@@ -31,11 +31,13 @@ def route_player_action(
                 "interpreted_intent": f"button:{requested}",
                 "move_id": requested,
                 "confidence": 1.0,
+                "route_source": "button",
             }
         return {
             "interpreted_intent": f"button:{requested or 'invalid'}",
             "move_id": fallback_move,
             "confidence": 0.25,
+            "route_source": "button_fallback",
         }
 
     text = action_input.get("text") or ""
@@ -53,15 +55,26 @@ def route_player_action(
         "fallback_move": fallback_move,
         "scene_seed": scene.scene_seed,
     }
-    routed = provider.route_intent(scene_context, text)
+    try:
+        routed = provider.route_intent(scene_context, text)
+    except Exception:  # noqa: BLE001
+        return {
+            "interpreted_intent": (text or "").strip() or "unclear intent",
+            "move_id": fallback_move,
+            "confidence": 0.0,
+            "route_source": "fallback_error",
+        }
 
     chosen_move = routed.move_id
     confidence = routed.confidence
+    route_source = "llm"
     if chosen_move not in available or confidence < threshold:
         chosen_move = fallback_move
+        route_source = "fallback_low_confidence"
 
     return {
         "interpreted_intent": routed.interpreted_intent,
         "move_id": chosen_move,
         "confidence": float(confidence),
+        "route_source": route_source,
     }

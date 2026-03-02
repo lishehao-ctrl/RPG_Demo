@@ -13,6 +13,18 @@ class RouteIntentResult(BaseModel):
     interpreted_intent: str
 
 
+class LLMProviderConfigError(RuntimeError):
+    """Raised when provider is selected but missing required config."""
+
+
+class LLMRouteError(RuntimeError):
+    """Raised when provider cannot return a valid routed intent."""
+
+
+class LLMNarrationError(RuntimeError):
+    """Raised when provider cannot render narration text."""
+
+
 class LLMProvider(ABC):
     @abstractmethod
     def route_intent(self, scene_context: dict[str, Any], text: str) -> RouteIntentResult:

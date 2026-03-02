@@ -1,23 +1,30 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlmodel import Session
 
 from rpg_backend.api.schemas import (
     AdminSessionTimelineEvent,
     AdminSessionTimelineResponse,
+    RuntimeErrorBucketPayload,
+    RuntimeErrorsAggregateResponse,
     SessionFeedbackCreateRequest,
     SessionFeedbackItem,
     SessionFeedbackListResponse,
 )
+from rpg_backend.observability.context import get_request_id
+from rpg_backend.observability.logging import log_event
 from rpg_backend.storage.engine import get_session
+from rpg_backend.storage.repositories.observability import aggregate_runtime_error_buckets
 from rpg_backend.storage.repositories.runtime_events import list_runtime_events
 from rpg_backend.storage.repositories.session_feedback import create_session_feedback, list_session_feedback
 from rpg_backend.storage.repositories.sessions import get_session as get_session_record
 
 router = APIRouter(prefix="/admin/sessions", tags=["admin"])
+observability_router = APIRouter(prefix="/admin/observability", tags=["admin"])
 
 
 def _require_session(db: Session, session_id: str):
@@ -62,9 +69,11 @@ def get_session_timeline_endpoint(
 def create_session_feedback_endpoint(
     session_id: str,
     payload: SessionFeedbackCreateRequest,
+    request: Request,
     db: Session = Depends(get_session),
 ) -> SessionFeedbackItem:
     session = _require_session(db, session_id)
+    request_id = getattr(request.state, "request_id", None) or get_request_id()
     feedback = create_session_feedback(
         db,
         session_id=session.id,
@@ -73,6 +82,17 @@ def create_session_feedback_endpoint(
         verdict=payload.verdict,
         reason_tags=list(payload.reason_tags),
         note=payload.note,
+        turn_index=payload.turn_index,
+    )
+    log_event(
+        "admin_feedback_created",
+        level="INFO",
+        request_id=request_id,
+        session_id=session.id,
+        story_id=session.story_id,
+        version=session.version,
+        verdict=payload.verdict,
+        reason_tags_count=len(payload.reason_tags),
         turn_index=payload.turn_index,
     )
     return SessionFeedbackItem(
@@ -111,5 +131,42 @@ def list_session_feedback_endpoint(
                 created_at=item.created_at,
             )
             for item in items
+        ],
+    )
+
+
+@observability_router.get("/runtime-errors", response_model=RuntimeErrorsAggregateResponse)
+def get_runtime_errors_aggregate_endpoint(
+    window_seconds: int = Query(default=300, ge=60, le=3600),
+    limit: int = Query(default=20, ge=1, le=100),
+    stage: Literal["route", "narration"] | None = Query(default=None),
+    error_code: str | None = Query(default=None),
+    db: Session = Depends(get_session),
+) -> RuntimeErrorsAggregateResponse:
+    aggregated = aggregate_runtime_error_buckets(
+        db,
+        window_seconds=window_seconds,
+        limit=limit,
+        stage=stage,
+        error_code=error_code,
+    )
+    return RuntimeErrorsAggregateResponse(
+        generated_at=aggregated.get("generated_at") or datetime.now(UTC),
+        window_seconds=window_seconds,
+        started_total=int(aggregated["started_total"]),
+        failed_total=int(aggregated["failed_total"]),
+        step_error_rate=float(aggregated["step_error_rate"]),
+        buckets=[
+            RuntimeErrorBucketPayload(
+                error_code=bucket.error_code,
+                stage=bucket.stage,
+                model=bucket.model,
+                failed_count=bucket.failed_count,
+                error_share=bucket.error_share,
+                last_seen_at=bucket.last_seen_at,
+                sample_session_ids=list(bucket.sample_session_ids),
+                sample_request_ids=list(bucket.sample_request_ids),
+            )
+            for bucket in aggregated["buckets"]
         ],
     )

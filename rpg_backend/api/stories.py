@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlmodel import Session
 
 from rpg_backend.api.schemas import (
@@ -10,6 +10,8 @@ from rpg_backend.api.schemas import (
     StoryPublishResponse,
 )
 from rpg_backend.generator import GeneratorBuildError, GeneratorService
+from rpg_backend.observability.context import get_request_id
+from rpg_backend.observability.logging import log_event
 from rpg_backend.domain.linter import lint_story_pack
 from rpg_backend.storage.engine import get_session
 from rpg_backend.storage.repositories.stories import (
@@ -44,7 +46,12 @@ def publish_story_endpoint(story_id: str, db: Session = Depends(get_session)) ->
 
 
 @router.post("/generate", response_model=StoryGenerateResponse)
-def generate_story_endpoint(payload: StoryGenerateRequest, db: Session = Depends(get_session)) -> StoryGenerateResponse:
+def generate_story_endpoint(
+    payload: StoryGenerateRequest,
+    request: Request,
+    db: Session = Depends(get_session),
+) -> StoryGenerateResponse:
+    request_id = getattr(request.state, "request_id", None) or get_request_id()
     service = GeneratorService()
     try:
         result = service.generate_pack(
@@ -58,6 +65,23 @@ def generate_story_endpoint(payload: StoryGenerateRequest, db: Session = Depends
             palette_policy=payload.palette_policy,
         )
     except GeneratorBuildError as exc:
+        log_event(
+            "story_generate_failed",
+            level="ERROR",
+            request_id=request_id,
+            error_code=exc.error_code or "generation_failed_after_regenerates",
+            generation_attempts=exc.generation_attempts,
+            regenerate_count=exc.regenerate_count,
+            generator_version=exc.generator_version,
+            variant_seed=exc.variant_seed,
+            palette_policy=exc.palette_policy,
+            lint_errors_count=len(exc.lint_report.errors),
+            lint_warnings_count=len(exc.lint_report.warnings),
+            has_prompt=bool((payload.prompt_text or "").strip()),
+            has_seed=bool((payload.seed_text or "").strip()),
+            prompt_text_len=len(payload.prompt_text or ""),
+            seed_text_len=len(payload.seed_text or ""),
+        )
         raise HTTPException(
             status_code=422,
             detail={
@@ -81,7 +105,7 @@ def generate_story_endpoint(payload: StoryGenerateRequest, db: Session = Depends
         published = publish_story_version(db, story)
         version = published.version
 
-    return StoryGenerateResponse(
+    response = StoryGenerateResponse(
         status="ok",
         story_id=story.id,
         version=version,
@@ -98,6 +122,27 @@ def generate_story_endpoint(payload: StoryGenerateRequest, db: Session = Depends
         regenerate_count=result.regenerate_count,
         notes=result.notes,
     )
+    log_event(
+        "story_generate_succeeded",
+        level="INFO",
+        request_id=request_id,
+        story_id=story.id,
+        version=version,
+        generation_mode=result.generation_mode,
+        pack_hash=result.pack_hash,
+        generator_version=result.generator_version,
+        variant_seed=result.variant_seed,
+        palette_policy=result.palette_policy,
+        generation_attempts=result.generation_attempts,
+        regenerate_count=result.regenerate_count,
+        lint_errors_count=len(result.lint_report.errors),
+        lint_warnings_count=len(result.lint_report.warnings),
+        has_prompt=bool((payload.prompt_text or "").strip()),
+        has_seed=bool((payload.seed_text or "").strip()),
+        prompt_text_len=len(payload.prompt_text or ""),
+        seed_text_len=len(payload.seed_text or ""),
+    )
+    return response
 
 
 @router.get("/{story_id}", response_model=StoryGetResponse)

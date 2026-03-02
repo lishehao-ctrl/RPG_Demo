@@ -183,6 +183,7 @@ Narration renders `narration_slots` into player-facing text using a strict templ
 - `GET /admin/sessions/{session_id}/timeline` — structured replay events (`step_started|step_succeeded|step_failed|step_replayed`)
 - `POST /admin/sessions/{session_id}/feedback` — attach `good|bad` verdict and tags/notes to a session
 - `GET /admin/sessions/{session_id}/feedback` — list feedback markers for a session
+- `GET /admin/observability/runtime-errors` — rolling window 503 aggregation by `error_code|stage|model`
 
 ### One-click generation (author tooling)
 - `POST /stories/generate`
@@ -226,11 +227,15 @@ Narration renders `narration_slots` into player-facing text using a strict templ
 ## 9. Observability & Testing
 
 ### Runtime telemetry (minimum)
-- Route result: `move_id`, confidence, fallback/global routing
+- Request correlation: every request gets `X-Request-ID` (from inbound header or generated), propagated to response, logs, and runtime events
+- Structured logs: JSON lines with `ts,level,service,env,event,request_id` plus context fields (`method,path,status_code,duration_ms,session_id,story_id,turn_index,error_code,stage,route_model,narration_model`)
+- Route result: `move_id`, confidence, route source
 - Resolution result: success/partial/fail_forward, applied deltas
 - Progress: beat/scene progress increments
-- Session timeline events persisted for replay and diagnostics
+- Session timeline events persisted for replay and diagnostics (`step_started|step_succeeded|step_failed|step_replayed`)
 - User-side quality markers (`good|bad`) linked to session and turn index
+- Runtime 503 aggregation: 5-minute rolling buckets keyed by `error_code|stage|model`, with sample `session_id/request_id`
+- Alerting: cron-driven webhook emitter (`scripts/emit_runtime_alerts.py`) with cooldown dedupe via dispatch table
 - Acceptance metrics:
   - meaningful_accept_rate (state/progress changed)
   - llm_route_success_rate

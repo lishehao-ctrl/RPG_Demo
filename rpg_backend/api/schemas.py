@@ -168,3 +168,23 @@ class SessionFeedbackItem(BaseModel):
 class SessionFeedbackListResponse(BaseModel):
     session_id: str
     items: list[SessionFeedbackItem] = Field(default_factory=list)
+
+
+class RuntimeErrorBucketPayload(BaseModel):
+    error_code: str
+    stage: str
+    model: str
+    failed_count: int = Field(ge=0)
+    error_share: float = Field(ge=0.0, le=1.0)
+    last_seen_at: datetime | None = None
+    sample_session_ids: list[str] = Field(default_factory=list)
+    sample_request_ids: list[str] = Field(default_factory=list)
+
+
+class RuntimeErrorsAggregateResponse(BaseModel):
+    generated_at: datetime
+    window_seconds: int = Field(ge=60, le=3600)
+    started_total: int = Field(ge=0)
+    failed_total: int = Field(ge=0)
+    step_error_rate: float = Field(ge=0.0, le=1.0)
+    buckets: list[RuntimeErrorBucketPayload] = Field(default_factory=list)

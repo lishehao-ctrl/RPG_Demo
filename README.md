@@ -61,6 +61,15 @@ Environment variables use `APP_` prefix.
 - `APP_LLM_OPENAI_TEMPERATURE_NARRATION` default: `0.4`
 - `APP_LLM_OPENAI_GENERATOR_TEMPERATURE` default: `0.15`
 - `APP_LLM_OPENAI_GENERATOR_MAX_RETRIES` default: `3` (max 3)
+- `APP_OBS_LOG_LEVEL` default: `INFO`
+- `APP_OBS_REQUEST_ID_HEADER` default: `X-Request-ID`
+- `APP_OBS_REDACT_INPUT_TEXT` default: `true`
+- `APP_OBS_ALERT_WEBHOOK_URL` optional webhook endpoint for runtime alert pushes
+- `APP_OBS_ALERT_WINDOW_SECONDS` default: `300`
+- `APP_OBS_ALERT_BUCKET_MIN_COUNT` default: `3`
+- `APP_OBS_ALERT_BUCKET_MIN_SHARE` default: `0.10`
+- `APP_OBS_ALERT_GLOBAL_ERROR_RATE` default: `0.05`
+- `APP_OBS_ALERT_COOLDOWN_SECONDS` default: `900`
 
 OpenAI model resolution:
 - `route_model = APP_LLM_OPENAI_ROUTE_MODEL or APP_LLM_OPENAI_NARRATION_MODEL or APP_LLM_OPENAI_MODEL`
@@ -395,6 +404,7 @@ Step input tolerance contract:
   - `message`: failure detail
   - `provider`: `openai`
 - invalid JSON syntax can still return framework-level parse errors.
+- every API response includes `X-Request-ID` for trace correlation.
 
 ## Admin Diagnostics (Session Trace + Feedback)
 Admin diagnostics endpoints are exposed under `/admin` with no auth in this phase.
@@ -410,9 +420,9 @@ Optional query:
 - `event_type=step_started|step_succeeded|step_failed|step_replayed`
 
 Event payload shape:
-- `step_started`: `client_action_id`, `turn_index_expected`, normalized `input`, `scene_id_before`, `beat_index_before`, provider/model hints
-- `step_succeeded`: `recognized`, `resolution`, `narration_text`, scene/beat transition, `duration_ms`
-- `step_failed`: strict failfast diagnostics (`error_code`, `stage`, `message`, `provider`, `duration_ms`)
+- `step_started`: `client_action_id`, `turn_index_expected`, normalized `input`, `scene_id_before`, `beat_index_before`, provider/model hints, `request_id`
+- `step_succeeded`: `recognized`, `resolution`, `narration_text`, scene/beat transition, `duration_ms`, `request_id`
+- `step_failed`: strict failfast diagnostics (`error_code`, `stage`, `message`, `provider`, `duration_ms`, `request_id`)
 - `step_replayed`: idempotency replay marker with `session_action_id`
 
 ### 2) Feedback marker (good/bad)
@@ -433,6 +443,41 @@ curl -sS "http://127.0.0.1:8000/admin/sessions/{session_id}/feedback?limit=50"
 ```
 
 This lets you attach "not fun" cases directly to session traces for later analysis.
+
+### 3) Runtime error aggregation (5m buckets)
+
+```bash
+curl -sS "http://127.0.0.1:8000/admin/observability/runtime-errors?window_seconds=300&limit=20"
+```
+
+Optional filters:
+- `stage=route|narration`
+- `error_code=<value>`
+
+Response contains:
+- global window summary: `started_total`, `failed_total`, `step_error_rate`
+- top buckets keyed by `error_code + stage + model`
+- per-bucket samples: `sample_session_ids`, `sample_request_ids`
+
+### 4) Cron alert emitter (webhook + cooldown dedupe)
+
+Dry run (recommended first):
+
+```bash
+python scripts/emit_runtime_alerts.py --window-seconds 300 --limit 20 --dry-run
+```
+
+Webhook mode:
+
+```bash
+python scripts/emit_runtime_alerts.py --window-seconds 300 --limit 20
+```
+
+Suggested crontab (every minute):
+
+```bash
+* * * * * cd /path/to/RPG_Demo && /path/to/.venv/bin/python scripts/emit_runtime_alerts.py --window-seconds 300 --limit 20
+```
 
 ## Tests
 Default low-cost test set (no live OpenAI critical tests):

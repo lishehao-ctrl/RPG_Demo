@@ -1,4 +1,12 @@
-from rpg_backend.storage.models.entities import RuntimeEvent, Session, SessionAction, SessionFeedback, Story, StoryVersion
+from rpg_backend.storage.models.entities import (
+    RuntimeAlertDispatch,
+    RuntimeEvent,
+    Session,
+    SessionAction,
+    SessionFeedback,
+    Story,
+    StoryVersion,
+)
 
 __all__ = [
     "Story",
@@ -7,4 +15,5 @@ __all__ = [
     "SessionAction",
     "SessionFeedback",
     "RuntimeEvent",
+    "RuntimeAlertDispatch",
 ]

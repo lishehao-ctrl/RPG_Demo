@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from sqlmodel import Session as DBSession
 from sqlmodel import asc, desc, select
 
@@ -33,10 +35,13 @@ def list_runtime_events(
     limit: int,
     order: str = "asc",
     event_type: str | None = None,
+    created_after: datetime | None = None,
 ) -> list[RuntimeEvent]:
     stmt = select(RuntimeEvent).where(RuntimeEvent.session_id == session_id)
     if event_type:
         stmt = stmt.where(RuntimeEvent.event_type == event_type)
+    if created_after is not None:
+        stmt = stmt.where(RuntimeEvent.created_at >= created_after)
     if order == "desc":
         stmt = stmt.order_by(desc(RuntimeEvent.created_at))
     else:

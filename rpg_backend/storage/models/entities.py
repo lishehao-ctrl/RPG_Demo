@@ -74,3 +74,13 @@ class SessionFeedback(SQLModel, table=True):
     reason_tags_json: list[str] = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
     note: str | None = None
     created_at: datetime = Field(default_factory=utc_now, nullable=False)
+
+
+class RuntimeAlertDispatch(SQLModel, table=True):
+    id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
+    bucket_key: str = Field(index=True)
+    window_started_at: datetime = Field(index=True, nullable=False)
+    window_ended_at: datetime = Field(index=True, nullable=False)
+    sent_at: datetime = Field(default_factory=utc_now, index=True, nullable=False)
+    status: str
+    payload_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))

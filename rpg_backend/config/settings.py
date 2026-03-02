@@ -23,6 +23,15 @@ class Settings(BaseSettings):
     llm_openai_temperature_narration: float = Field(default=0.4, ge=0.0, le=2.0)
     llm_openai_generator_temperature: float = Field(default=0.15, ge=0.0, le=2.0)
     llm_openai_generator_max_retries: int = Field(default=3, ge=1, le=3)
+    obs_log_level: str = "INFO"
+    obs_request_id_header: str = "X-Request-ID"
+    obs_redact_input_text: bool = True
+    obs_alert_webhook_url: str | None = None
+    obs_alert_window_seconds: int = Field(default=300, ge=60, le=3600)
+    obs_alert_bucket_min_count: int = Field(default=3, ge=1)
+    obs_alert_bucket_min_share: float = Field(default=0.10, ge=0.0, le=1.0)
+    obs_alert_global_error_rate: float = Field(default=0.05, ge=0.0, le=1.0)
+    obs_alert_cooldown_seconds: int = Field(default=900, ge=60, le=86400)
 
     model_config = SettingsConfigDict(
         env_prefix="APP_",

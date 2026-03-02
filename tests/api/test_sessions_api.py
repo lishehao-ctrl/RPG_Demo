@@ -24,6 +24,12 @@ def _get_timeline_events(client, session_id: str) -> list[dict]:
     return response.json()["events"]
 
 
+def _get_last_event(events: list[dict], event_type: str) -> dict:
+    filtered = [event for event in events if event["event_type"] == event_type]
+    assert filtered, f"missing event type: {event_type}"
+    return filtered[-1]
+
+
 class _DeterministicProvider(LLMProvider):
     def route_intent(self, scene_context, text):  # noqa: ANN001, ANN201
         fallback = scene_context.get("fallback_move", "global.help_me_progress")
@@ -82,6 +88,16 @@ def test_step_is_idempotent_by_client_action_id(client, monkeypatch) -> None:
     assert "step_started" in event_types
     assert "step_succeeded" in event_types
     assert "step_replayed" in event_types
+    started = _get_last_event(events, "step_started")
+    succeeded = _get_last_event(events, "step_succeeded")
+    replayed = _get_last_event(events, "step_replayed")
+    assert started["payload"]["request_id"]
+    assert "route_model" in started["payload"]
+    assert "narration_model" in started["payload"]
+    assert succeeded["payload"]["request_id"]
+    assert "route_model" in succeeded["payload"]
+    assert "narration_model" in succeeded["payload"]
+    assert replayed["payload"]["request_id"]
 
 
 def test_step_tolerates_button_without_move_id(client, monkeypatch) -> None:
@@ -251,6 +267,7 @@ def test_step_returns_503_when_provider_route_throws(client, monkeypatch) -> Non
     assert body["error_code"] == "llm_route_failed"
     assert body["stage"] == "route"
     assert body["provider"] == "openai"
+    request_id = response.headers["X-Request-ID"]
 
     after = client.get(f"/sessions/{session_id}?dev_mode=true").json()
     assert after["scene_id"] == before["scene_id"]
@@ -261,6 +278,9 @@ def test_step_returns_503_when_provider_route_throws(client, monkeypatch) -> Non
     failed = [event for event in events if event["event_type"] == "step_failed"]
     assert failed
     assert failed[-1]["payload"]["error_code"] == "llm_route_failed"
+    assert failed[-1]["payload"]["request_id"] == request_id
+    assert "route_model" in failed[-1]["payload"]
+    assert "narration_model" in failed[-1]["payload"]
 
 
 def test_step_returns_503_on_low_confidence_for_openai_strict(client, monkeypatch) -> None:

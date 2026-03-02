@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import time
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlmodel import Session
 
 from rpg_backend.api.schemas import (
@@ -13,10 +13,13 @@ from rpg_backend.api.schemas import (
     SessionStepRequest,
     SessionStepResponse,
 )
+from rpg_backend.config.settings import get_settings
 from rpg_backend.domain.constants import GLOBAL_HELP_ME_PROGRESS_MOVE_ID
 from rpg_backend.domain.pack_schema import StoryPack
 from rpg_backend.llm.base import LLMProviderConfigError
 from rpg_backend.llm.factory import get_llm_provider
+from rpg_backend.observability.context import get_request_id
+from rpg_backend.observability.logging import build_input_log_fields, log_event
 from rpg_backend.runtime.errors import RuntimeNarrationError, RuntimeRouteError
 from rpg_backend.runtime.service import RuntimeService
 from rpg_backend.storage.engine import get_session
@@ -140,8 +143,11 @@ def get_session_endpoint(
 def step_session_endpoint(
     session_id: str,
     payload: SessionStepRequest,
+    request: Request,
     db: Session = Depends(get_session),
 ) -> SessionStepResponse:
+    settings = get_settings()
+    request_id = getattr(request.state, "request_id", None) or get_request_id()
     session = get_session_record(db, session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="session not found")
@@ -152,6 +158,7 @@ def step_session_endpoint(
     turn_index_expected = session.turn_count + 1
     scene_id_before = session.current_scene_id
     beat_index_before = session.beat_index
+    input_log_fields = build_input_log_fields(normalized_input, redact_text=settings.obs_redact_input_text)
 
     existing = get_session_action(db, session_id, payload.client_action_id)
     if existing is not None:
@@ -164,7 +171,17 @@ def step_session_endpoint(
                 "client_action_id": payload.client_action_id,
                 "session_action_id": existing.id,
                 "note": "idempotency_replay",
+                "request_id": request_id,
             },
+        )
+        log_event(
+            "session_step_replayed",
+            level="INFO",
+            request_id=request_id,
+            session_id=session.id,
+            story_id=session.story_id,
+            turn_index=session.turn_count,
+            client_action_id=payload.client_action_id,
         )
         return SessionStepResponse.model_validate(existing.response_json)
 
@@ -191,9 +208,25 @@ def step_session_endpoint(
             "scene_id_before": scene_id_before,
             "beat_index_before": beat_index_before,
             "provider": provider_name,
+            "request_id": request_id,
             "route_model": route_model,
             "narration_model": narration_model,
         },
+    )
+    log_event(
+        "session_step_started",
+        level="INFO",
+        request_id=request_id,
+        session_id=session.id,
+        story_id=session.story_id,
+        turn_index=turn_index_expected,
+        client_action_id=payload.client_action_id,
+        scene_id_before=scene_id_before,
+        beat_index_before=beat_index_before,
+        provider=provider_name,
+        route_model=route_model,
+        narration_model=narration_model,
+        **input_log_fields,
     )
 
     working_state = json.loads(json.dumps(session.state_json))
@@ -226,8 +259,30 @@ def step_session_endpoint(
                 "stage": exc.stage,
                 "message": exc.message,
                 "provider": exc.provider,
+                "request_id": request_id,
+                "route_model": route_model,
+                "narration_model": narration_model,
                 "duration_ms": duration_ms,
             },
+        )
+        log_event(
+            "session_step_failed",
+            level="ERROR",
+            request_id=request_id,
+            session_id=session.id,
+            story_id=session.story_id,
+            turn_index=turn_index_expected,
+            client_action_id=payload.client_action_id,
+            scene_id_before=scene_id_before,
+            beat_index_before=beat_index_before,
+            error_code=exc.error_code,
+            stage=exc.stage,
+            message=exc.message,
+            provider=exc.provider,
+            route_model=route_model,
+            narration_model=narration_model,
+            duration_ms=duration_ms,
+            **input_log_fields,
         )
         raise HTTPException(status_code=503, detail=_llm_runtime_failure_detail(exc)) from exc
 
@@ -276,8 +331,32 @@ def step_session_endpoint(
             "recognized": result["recognized"],
             "resolution": result["resolution"],
             "narration_text": result["narration_text"],
+            "request_id": request_id,
+            "route_model": route_model,
+            "narration_model": narration_model,
             "duration_ms": duration_ms,
         },
+    )
+    log_event(
+        "session_step_succeeded",
+        level="INFO",
+        request_id=request_id,
+        session_id=session.id,
+        story_id=session.story_id,
+        turn_index=turn_index_expected,
+        client_action_id=payload.client_action_id,
+        scene_id_before=scene_id_before,
+        scene_id_after=result["scene_id"],
+        beat_index_before=beat_index_before,
+        beat_index_after=result["beat_index"],
+        ended=bool(result["ended"]),
+        provider=provider_name,
+        route_model=route_model,
+        narration_model=narration_model,
+        route_source=result["recognized"].get("route_source"),
+        narration_text_len=len(result["narration_text"] or ""),
+        duration_ms=duration_ms,
+        **input_log_fields,
     )
 
     return SessionStepResponse.model_validate(response_payload)

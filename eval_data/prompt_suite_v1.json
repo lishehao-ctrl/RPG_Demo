@@ -1,0 +1,223 @@
+{
+  "id": "prompt_suite_v1",
+  "version": "1.0.0",
+  "cases": [
+    {
+      "id": "city_crisis_01",
+      "prompt_text": "Generate a playable story where a district-wide power relay fractures at dusk and a mixed response team must stabilize three failing substations before panic escalates.",
+      "target_minutes": 10,
+      "npc_count": 4,
+      "style": "tense urban thriller",
+      "tags": ["city_crisis", "infrastructure", "triage"],
+      "expected_tone": "urgent and pragmatic"
+    },
+    {
+      "id": "city_crisis_02",
+      "prompt_text": "Generate a story about an old sea-wall city where storm gates jam and the crew must coordinate engineers, harbor patrol, and residents while streets begin to flood.",
+      "target_minutes": 10,
+      "npc_count": 4,
+      "style": "rain-soaked civic drama",
+      "tags": ["city_crisis", "flooding", "coordination"],
+      "expected_tone": "high-pressure but grounded"
+    },
+    {
+      "id": "city_crisis_03",
+      "prompt_text": "Create a scenario in which a hospital cluster loses network telemetry during heatwave overload, forcing difficult routing decisions for limited emergency capacity.",
+      "target_minutes": 10,
+      "npc_count": 4,
+      "style": "medical systems suspense",
+      "tags": ["city_crisis", "medical", "infrastructure"],
+      "expected_tone": "focused and morally weighty"
+    },
+    {
+      "id": "politics_social_01",
+      "prompt_text": "Generate a political story where a reform candidate and a security bloc compete for control of emergency policy after a blackout, and the player must broker unstable alliances.",
+      "target_minutes": 10,
+      "npc_count": 4,
+      "style": "political negotiation",
+      "tags": ["politics", "social", "alliances"],
+      "expected_tone": "strategic and tense"
+    },
+    {
+      "id": "politics_social_02",
+      "prompt_text": "Create a social intrigue story centered on a city guild strike where each faction offers partial truths and the player must trade concessions to keep essential services alive.",
+      "target_minutes": 10,
+      "npc_count": 4,
+      "style": "civic bargaining drama",
+      "tags": ["politics", "social", "labor"],
+      "expected_tone": "negotiation-heavy and conflicted"
+    },
+    {
+      "id": "politics_social_03",
+      "prompt_text": "Generate a story in which two rival neighborhoods agree to a temporary truce after sabotage, and the player has to maintain trust while investigating who benefits from renewed conflict.",
+      "target_minutes": 10,
+      "npc_count": 4,
+      "style": "street-level diplomacy",
+      "tags": ["politics", "social", "trust"],
+      "expected_tone": "fragile and interpersonal"
+    },
+    {
+      "id": "investigation_01",
+      "prompt_text": "Generate an investigation story where a biotech lab incident hides a deliberate data wipe, and each clue opens a new contradiction that still pushes the case forward.",
+      "target_minutes": 10,
+      "npc_count": 4,
+      "style": "procedural mystery",
+      "tags": ["investigation", "forensics", "conspiracy"],
+      "expected_tone": "methodical with rising pressure"
+    },
+    {
+      "id": "investigation_02",
+      "prompt_text": "Create a detective-style scenario about repeated transit sabotage where witness reports conflict and the player must test hypotheses under strict time limits.",
+      "target_minutes": 10,
+      "npc_count": 4,
+      "style": "compressed detective thriller",
+      "tags": ["investigation", "transport", "time_pressure"],
+      "expected_tone": "analytical and urgent"
+    },
+    {
+      "id": "investigation_03",
+      "prompt_text": "Generate a mystery where an archive of emergency calls is tampered with and the player must reconstruct intent from incomplete logs and biased testimonies.",
+      "target_minutes": 10,
+      "npc_count": 4,
+      "style": "information puzzle",
+      "tags": ["investigation", "records", "uncertainty"],
+      "expected_tone": "careful and suspenseful"
+    },
+    {
+      "id": "resource_sacrifice_01",
+      "prompt_text": "Generate a resource-scarcity story on an orbital station where oxygen reserves can only save one of two modules unless the crew accepts major long-term damage.",
+      "target_minutes": 10,
+      "npc_count": 4,
+      "style": "hard sci-fi survival",
+      "tags": ["resource_scarcity", "sacrifice", "survival"],
+      "expected_tone": "grim but decisive"
+    },
+    {
+      "id": "resource_sacrifice_02",
+      "prompt_text": "Create a wildfire response narrative where aerial water support is limited and every deployment choice saves one zone while exposing another.",
+      "target_minutes": 10,
+      "npc_count": 4,
+      "style": "disaster command drama",
+      "tags": ["resource_scarcity", "tradeoff", "public_safety"],
+      "expected_tone": "intense and burdened"
+    },
+    {
+      "id": "resource_sacrifice_03",
+      "prompt_text": "Generate a convoy-protection story in a drought migration corridor where fuel is short and the player must choose between speed, safety, and social cohesion.",
+      "target_minutes": 10,
+      "npc_count": 4,
+      "style": "road survival drama",
+      "tags": ["resource_scarcity", "logistics", "sacrifice"],
+      "expected_tone": "harsh and forward-moving"
+    },
+    {
+      "id": "time_pressure_01",
+      "prompt_text": "Generate a mission where a launch window closes in under an hour and the player must clear blockers across multiple teams without full information.",
+      "target_minutes": 10,
+      "npc_count": 4,
+      "style": "mission control thriller",
+      "tags": ["time_pressure", "coordination", "systems"],
+      "expected_tone": "urgent and technical"
+    },
+    {
+      "id": "time_pressure_02",
+      "prompt_text": "Create a story where an epidemic countermeasure only works during a brief atmospheric event, forcing rapid ethical and logistical decisions.",
+      "target_minutes": 10,
+      "npc_count": 4,
+      "style": "public health race",
+      "tags": ["time_pressure", "medical", "ethics"],
+      "expected_tone": "high-stakes and compressed"
+    },
+    {
+      "id": "time_pressure_03",
+      "prompt_text": "Generate a submarine failure scenario where pressure seals degrade each turn and the player must triage repairs, navigation, and crew trust before catastrophic loss.",
+      "target_minutes": 10,
+      "npc_count": 4,
+      "style": "claustrophobic survival thriller",
+      "tags": ["time_pressure", "engineering", "crew_dynamics"],
+      "expected_tone": "claustrophobic and relentless"
+    },
+    {
+      "id": "moral_gray_01",
+      "prompt_text": "Generate a story where exposing corruption would trigger immediate unrest, and the player must decide how much truth to reveal while preserving operational stability.",
+      "target_minutes": 10,
+      "npc_count": 4,
+      "style": "moral governance drama",
+      "tags": ["moral_gray", "governance", "information_control"],
+      "expected_tone": "morally conflicted and strategic"
+    },
+    {
+      "id": "moral_gray_02",
+      "prompt_text": "Create a narrative where smuggling medicine is illegal but necessary, and each compromise helps one group while harming another.",
+      "target_minutes": 10,
+      "npc_count": 4,
+      "style": "borderline survival ethics",
+      "tags": ["moral_gray", "smuggling", "tradeoff"],
+      "expected_tone": "empathetic but tense"
+    },
+    {
+      "id": "moral_gray_03",
+      "prompt_text": "Generate a city security story where predictive surveillance can prevent violence but erodes civil trust, forcing non-binary choices.",
+      "target_minutes": 10,
+      "npc_count": 4,
+      "style": "near-future civic thriller",
+      "tags": ["moral_gray", "security", "civil_rights"],
+      "expected_tone": "uneasy and nuanced"
+    },
+    {
+      "id": "fail_forward_01",
+      "prompt_text": "Generate a story where an attempted ritual containment fails early, but each failure reveals practical clues that keep momentum toward a survivable ending.",
+      "target_minutes": 10,
+      "npc_count": 4,
+      "style": "occult procedural",
+      "tags": ["fail_forward", "clue_chain", "escalation"],
+      "expected_tone": "mysterious and persistent"
+    },
+    {
+      "id": "fail_forward_02",
+      "prompt_text": "Create a heist-response narrative where alarms trigger in phase one, and the team must pivot through contingency plans instead of restarting.",
+      "target_minutes": 10,
+      "npc_count": 4,
+      "style": "adaptation thriller",
+      "tags": ["fail_forward", "heist", "contingency"],
+      "expected_tone": "improvised and kinetic"
+    },
+    {
+      "id": "fail_forward_03",
+      "prompt_text": "Generate a diplomatic rescue mission where initial negotiations collapse, but every setback opens a new leverage channel with real costs.",
+      "target_minutes": 10,
+      "npc_count": 4,
+      "style": "diplomatic pressure cooker",
+      "tags": ["fail_forward", "diplomacy", "costly_progress"],
+      "expected_tone": "strained and adaptive"
+    },
+    {
+      "id": "aftermath_01",
+      "prompt_text": "Generate a post-crisis story about rebuilding governance after a failed coup, balancing accountability, public healing, and latent retaliation.",
+      "target_minutes": 10,
+      "npc_count": 4,
+      "style": "aftermath reconstruction drama",
+      "tags": ["resolution", "aftermath", "institutional_repair"],
+      "expected_tone": "measured and consequential"
+    },
+    {
+      "id": "aftermath_02",
+      "prompt_text": "Create an aftermath narrative where disaster triage is over but legal review begins, and the player must defend hard choices against competing narratives.",
+      "target_minutes": 10,
+      "npc_count": 4,
+      "style": "tribunal and memory drama",
+      "tags": ["resolution", "aftermath", "accountability"],
+      "expected_tone": "reflective with pressure spikes"
+    },
+    {
+      "id": "aftermath_03",
+      "prompt_text": "Generate a ceasefire aftermath story where infrastructure is stable but social wounds remain, requiring final choices that shape long-term trust.",
+      "target_minutes": 10,
+      "npc_count": 4,
+      "style": "fragile peace narrative",
+      "tags": ["resolution", "aftermath", "social_repair"],
+      "expected_tone": "somber but forward-looking"
+    }
+  ]
+}
+

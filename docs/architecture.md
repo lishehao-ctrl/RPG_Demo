@@ -1,12 +1,14 @@
 # RPG_Demo Story Runtime Architecture (v3)
 
-This document defines the current “north star” architecture for an **8–12 minute, accept-all** interactive narrative RPG runtime.
+This document defines the current “north star” architecture for an **8–12 minute** interactive narrative RPG runtime.
 
 ## 1. Goals
 
 ### Product goals
 - **8–12 minutes per playthrough** (target **14–16 steps**).
-- **Accept-All**: any player input (button or free-text) results in an **executed action** and **world feedback**.
+- Provider policy:
+  - `fake`: Accept-All behavior for local baseline and offline simulation.
+  - `openai`: quality-first failfast for route/narration failures.
 - **Multiple NPCs**: 3–5 NPCs per story; each appears at least twice.
 
 ### Engineering goals
@@ -94,14 +96,14 @@ Moves are **parameterizable** and reusable across stories.
 
 ---
 
-## 3. Global Moves (Accept-All Backbone)
+## 3. Global Moves (Fallback Backbone for Non-Strict Providers)
 
 Each scene must include 2–3 global moves. Minimum set:
 - `global.clarify`: low-confidence input → NPC asks/forces clarification **while advancing tension/progress**
 - `global.look`: observation/scan → reveals a clue or changes situation slightly
 - `global.help_me_progress`: “I don’t know what to do” → offers concrete next options + small progress
 
-**Rule:** even nonsense/empty inputs route to a global move and still produce an outcome.
+**Rule:** for non-strict providers (for example `fake`), nonsense/empty inputs route to a global move and still produce an outcome.
 
 ---
 
@@ -117,7 +119,8 @@ Input → `MoveInvocation`
   - `interpreted_intent` (one sentence)
 
 **Low confidence policy:**
-- If confidence < threshold (or parse fails): route to `global.clarify` (or `help_me_progress`), never “no-op”.
+- `fake`: if confidence < threshold (or parse fails), route to `global.clarify` (or `help_me_progress`), never “no-op”.
+- `openai`: if confidence < threshold, parse fails, or move is invalid, failfast this step with `503`.
 
 ### Pass B — Outcome Resolution (Deterministic)
 `MoveInvocation + scene + state` → choose an `Outcome`
@@ -132,7 +135,7 @@ Narration renders `narration_slots` into player-facing text using a strict templ
 - **Commit**: state the consequence (NPC reaction + cost)
 - **Hook**: present the next actionable direction
 
-**Safety:** narration must not leak internal fields/ids/markers; enforce a denylist + final guard.
+**Safety:** narration must not leak internal fields/ids/markers; enforce a denylist + final guard. In strict providers, narration errors failfast instead of template fallback.
 
 ---
 
@@ -176,7 +179,7 @@ Narration renders `narration_slots` into player-facing text using a strict templ
     - `ui`: `{moves:[{move_id,label,risk_hint?}], input_hint}`
     - `debug` (dev only): resolution trace, applied deltas, selected outcome id
 
-**Accept-All contract:** no user input should trigger 4xx except session inactive / CAS / hard system errors.
+**Step contract:** `POST /sessions/{session_id}/step` may return `503` on strict-provider LLM failures (route error, low confidence, invalid move, narration failure). Non-strict providers preserve Accept-All fallback.
 
 ### One-click generation (author tooling)
 - `POST /stories/generate`
@@ -228,9 +231,10 @@ Narration renders `narration_slots` into player-facing text using a strict templ
   - fallback_with_progress_rate
 
 ### Canary tests (must remain green)
-- Any text input produces 200 and advances or changes state (except inactive session)
+- Non-strict provider: any text input produces 200 and advances or changes state (except inactive session)
+- Strict provider: LLM route/narration failures produce 503 with structured error detail
 - Preconditions unmet → `fail_forward` outcome
-- Low confidence inputs → global move and still progress
+- Non-strict low confidence inputs → global move and still progress
 - Sample story completes within 14–16 steps
 
 ---

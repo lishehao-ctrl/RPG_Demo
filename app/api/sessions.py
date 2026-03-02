@@ -16,6 +16,7 @@ from app.domain.constants import GLOBAL_HELP_ME_PROGRESS_MOVE_ID
 from app.domain.pack_schema import StoryPack
 from app.llm.base import LLMProviderConfigError
 from app.llm.factory import get_llm_provider
+from app.runtime.errors import RuntimeNarrationError, RuntimeRouteError
 from app.runtime.service import RuntimeService
 from app.storage.engine import get_session
 from app.storage.repositories.sessions import (
@@ -65,6 +66,15 @@ def _build_runtime_or_503() -> RuntimeService:
     except LLMProviderConfigError as exc:
         raise HTTPException(status_code=503, detail=f"llm provider misconfigured: {exc}") from exc
     return RuntimeService(provider)
+
+
+def _llm_runtime_failure_detail(exc: RuntimeRouteError | RuntimeNarrationError) -> dict[str, str]:
+    return {
+        "error_code": exc.error_code,
+        "stage": exc.stage,
+        "message": exc.message,
+        "provider": exc.provider,
+    }
 
 
 @router.post("", response_model=SessionCreateResponse)
@@ -145,15 +155,18 @@ def step_session_endpoint(
     working_state = json.loads(json.dumps(session.state_json))
     working_beat_progress = json.loads(json.dumps(session.beat_progress_json))
 
-    result = runtime.process_step(
-        pack,
-        current_scene_id=session.current_scene_id,
-        beat_index=session.beat_index,
-        state=working_state,
-        beat_progress=working_beat_progress,
-        action_input=_normalize_step_input(payload.input),
-        dev_mode=payload.dev_mode,
-    )
+    try:
+        result = runtime.process_step(
+            pack,
+            current_scene_id=session.current_scene_id,
+            beat_index=session.beat_index,
+            state=working_state,
+            beat_progress=working_beat_progress,
+            action_input=_normalize_step_input(payload.input),
+            dev_mode=payload.dev_mode,
+        )
+    except (RuntimeRouteError, RuntimeNarrationError) as exc:
+        raise HTTPException(status_code=503, detail=_llm_runtime_failure_detail(exc)) from exc
 
     session.current_scene_id = result["scene_id"]
     session.beat_index = result["beat_index"]

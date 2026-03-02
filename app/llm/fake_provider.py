@@ -12,6 +12,14 @@ def _tokenize(text: str) -> set[str]:
 
 
 class FakeProvider(LLMProvider):
+    @property
+    def runtime_failfast_on_route_error(self) -> bool:
+        return False
+
+    @property
+    def runtime_failfast_on_narration_error(self) -> bool:
+        return False
+
     def route_intent(self, scene_context: dict[str, Any], text: str) -> RouteIntentResult:
         move_contexts = scene_context.get("moves", [])
         fallback = scene_context.get("fallback_move", GLOBAL_HELP_ME_PROGRESS_MOVE_ID)

@@ -23,7 +23,7 @@ except ModuleNotFoundError:
 MEDIUM_GATE_THRESHOLDS: dict[str, float] = {
     "completion_rate_required": 1.0,
     "llm_route_success_rate_min": 0.80,
-    "fallback_error_rate_max": 0.20,
+    "openai_step_error_rate_required": 0.0,
 }
 
 
@@ -144,6 +144,7 @@ def _compute_gate(metrics: dict[str, dict[str, float]]) -> dict[str, Any]:
         "openai_meaningful_accept_rate": metrics["openai"]["meaningful_accept_rate"],
         "fake_meaningful_accept_rate": metrics["fake"]["meaningful_accept_rate"],
         "openai_llm_route_success_rate": metrics["openai"]["llm_route_success_rate"],
+        "openai_step_error_rate": metrics["openai"]["step_error_rate"],
         "openai_fallback_error_rate": metrics["openai"]["fallback_error_rate"],
     }
     gate["passed"] = (
@@ -151,7 +152,7 @@ def _compute_gate(metrics: dict[str, dict[str, float]]) -> dict[str, Any]:
         and gate["fake_completion_rate"] == MEDIUM_GATE_THRESHOLDS["completion_rate_required"]
         and gate["openai_meaningful_accept_rate"] >= gate["fake_meaningful_accept_rate"]
         and gate["openai_llm_route_success_rate"] >= MEDIUM_GATE_THRESHOLDS["llm_route_success_rate_min"]
-        and gate["openai_fallback_error_rate"] <= MEDIUM_GATE_THRESHOLDS["fallback_error_rate_max"]
+        and gate["openai_step_error_rate"] <= MEDIUM_GATE_THRESHOLDS["openai_step_error_rate_required"]
     )
     gate["evaluation_status"] = "passed" if gate["passed"] else "failed"
     return gate
@@ -167,6 +168,7 @@ def _aggregate_provider_metrics(reports: list[dict[str, Any]]) -> dict[str, floa
             "llm_route_success_rate": 0.0,
             "fallback_error_rate": 0.0,
             "fallback_low_confidence_rate": 0.0,
+            "step_error_rate": 0.0,
         }
 
     completion_count = sum(1 for report in reports if report["ended"])
@@ -179,6 +181,7 @@ def _aggregate_provider_metrics(reports: list[dict[str, Any]]) -> dict[str, floa
     llm_route_steps = sum(report.get("llm_route_steps", 0) for report in reports)
     fallback_error_steps = sum(report.get("fallback_error_steps", 0) for report in reports)
     fallback_low_confidence_steps = sum(report.get("fallback_low_confidence_steps", 0) for report in reports)
+    runtime_error_steps = sum(report.get("runtime_error_steps", 0) for report in reports)
 
     return {
         "completion_rate": completion_count / len(reports),
@@ -192,6 +195,7 @@ def _aggregate_provider_metrics(reports: list[dict[str, Any]]) -> dict[str, floa
         "fallback_low_confidence_rate": (
             fallback_low_confidence_steps / text_input_steps if text_input_steps else 0.0
         ),
+        "step_error_rate": runtime_error_steps / len(reports),
     }
 
 
@@ -250,6 +254,10 @@ def evaluate_llm_gate(
                 "llm_route_steps": report.get("llm_route_steps", 0),
                 "fallback_error_steps": report.get("fallback_error_steps", 0),
                 "fallback_low_confidence_steps": report.get("fallback_low_confidence_steps", 0),
+                "runtime_error": bool(report.get("runtime_error", False)),
+                "runtime_error_code": report.get("runtime_error_code"),
+                "runtime_error_stage": report.get("runtime_error_stage"),
+                "runtime_error_message": report.get("runtime_error_message"),
             }
 
         runs_detail.append(run_entry)

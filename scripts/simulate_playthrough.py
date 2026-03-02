@@ -16,6 +16,7 @@ from app.domain.pack_schema import StoryPack
 from app.generator.versioning import compute_pack_hash
 from app.llm.base import LLMProviderConfigError
 from app.llm.factory import get_llm_provider
+from app.runtime.errors import RuntimeLLMError
 from app.runtime.service import RuntimeService
 
 DEFAULT_STRATEGIES = (
@@ -146,6 +147,10 @@ def simulate_pack_playthrough(
     llm_route_steps = 0
     fallback_error_steps = 0
     fallback_low_confidence_steps = 0
+    runtime_error = False
+    runtime_error_code: str | None = None
+    runtime_error_stage: str | None = None
+    runtime_error_message: str | None = None
     ended = False
 
     for step_index in range(1, max_steps + 1):
@@ -156,15 +161,43 @@ def simulate_pack_playthrough(
         if is_text_input:
             text_input_steps += 1
 
-        result = runtime.process_step(
-            pack=pack,
-            current_scene_id=scene_id,
-            beat_index=beat_index,
-            state=state,
-            beat_progress=beat_progress,
-            action_input=action_input,
-            dev_mode=True,
-        )
+        try:
+            result = runtime.process_step(
+                pack=pack,
+                current_scene_id=scene_id,
+                beat_index=beat_index,
+                state=state,
+                beat_progress=beat_progress,
+                action_input=action_input,
+                dev_mode=True,
+            )
+        except Exception as exc:  # noqa: BLE001
+            runtime_error = True
+            if isinstance(exc, RuntimeLLMError):
+                runtime_error_code = exc.error_code
+                runtime_error_stage = exc.stage
+                runtime_error_message = exc.message
+            else:
+                runtime_error_code = "runtime_step_exception"
+                runtime_error_stage = "runtime"
+                runtime_error_message = str(exc)
+            transcript.append(
+                {
+                    "step": step_index,
+                    "action_input": action_input,
+                    "pack_hash": pack_hash,
+                    "generator_version": generator_version,
+                    "variant_seed": variant_seed,
+                    "strategy_seed": strategy_seed,
+                    "provider": provider_name,
+                    "scene_id": scene_id,
+                    "runtime_error": True,
+                    "runtime_error_code": runtime_error_code,
+                    "runtime_error_stage": runtime_error_stage,
+                    "runtime_error_message": runtime_error_message,
+                }
+            )
+            break
 
         scene_id = result["scene_id"]
         beat_index = result["beat_index"]
@@ -241,6 +274,11 @@ def simulate_pack_playthrough(
         "llm_route_steps": llm_route_steps,
         "fallback_error_steps": fallback_error_steps,
         "fallback_low_confidence_steps": fallback_low_confidence_steps,
+        "runtime_error": runtime_error,
+        "runtime_error_steps": 1 if runtime_error else 0,
+        "runtime_error_code": runtime_error_code,
+        "runtime_error_stage": runtime_error_stage,
+        "runtime_error_message": runtime_error_message,
         "transcript": transcript,
     }
 

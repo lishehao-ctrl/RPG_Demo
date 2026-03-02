@@ -1,1 +1,1 @@
-"""Runtime engine for Accept-All narrative progression."""
+"""Runtime engine for provider-aware narrative progression."""

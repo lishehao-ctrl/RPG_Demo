@@ -26,6 +26,14 @@ class LLMNarrationError(RuntimeError):
 
 
 class LLMProvider(ABC):
+    @property
+    def runtime_failfast_on_route_error(self) -> bool:
+        return False
+
+    @property
+    def runtime_failfast_on_narration_error(self) -> bool:
+        return False
+
     @abstractmethod
     def route_intent(self, scene_context: dict[str, Any], text: str) -> RouteIntentResult:
         raise NotImplementedError

@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from app.config.settings import get_settings
-from app.llm.base import LLMProvider
+from app.llm.base import LLMProvider, RouteIntentResult
 
 PACK_PATH = Path("sample_data/story_pack_v1.json")
 
@@ -144,6 +144,10 @@ def test_session_create_succeeds_when_only_narration_model_configured(client, mo
 
 
 class _RouteFailureProvider(LLMProvider):
+    @property
+    def runtime_failfast_on_route_error(self) -> bool:
+        return True
+
     def route_intent(self, scene_context, text):  # noqa: ANN001, ANN201
         raise RuntimeError("route failed")
 
@@ -151,12 +155,66 @@ class _RouteFailureProvider(LLMProvider):
         return f"{slots['echo']} {slots['commit']} {slots['hook']}"
 
 
-def test_step_still_200_when_provider_route_throws(client, monkeypatch) -> None:
+class _LowConfidenceProvider(LLMProvider):
+    @property
+    def runtime_failfast_on_route_error(self) -> bool:
+        return True
+
+    def route_intent(self, scene_context, text):  # noqa: ANN001, ANN201
+        fallback = scene_context.get("fallback_move", "global.help_me_progress")
+        return RouteIntentResult(
+            move_id=fallback,
+            args={},
+            confidence=0.1,
+            interpreted_intent=text or "unclear intent",
+        )
+
+    def render_narration(self, slots, style_guard):  # noqa: ANN001, ANN201
+        return f"{slots['echo']} {slots['commit']} {slots['hook']}"
+
+
+class _NarrationFailureProvider(LLMProvider):
+    @property
+    def runtime_failfast_on_narration_error(self) -> bool:
+        return True
+
+    def route_intent(self, scene_context, text):  # noqa: ANN001, ANN201
+        fallback = scene_context.get("fallback_move", "global.help_me_progress")
+        return RouteIntentResult(
+            move_id=fallback,
+            args={},
+            confidence=0.9,
+            interpreted_intent=text or "unclear intent",
+        )
+
+    def render_narration(self, slots, style_guard):  # noqa: ANN001, ANN201
+        raise RuntimeError("narration failed")
+
+
+class _InvalidMoveProvider(LLMProvider):
+    @property
+    def runtime_failfast_on_route_error(self) -> bool:
+        return True
+
+    def route_intent(self, scene_context, text):  # noqa: ANN001, ANN201
+        return RouteIntentResult(
+            move_id="move.not.available",
+            args={},
+            confidence=0.95,
+            interpreted_intent=text or "invalid move intent",
+        )
+
+    def render_narration(self, slots, style_guard):  # noqa: ANN001, ANN201
+        return f"{slots['echo']} {slots['commit']} {slots['hook']}"
+
+
+def test_step_returns_503_when_provider_route_throws(client, monkeypatch) -> None:
     from app.api import sessions as sessions_api
 
     story_id, version = _bootstrap_story(client)
     session_resp = client.post("/sessions", json={"story_id": story_id, "version": version})
     session_id = session_resp.json()["session_id"]
+    before = client.get(f"/sessions/{session_id}?dev_mode=true").json()
 
     monkeypatch.setattr(sessions_api, "get_llm_provider", lambda: _RouteFailureProvider())
     response = client.post(
@@ -167,8 +225,82 @@ def test_step_still_200_when_provider_route_throws(client, monkeypatch) -> None:
             "dev_mode": False,
         },
     )
-    assert response.status_code == 200
-    body = response.json()
-    assert body["recognized"]["move_id"] in {"global.help_me_progress", "global.clarify"}
-    assert body["recognized"]["route_source"] == "fallback_error"
-    assert body["narration_text"]
+    assert response.status_code == 503
+    body = response.json()["detail"]
+    assert body["error_code"] == "llm_route_failed"
+    assert body["stage"] == "route"
+    assert body["provider"] == "openai"
+
+    after = client.get(f"/sessions/{session_id}?dev_mode=true").json()
+    assert after["scene_id"] == before["scene_id"]
+    assert after["beat_progress"] == before["beat_progress"]
+    assert after["state"] == before["state"]
+
+
+def test_step_returns_503_on_low_confidence_for_openai_strict(client, monkeypatch) -> None:
+    from app.api import sessions as sessions_api
+
+    story_id, version = _bootstrap_story(client)
+    session_resp = client.post("/sessions", json={"story_id": story_id, "version": version})
+    session_id = session_resp.json()["session_id"]
+
+    monkeypatch.setattr(sessions_api, "get_llm_provider", lambda: _LowConfidenceProvider())
+    response = client.post(
+        f"/sessions/{session_id}/step",
+        json={
+            "client_action_id": "low-confidence-1",
+            "input": {"type": "text", "text": "???"},
+            "dev_mode": False,
+        },
+    )
+    assert response.status_code == 503
+    body = response.json()["detail"]
+    assert body["error_code"] == "llm_route_low_confidence"
+    assert body["stage"] == "route"
+    assert body["provider"] == "openai"
+
+
+def test_step_returns_503_on_invalid_move_for_openai_strict(client, monkeypatch) -> None:
+    from app.api import sessions as sessions_api
+
+    story_id, version = _bootstrap_story(client)
+    session_resp = client.post("/sessions", json={"story_id": story_id, "version": version})
+    session_id = session_resp.json()["session_id"]
+
+    monkeypatch.setattr(sessions_api, "get_llm_provider", lambda: _InvalidMoveProvider())
+    response = client.post(
+        f"/sessions/{session_id}/step",
+        json={
+            "client_action_id": "invalid-move-1",
+            "input": {"type": "text", "text": "use hidden move"},
+            "dev_mode": False,
+        },
+    )
+    assert response.status_code == 503
+    body = response.json()["detail"]
+    assert body["error_code"] == "llm_route_invalid_move"
+    assert body["stage"] == "route"
+    assert body["provider"] == "openai"
+
+
+def test_step_returns_503_when_narration_fails_for_openai_strict(client, monkeypatch) -> None:
+    from app.api import sessions as sessions_api
+
+    story_id, version = _bootstrap_story(client)
+    session_resp = client.post("/sessions", json={"story_id": story_id, "version": version})
+    session_id = session_resp.json()["session_id"]
+
+    monkeypatch.setattr(sessions_api, "get_llm_provider", lambda: _NarrationFailureProvider())
+    response = client.post(
+        f"/sessions/{session_id}/step",
+        json={
+            "client_action_id": "narration-fail-1",
+            "input": {"type": "text", "text": "help me progress"},
+            "dev_mode": False,
+        },
+    )
+    assert response.status_code == 503
+    body = response.json()["detail"]
+    assert body["error_code"] == "llm_narration_failed"
+    assert body["stage"] == "narration"
+    assert body["provider"] == "openai"

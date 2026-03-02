@@ -6,6 +6,7 @@ from app.config.settings import get_settings
 from app.domain.constants import GLOBAL_CLARIFY_MOVE_ID, GLOBAL_HELP_ME_PROGRESS_MOVE_ID
 from app.domain.pack_schema import Move, Scene
 from app.llm.base import LLMProvider
+from app.runtime.errors import RuntimeRouteError
 
 
 def route_player_action(
@@ -55,9 +56,18 @@ def route_player_action(
         "fallback_move": fallback_move,
         "scene_seed": scene.scene_seed,
     }
+    failfast = provider.runtime_failfast_on_route_error
+    provider_name = "openai" if failfast else "fake"
+
     try:
         routed = provider.route_intent(scene_context, text)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        if failfast:
+            raise RuntimeRouteError(
+                error_code="llm_route_failed",
+                message=f"route_intent failed after provider retries: {exc}",
+                provider=provider_name,
+            ) from exc
         return {
             "interpreted_intent": (text or "").strip() or "unclear intent",
             "move_id": fallback_move,
@@ -66,15 +76,30 @@ def route_player_action(
         }
 
     chosen_move = routed.move_id
-    confidence = routed.confidence
+    confidence = float(routed.confidence)
     route_source = "llm"
-    if chosen_move not in available or confidence < threshold:
+    if chosen_move not in available:
+        if failfast:
+            raise RuntimeRouteError(
+                error_code="llm_route_invalid_move",
+                message=f"route_intent returned unavailable move_id: {chosen_move}",
+                provider=provider_name,
+            )
+        chosen_move = fallback_move
+        route_source = "fallback_invalid_move"
+    elif confidence < threshold:
+        if failfast:
+            raise RuntimeRouteError(
+                error_code="llm_route_low_confidence",
+                message=f"route_intent confidence {confidence:.4f} below threshold {threshold:.4f}",
+                provider=provider_name,
+            )
         chosen_move = fallback_move
         route_source = "fallback_low_confidence"
 
     return {
         "interpreted_intent": routed.interpreted_intent,
         "move_id": chosen_move,
-        "confidence": float(confidence),
+        "confidence": confidence,
         "route_source": route_source,
     }

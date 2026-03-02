@@ -1,7 +1,8 @@
 # Accept-All Narrative RPG (Backend-First)
 
-Backend-first interactive narrative RPG service with strict Accept-All behavior:
-- Any user input maps to a move and executes.
+Backend-first interactive narrative RPG service with provider-aware runtime behavior:
+- `fake` provider keeps strict Accept-All behavior.
+- `openai` provider uses quality-first failfast for LLM route/narration failures.
 - Preconditions never hard-block progression.
 - When success/partial cannot apply, runtime must execute `fail_forward`.
 
@@ -16,7 +17,7 @@ Code is split by responsibilities:
 - `app/domain`: Story Pack DSL schema + linter
 - `app/generator`: deterministic story generator (`planner/builder/prompt_compiler/service`)
 - `app/runtime`: Pass A routing + Pass B deterministic resolution + narration composition
-- `app/llm`: provider abstraction (`FakeProvider` default, `OpenAIProvider` placeholder)
+- `app/llm`: provider abstraction (`FakeProvider` baseline, `OpenAIProvider` strict failfast)
 - `app/storage`: SQLModel entities + repositories
 - `app/api`: REST API (stories/sessions)
 
@@ -100,9 +101,9 @@ curl -sS "${APP_LLM_OPENAI_BASE_URL%/}/v1/chat/completions" \
 
 Failure modes are gate-controlled:
 - if provider config is invalid and `APP_LLM_PROVIDER=openai`, session create/step returns `503`.
-- if provider route fails at runtime, step still executes via global fallback move.
-- if provider narration fails at runtime, response falls back to deterministic `Echo + Commit + Hook`.
-- each step includes `recognized.route_source` (`llm`, `fallback_error`, `fallback_low_confidence`, `button`, `button_fallback`) for observability.
+- if OpenAI route fails (including low confidence or invalid move), step returns `503` with structured detail.
+- if OpenAI narration fails, step returns `503` with structured detail.
+- each successful step includes `recognized.route_source` (`llm`, `fallback_error`, `fallback_low_confidence`, `fallback_invalid_move`, `button`, `button_fallback`) for observability. Fallback sources primarily apply to non-strict providers like `fake`.
 
 ## Story Pack and Linter
 Global move IDs (required in every scene):
@@ -201,7 +202,7 @@ curl -sS -X POST http://127.0.0.1:8000/sessions \
   -d '{"story_id":"{story_id}","version":1}'
 ```
 
-### 5) Step with text input (Accept-All)
+### 5) Step with text input
 
 ```bash
 curl -sS -X POST http://127.0.0.1:8000/sessions/{session_id}/step \
@@ -304,12 +305,13 @@ Gate expectations:
 - `openai.completion_rate == 1.0`
 - `openai.meaningful_accept_rate >= fake.meaningful_accept_rate`
 - `openai.llm_route_success_rate >= 0.80`
-- `openai.fallback_error_rate <= 0.20`
+- `openai.step_error_rate == 0.0`
 
 Additional observability metrics:
 - `llm_route_success_rate`
 - `fallback_error_rate`
 - `fallback_low_confidence_rate`
+- `step_error_rate`
 
 Connectivity precheck:
 - before full evaluation, the script resolves the OpenAI host and runs one minimal route probe.
@@ -392,6 +394,11 @@ If the same `client_action_id` is submitted again for the same session:
 Step input tolerance contract:
 - malformed action shape in valid JSON (missing `input`, missing `move_id`, invalid `input.type`) is normalized and executed with global fallback moves.
 - invalid session state still returns system errors (`404`/`409`).
+- strict provider (`openai`) may return `503` on LLM runtime failures with detail:
+  - `error_code`: `llm_route_failed | llm_route_low_confidence | llm_route_invalid_move | llm_narration_failed`
+  - `stage`: `route | narration`
+  - `message`: failure detail
+  - `provider`: `openai`
 - invalid JSON syntax can still return framework-level parse errors.
 
 ## Tests

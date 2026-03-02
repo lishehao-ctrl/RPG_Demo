@@ -41,6 +41,14 @@ class OpenAIProvider(LLMProvider):
         self.narration_temperature = narration_temperature
         self.chat_completions_url = self._normalize_chat_completions_url(self.base_url)
 
+    @property
+    def runtime_failfast_on_route_error(self) -> bool:
+        return True
+
+    @property
+    def runtime_failfast_on_narration_error(self) -> bool:
+        return True
+
     @staticmethod
     def _normalize_chat_completions_url(base_url: str) -> str:
         normalized = base_url.strip().rstrip("/")

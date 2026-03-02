@@ -10,13 +10,11 @@ This file maps `docs/architecture.md` sections to current implementation status.
 - Story draft/publish/get APIs.
 - Session create/get/step APIs.
 - Sample story pack and canary tests.
+- Deterministic story generator (`/stories/generate`) with lint + bounded regenerate attempts.
 
 ## Placeholder
-- `POST /stories/generate` exists as a placeholder endpoint and returns `501`.
-- Auto-repair service exists as a placeholder API (`app/domain/repair.py`) and does not mutate packs.
 - OpenAI LLM provider is a placeholder and not enabled in offline-first mode.
 
 ## Planned
-- Full one-click story generation pipeline.
-- Real auto-repair loops with bounded attempts.
+- LLM-backed generator variant (pluggable, deterministic generator remains default).
 - Stronger narration leak guards and telemetry expansion.

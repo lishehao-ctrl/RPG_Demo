@@ -1,6 +1,6 @@
 # Story Runtime Architecture
 
 Canonical architecture lives in:
-- [architecture.md](./architecture.md)
+- [story_architecture_v3.md](./story_architecture_v3.md)
 
-Use `docs/architecture.md` as the single source of truth.
+Use `docs/story_architecture_v3.md` as the single source of truth.

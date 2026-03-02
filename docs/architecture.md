@@ -11,7 +11,7 @@ This document defines the current “north star” architecture for an **8–12 
 
 ### Engineering goals
 - **Deterministic state transitions** (LLM does not decide success/failure or next node).
-- **Schema-first** story format with **lint + auto-repair** loops for one-click generation.
+- **Schema-first** story format with **lint + regenerate** loops for one-click generation.
 - Runtime safety: no dead-ends, no infinite reroute loops, no “invalid input” stalls.
 
 ---
@@ -180,12 +180,12 @@ Narration renders `narration_slots` into player-facing text using a strict templ
 
 ### One-click generation (author tooling)
 - `POST /stories/generate`
-  - Request: `{seed_text, target_minutes, npc_count, style?, publish?}`
-  - Output: `{story_id, version?, pack, lint_report, attempts}`
+  - Request: `{prompt_text?, seed_text?, target_minutes, npc_count, style?, publish?}`
+  - Output: `{story_id, version?, pack, lint_report, generation_attempts, regenerate_count}`
 
 ---
 
-## 7. Linter & Auto-Repair
+## 7. Linter & Regenerate
 
 ### Linter checks
 - Schema validity
@@ -197,22 +197,22 @@ Narration renders `narration_slots` into player-facing text using a strict templ
 - Basic cycle risk: ensure there is a terminating route
 - Text leak guard: denylist scan on narration seeds (ids, debug markers)
 
-### Auto-repair loop (max 2 attempts)
-- Add missing `fail_forward` (template)
-- Add missing global moves to scenes
-- Fix broken references (redirect to nearest reconverging scene)
-- Repair dead-ends by attaching to a reconverge/ending scene
-- Re-run linter; stop when clean or attempts exhausted
+### Regenerate loop (strict mode)
+- Build pack and run linter.
+- If linter fails, regenerate the full pack with derived seed.
+- Max retries: 3 regenerates (4 total attempts).
+- Prompt mode regenerates by rerunning `PromptCompiler + build + lint`.
+- No local post-generation mutation of generated pack.
 
 ---
 
 ## 8. One-click Generation Pipeline (recommended)
 
-1. **Seed → Beat Plan**  
+1. **Prompt/Seed → Beat Plan**  
 2. **Beat Plan → Scenes graph** (14–16 scenes, reconverging)
 3. **Scenes → Moves/Intents** (3–5 visible + 2–3 global per scene)
 4. **Outcomes fill** (success/partial/fail_forward; deterministic policies)
-5. **Lint + Auto-repair** (≤ 2 cycles)
+5. **Lint + Regenerate** (up to 3 retries)
 6. **Publish + Playtest** (simulate one run; export transcript)
 
 ---

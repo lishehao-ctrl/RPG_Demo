@@ -6,6 +6,12 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from rpg_backend.domain.constants import GLOBAL_MOVE_IDS
 
+StrategyStyle = Literal[
+    "fast_dirty",
+    "steady_slow",
+    "political_safe_resource_heavy",
+]
+
 
 class Beat(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -100,11 +106,19 @@ class Move(BaseModel):
 
     id: str
     label: str
+    strategy_style: StrategyStyle
     intents: list[str] = Field(default_factory=list)
     synonyms: list[str] = Field(default_factory=list)
     args_schema: dict[str, Any] = Field(default_factory=dict)
     resolution_policy: Literal["prefer_success", "prefer_partial", "always_fail_forward"] = "prefer_success"
     outcomes: list[Outcome] = Field(min_length=1)
+
+
+class NPCProfile(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1)
+    red_line: str = Field(min_length=1, max_length=160)
 
 
 class StoryPack(BaseModel):
@@ -114,6 +128,7 @@ class StoryPack(BaseModel):
     title: str
     description: str
     npcs: list[str] = Field(min_length=3, max_length=5)
+    npc_profiles: list[NPCProfile] = Field(min_length=3, max_length=5)
     beats: list[Beat] = Field(min_length=1)
     scenes: list[Scene] = Field(min_length=1)
     moves: list[Move] = Field(min_length=1)

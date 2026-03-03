@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from rpg_backend.config.settings import get_settings
@@ -7,6 +8,15 @@ from rpg_backend.domain.constants import GLOBAL_CLARIFY_MOVE_ID, GLOBAL_HELP_ME_
 from rpg_backend.domain.pack_schema import Move, Scene
 from rpg_backend.llm.base import LLMProvider
 from rpg_backend.runtime.errors import RuntimeRouteError
+
+_HELP_INTENT_RE = re.compile(
+    r"\b(help|stuck|next step|what now|guide me|dont know|don't know|how do i proceed)\b",
+    flags=re.IGNORECASE,
+)
+
+
+def _is_explicit_help_intent(text: str) -> bool:
+    return bool(_HELP_INTENT_RE.search(text or ""))
 
 
 def route_player_action(
@@ -42,6 +52,15 @@ def route_player_action(
         }
 
     text = action_input.get("text") or ""
+    allow_global_help = _is_explicit_help_intent(text)
+    llm_available = [
+        move_id
+        for move_id in available
+        if allow_global_help or move_id != GLOBAL_HELP_ME_PROGRESS_MOVE_ID
+    ]
+    if not llm_available:
+        llm_available = list(available)
+
     scene_context = {
         "moves": [
             {
@@ -49,12 +68,14 @@ def route_player_action(
                 "label": move_map[move_id].label,
                 "intents": move_map[move_id].intents,
                 "synonyms": move_map[move_id].synonyms,
+                "is_global": move_id.startswith("global."),
             }
-            for move_id in available
+            for move_id in llm_available
             if move_id in move_map
         ],
-        "fallback_move": fallback_move,
+        "fallback_move": GLOBAL_CLARIFY_MOVE_ID if not allow_global_help else fallback_move,
         "scene_seed": scene.scene_seed,
+        "allow_global_help": allow_global_help,
     }
     provider_name = "openai"
 
@@ -70,7 +91,7 @@ def route_player_action(
     chosen_move = routed.move_id
     confidence = float(routed.confidence)
     route_source = "llm"
-    if chosen_move not in available:
+    if chosen_move not in llm_available:
         raise RuntimeRouteError(
             error_code="llm_route_invalid_move",
             message=f"route_intent returned unavailable move_id: {chosen_move}",

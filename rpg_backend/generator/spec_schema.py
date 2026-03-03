@@ -33,6 +33,7 @@ class StorySpecNPC(BaseModel):
     name: str = Field(min_length=1)
     role: str = Field(min_length=1)
     motivation: str = Field(min_length=1)
+    red_line: str = Field(min_length=1, max_length=160)
 
 
 class StorySpec(BaseModel):
@@ -55,5 +56,6 @@ class StorySpec(BaseModel):
             "ending_shape": self.ending_shape,
             "beat_titles": [beat.title for beat in self.beats],
             "npc_names": [npc.name for npc in self.npcs],
+            "npc_red_lines": {npc.name: npc.red_line for npc in self.npcs},
             "move_bias": list(self.move_bias),
         }

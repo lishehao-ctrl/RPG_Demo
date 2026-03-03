@@ -8,6 +8,14 @@ from pydantic import ValidationError
 from rpg_backend.domain.pack_schema import GLOBAL_MOVE_IDS, StoryPack
 
 
+_BANNED_MOVE_IDS = {"inspect_relic"}
+_REQUIRED_STRATEGY_STYLES = {
+    "fast_dirty",
+    "steady_slow",
+    "political_safe_resource_heavy",
+}
+
+
 @dataclass
 class LintReport:
     errors: list[str] = field(default_factory=list)
@@ -16,36 +24,6 @@ class LintReport:
     @property
     def ok(self) -> bool:
         return not self.errors
-
-
-def classify_lint_errors(errors: list[str]) -> dict[str, list[str]]:
-    buckets: dict[str, list[str]] = {
-        "schema": [],
-        "references": [],
-        "fail_forward": [],
-        "global_moves": [],
-        "reachability": [],
-        "terminal": [],
-        "other": [],
-    }
-
-    for err in errors:
-        if "schema validation failed" in err:
-            buckets["schema"].append(err)
-        elif "missing fail_forward" in err:
-            buckets["fail_forward"].append(err)
-        elif "global moves" in err or "always_available_moves" in err:
-            buckets["global_moves"].append(err)
-        elif "missing move" in err or "missing scene" in err or "references unknown" in err or "points to missing" in err:
-            buckets["references"].append(err)
-        elif "unreachable scenes" in err:
-            buckets["reachability"].append(err)
-        elif "terminal scene" in err or "reach any terminal scene" in err:
-            buckets["terminal"].append(err)
-        else:
-            buckets["other"].append(err)
-
-    return buckets
 
 
 def _check_condition(scene_id: str, cond, report: LintReport) -> None:
@@ -66,6 +44,7 @@ def lint_story_pack(pack_json: dict[str, Any]) -> LintReport:
     scene_map = {scene.id: scene for scene in pack.scenes}
     move_map = {move.id: move for move in pack.moves}
     beat_map = {beat.id: beat for beat in pack.beats}
+    npc_profile_map = {profile.name: profile for profile in pack.npc_profiles}
 
     if len(scene_map) != len(pack.scenes):
         report.errors.append("duplicate scene ids")
@@ -73,10 +52,28 @@ def lint_story_pack(pack_json: dict[str, Any]) -> LintReport:
         report.errors.append("duplicate move ids")
     if len(beat_map) != len(pack.beats):
         report.errors.append("duplicate beat ids")
+    if len(npc_profile_map) != len(pack.npc_profiles):
+        report.errors.append("duplicate npc profile names")
+
+    normalized_titles = [beat.title.strip().casefold() for beat in pack.beats]
+    if len(set(normalized_titles)) != len(normalized_titles):
+        report.errors.append("duplicate beat titles")
+
+    banned_moves_seen = set(move_map).intersection(_BANNED_MOVE_IDS)
 
     for beat in pack.beats:
         if beat.entry_scene_id not in scene_map:
             report.errors.append(f"beat '{beat.id}' entry scene '{beat.entry_scene_id}' not found")
+
+    npcs_set = set(pack.npcs)
+    profile_names_set = set(npc_profile_map)
+    if npcs_set != profile_names_set:
+        missing_profiles = sorted(npcs_set - profile_names_set)
+        extra_profiles = sorted(profile_names_set - npcs_set)
+        if missing_profiles:
+            report.errors.append(f"missing npc_profiles for: {missing_profiles}")
+        if extra_profiles:
+            report.errors.append(f"npc_profiles contain unknown names: {extra_profiles}")
 
     for scene in pack.scenes:
         if scene.beat_id not in beat_map:
@@ -89,8 +86,21 @@ def lint_story_pack(pack_json: dict[str, Any]) -> LintReport:
             report.errors.append(f"scene '{scene.id}' has non-global always_available_moves")
 
         for move_id in scene.enabled_moves + scene.always_available_moves:
+            if move_id in _BANNED_MOVE_IDS:
+                banned_moves_seen.add(move_id)
             if move_id not in move_map:
                 report.errors.append(f"scene '{scene.id}' references missing move '{move_id}'")
+
+        enabled_styles = {
+            move_map[move_id].strategy_style
+            for move_id in scene.enabled_moves
+            if move_id in move_map and move_id not in GLOBAL_MOVE_IDS
+        }
+        missing_styles = sorted(_REQUIRED_STRATEGY_STYLES - enabled_styles)
+        if missing_styles:
+            report.errors.append(
+                f"scene '{scene.id}' missing strategy styles: {missing_styles}"
+            )
 
         for cond in scene.exit_conditions:
             _check_condition(scene.id, cond, report)
@@ -100,6 +110,8 @@ def lint_story_pack(pack_json: dict[str, Any]) -> LintReport:
                 )
 
     for move in pack.moves:
+        if move.id in _BANNED_MOVE_IDS:
+            banned_moves_seen.add(move.id)
         outcome_ids = {o.id for o in move.outcomes}
         if len(outcome_ids) != len(move.outcomes):
             report.errors.append(f"move '{move.id}' has duplicate outcome ids")
@@ -113,6 +125,9 @@ def lint_story_pack(pack_json: dict[str, Any]) -> LintReport:
                 report.errors.append(
                     f"move '{move.id}' outcome '{outcome.id}' points to missing scene '{outcome.next_scene_id}'"
                 )
+
+    for banned_id in sorted(banned_moves_seen):
+        report.errors.append(f"banned move id: {banned_id}")
 
     if not pack.beats:
         return report

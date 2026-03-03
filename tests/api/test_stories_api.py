@@ -50,10 +50,30 @@ def _sample_story_spec() -> StorySpec:
                 },
             ],
             "npcs": [
-                {"name": "Mara", "role": "field engineer", "motivation": "prevent systemic collapse"},
-                {"name": "Rook", "role": "security lead", "motivation": "protect civilians"},
-                {"name": "Sera", "role": "operations analyst", "motivation": "preserve evidence"},
-                {"name": "Director Vale", "role": "command authority", "motivation": "retain control"},
+                {
+                    "name": "Mara",
+                    "role": "field engineer",
+                    "motivation": "prevent systemic collapse",
+                    "red_line": "Never cut hospital access to stabilize industry.",
+                },
+                {
+                    "name": "Rook",
+                    "role": "security lead",
+                    "motivation": "protect civilians",
+                    "red_line": "No civilian corridor can be abandoned for pace.",
+                },
+                {
+                    "name": "Sera",
+                    "role": "operations analyst",
+                    "motivation": "preserve evidence",
+                    "red_line": "No telemetry wipe even under command pressure.",
+                },
+                {
+                    "name": "Director Vale",
+                    "role": "command authority",
+                    "motivation": "retain control",
+                    "red_line": "Public command legitimacy cannot collapse.",
+                },
             ],
             "scene_constraints": [
                 "Open with concrete damage and immediate objective framing.",

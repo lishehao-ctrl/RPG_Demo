@@ -9,6 +9,12 @@ from rpg_backend.domain.constants import (
     GLOBAL_LOOK_MOVE_ID,
 )
 
+StrategyStyle = Literal[
+    "fast_dirty",
+    "steady_slow",
+    "political_safe_resource_heavy",
+]
+
 
 @dataclass(frozen=True)
 class MoveTemplate:
@@ -291,18 +297,18 @@ MOVE_LIBRARY: tuple[MoveTemplate, ...] = (
         tags=("stealth", "conflict"),
     ),
     MoveTemplate(
-        id="inspect_relic",
-        label_template="Inspect Old Relay Relic",
-        intent_patterns=("inspect relic", "read old relay", "analyze artifact"),
-        synonym_bank=("relic", "artifact", "inspect", "analyze"),
-        args_schema={"goal_tag": {"type": "string", "enum": ["history", "code", "clue"]}},
+        id="inspect_infrastructure",
+        label_template="Inspect Infrastructure Evidence",
+        intent_patterns=("inspect infrastructure", "review incident logs", "analyze field evidence"),
+        synonym_bank=("infrastructure", "evidence", "logs", "inspect", "analyze"),
+        args_schema={"goal_tag": {"type": "string", "enum": ["logs", "fault", "clue"]}},
         resolution_policy="prefer_success",
         outcome_palette_ids=_palette_map(
             ("succ_discovery", "succ_technical"),
             ("part_delay", "part_tradeoff"),
             ("fail_misread", "fail_detour"),
         ),
-        tags=("investigate", "lore"),
+        tags=("investigate", "technical"),
     ),
 )
 
@@ -314,3 +320,34 @@ GLOBAL_MOVE_TEMPLATE_IDS = (
     GLOBAL_HELP_ME_PROGRESS_MOVE_ID,
 )
 STORY_MOVE_TEMPLATE_IDS = tuple(template.id for template in MOVE_LIBRARY if template.id not in GLOBAL_MOVE_TEMPLATE_IDS)
+
+MOVE_STRATEGY_STYLE_BY_ID: dict[str, StrategyStyle] = {
+    GLOBAL_CLARIFY_MOVE_ID: "steady_slow",
+    GLOBAL_LOOK_MOVE_ID: "steady_slow",
+    GLOBAL_HELP_ME_PROGRESS_MOVE_ID: "steady_slow",
+    "scan_signal": "steady_slow",
+    "convince_guard": "political_safe_resource_heavy",
+    "sneak_route": "fast_dirty",
+    "decode_core": "steady_slow",
+    "aid_citizen": "political_safe_resource_heavy",
+    "confront_director": "fast_dirty",
+    "stabilize_reactor": "political_safe_resource_heavy",
+    "broker_truce": "steady_slow",
+    "trace_anomaly": "fast_dirty",
+    "reroute_power": "political_safe_resource_heavy",
+    "jam_sensors": "fast_dirty",
+    "secure_supplies": "political_safe_resource_heavy",
+    "calm_crowd": "steady_slow",
+    "flank_patrol": "fast_dirty",
+    "inspect_infrastructure": "steady_slow",
+}
+
+STRATEGY_STYLES: tuple[StrategyStyle, ...] = (
+    "fast_dirty",
+    "steady_slow",
+    "political_safe_resource_heavy",
+)
+
+_missing_styles = sorted(set(MOVE_TEMPLATE_BY_ID) - set(MOVE_STRATEGY_STYLE_BY_ID))
+if _missing_styles:  # pragma: no cover - import-time safety for template drift
+    raise ValueError(f"missing strategy style mapping for moves: {_missing_styles}")

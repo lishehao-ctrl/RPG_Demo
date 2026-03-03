@@ -1,40 +1,53 @@
 {
-  "story_id": "city_signal_v1",
-  "title": "City Signal: Last Dawn",
-  "description": "Trace a rogue signal through a collapsing city and keep everyone moving forward.",
-  "npcs": ["Mara", "Jex", "Ivo", "Director Vale"],
+  "story_id": "generated-city-wide-signal-rupture-under-civic-03414-63896",
+  "title": "Generated Story: City-wide signal rupture under civic pressure",
+  "description": "Deterministic v3 pack generated from seed 'City-wide signal rupture under civic pressure', target_minutes=10, target_steps=15, random_token=63896.",
+  "npcs": [
+    "Kael",
+    "Niko",
+    "Tamsin",
+    "Rook"
+  ],
   "input_hint": "Type anything you want to do, or choose a move.",
   "style_guard": "Use crisp present-tense narration. Keep momentum and consequences visible.",
   "beats": [
     {
       "id": "b1",
-      "title": "Signal Emerges",
+      "title": "Inciting Signal",
       "step_budget": 4,
-      "required_events": [],
+      "required_events": [
+        "b1.milestone"
+      ],
       "npc_quota": 2,
       "entry_scene_id": "sc1"
     },
     {
       "id": "b2",
-      "title": "Cross The Facility",
-      "step_budget": 3,
-      "required_events": [],
+      "title": "Crossfire Corridor",
+      "step_budget": 4,
+      "required_events": [
+        "b2.milestone"
+      ],
       "npc_quota": 2,
       "entry_scene_id": "sc5"
     },
     {
       "id": "b3",
-      "title": "Reach The Core",
+      "title": "Core Descent",
       "step_budget": 4,
-      "required_events": [],
+      "required_events": [
+        "b3.milestone"
+      ],
       "npc_quota": 2,
       "entry_scene_id": "sc8"
     },
     {
       "id": "b4",
-      "title": "Stabilize Dawn",
-      "step_budget": 4,
-      "required_events": [],
+      "title": "Dawn Resolution",
+      "step_budget": 3,
+      "required_events": [
+        "b4.milestone"
+      ],
       "npc_quota": 2,
       "entry_scene_id": "sc12"
     }
@@ -43,10 +56,23 @@
     {
       "id": "sc1",
       "beat_id": "b1",
-      "scene_seed": "Dockside static floods every comm line.",
-      "present_npcs": ["Mara", "Jex"],
-      "enabled_moves": ["scan_signal", "convince_guard", "sneak_route"],
-      "always_available_moves": ["global.clarify", "global.look", "global.help_me_progress"],
+      "scene_seed": "Push toward inciting signal without stalling momentum. Objective: Advance inciting signal. Conflict: Escalating pressure from the city-wide signal breach..",
+      "present_npcs": [
+        "Kael",
+        "Niko"
+      ],
+      "enabled_moves": [
+        "trace_anomaly",
+        "decode_core",
+        "reroute_power",
+        "inspect_infrastructure",
+        "scan_signal"
+      ],
+      "always_available_moves": [
+        "global.clarify",
+        "global.look",
+        "global.help_me_progress"
+      ],
       "exit_conditions": [
         {
           "id": "to_sc2",
@@ -60,10 +86,22 @@
     {
       "id": "sc2",
       "beat_id": "b1",
-      "scene_seed": "A checkpoint locks down the old market road.",
-      "present_npcs": ["Jex", "Ivo"],
-      "enabled_moves": ["scan_signal", "convince_guard", "sneak_route"],
-      "always_available_moves": ["global.clarify", "global.look", "global.help_me_progress"],
+      "scene_seed": "Push toward inciting signal without stalling momentum. Objective: Advance inciting signal. Conflict: Escalating pressure from the city-wide signal breach..",
+      "present_npcs": [
+        "Niko",
+        "Tamsin"
+      ],
+      "enabled_moves": [
+        "trace_anomaly",
+        "aid_citizen",
+        "decode_core",
+        "reroute_power"
+      ],
+      "always_available_moves": [
+        "global.clarify",
+        "global.look",
+        "global.help_me_progress"
+      ],
       "exit_conditions": [
         {
           "id": "branch_sneak",
@@ -85,10 +123,23 @@
     {
       "id": "sc3",
       "beat_id": "b1",
-      "scene_seed": "You climb a relay tower above the blackout district.",
-      "present_npcs": ["Mara", "Ivo"],
-      "enabled_moves": ["scan_signal", "decode_core", "aid_citizen"],
-      "always_available_moves": ["global.clarify", "global.look", "global.help_me_progress"],
+      "scene_seed": "Push toward inciting signal without stalling momentum. Objective: Advance inciting signal. Conflict: Escalating pressure from the city-wide signal breach..",
+      "present_npcs": [
+        "Tamsin",
+        "Rook"
+      ],
+      "enabled_moves": [
+        "trace_anomaly",
+        "decode_core",
+        "inspect_infrastructure",
+        "reroute_power",
+        "scan_signal"
+      ],
+      "always_available_moves": [
+        "global.clarify",
+        "global.look",
+        "global.help_me_progress"
+      ],
       "exit_conditions": [
         {
           "id": "to_sc5_from_sc3",
@@ -102,10 +153,22 @@
     {
       "id": "sc4",
       "beat_id": "b1",
-      "scene_seed": "A maintenance tunnel bypasses the checkpoint but collapses behind you.",
-      "present_npcs": ["Jex", "Ivo"],
-      "enabled_moves": ["sneak_route", "aid_citizen", "global.look"],
-      "always_available_moves": ["global.clarify", "global.look", "global.help_me_progress"],
+      "scene_seed": "Push toward inciting signal without stalling momentum. Objective: Advance inciting signal. Conflict: Escalating pressure from the city-wide signal breach..",
+      "present_npcs": [
+        "Rook",
+        "Kael"
+      ],
+      "enabled_moves": [
+        "trace_anomaly",
+        "decode_core",
+        "reroute_power",
+        "aid_citizen"
+      ],
+      "always_available_moves": [
+        "global.clarify",
+        "global.look",
+        "global.help_me_progress"
+      ],
       "exit_conditions": [
         {
           "id": "to_sc5_from_sc4",
@@ -119,10 +182,23 @@
     {
       "id": "sc5",
       "beat_id": "b2",
-      "scene_seed": "The archive gate hums with emergency seals.",
-      "present_npcs": ["Ivo", "Director Vale"],
-      "enabled_moves": ["decode_core", "convince_guard", "aid_citizen"],
-      "always_available_moves": ["global.clarify", "global.look", "global.help_me_progress"],
+      "scene_seed": "Push toward crossfire corridor without stalling momentum. Objective: Advance crossfire corridor. Conflict: Escalating pressure from the city-wide signal breach..",
+      "present_npcs": [
+        "Kael",
+        "Niko"
+      ],
+      "enabled_moves": [
+        "sneak_route",
+        "inspect_infrastructure",
+        "reroute_power",
+        "scan_signal",
+        "decode_core"
+      ],
+      "always_available_moves": [
+        "global.clarify",
+        "global.look",
+        "global.help_me_progress"
+      ],
       "exit_conditions": [
         {
           "id": "to_sc6",
@@ -136,10 +212,22 @@
     {
       "id": "sc6",
       "beat_id": "b2",
-      "scene_seed": "Cooling halls rattle while evacuation alarms stutter.",
-      "present_npcs": ["Mara", "Director Vale"],
-      "enabled_moves": ["aid_citizen", "decode_core", "scan_signal"],
-      "always_available_moves": ["global.clarify", "global.look", "global.help_me_progress"],
+      "scene_seed": "Push toward crossfire corridor without stalling momentum. Objective: Advance crossfire corridor. Conflict: Escalating pressure from the city-wide signal breach..",
+      "present_npcs": [
+        "Niko",
+        "Tamsin"
+      ],
+      "enabled_moves": [
+        "sneak_route",
+        "decode_core",
+        "trace_anomaly",
+        "reroute_power"
+      ],
+      "always_available_moves": [
+        "global.clarify",
+        "global.look",
+        "global.help_me_progress"
+      ],
       "exit_conditions": [
         {
           "id": "to_sc7",
@@ -153,10 +241,22 @@
     {
       "id": "sc7",
       "beat_id": "b2",
-      "scene_seed": "A broken freight lift hangs over a dark shaft.",
-      "present_npcs": ["Jex", "Director Vale"],
-      "enabled_moves": ["sneak_route", "convince_guard", "global.look"],
-      "always_available_moves": ["global.clarify", "global.look", "global.help_me_progress"],
+      "scene_seed": "Push toward crossfire corridor without stalling momentum. Objective: Advance crossfire corridor. Conflict: Escalating pressure from the city-wide signal breach..",
+      "present_npcs": [
+        "Tamsin",
+        "Rook"
+      ],
+      "enabled_moves": [
+        "sneak_route",
+        "inspect_infrastructure",
+        "decode_core",
+        "reroute_power"
+      ],
+      "always_available_moves": [
+        "global.clarify",
+        "global.look",
+        "global.help_me_progress"
+      ],
       "exit_conditions": [
         {
           "id": "to_sc8",
@@ -170,10 +270,22 @@
     {
       "id": "sc8",
       "beat_id": "b3",
-      "scene_seed": "Catwalks ring the reactor throat like ribs.",
-      "present_npcs": ["Ivo", "Director Vale"],
-      "enabled_moves": ["decode_core", "scan_signal", "aid_citizen"],
-      "always_available_moves": ["global.clarify", "global.look", "global.help_me_progress"],
+      "scene_seed": "Push toward core descent without stalling momentum. Objective: Advance core descent. Conflict: Escalating pressure from the city-wide signal breach..",
+      "present_npcs": [
+        "Rook",
+        "Kael"
+      ],
+      "enabled_moves": [
+        "trace_anomaly",
+        "scan_signal",
+        "decode_core",
+        "reroute_power"
+      ],
+      "always_available_moves": [
+        "global.clarify",
+        "global.look",
+        "global.help_me_progress"
+      ],
       "exit_conditions": [
         {
           "id": "to_sc9",
@@ -187,10 +299,22 @@
     {
       "id": "sc9",
       "beat_id": "b3",
-      "scene_seed": "A ritual console still runs Director Vale's override code.",
-      "present_npcs": ["Mara", "Director Vale"],
-      "enabled_moves": ["confront_director", "decode_core", "global.look"],
-      "always_available_moves": ["global.clarify", "global.look", "global.help_me_progress"],
+      "scene_seed": "Push toward core descent without stalling momentum. Objective: Advance core descent. Conflict: Escalating pressure from the city-wide signal breach..",
+      "present_npcs": [
+        "Kael",
+        "Niko"
+      ],
+      "enabled_moves": [
+        "trace_anomaly",
+        "inspect_infrastructure",
+        "decode_core",
+        "reroute_power"
+      ],
+      "always_available_moves": [
+        "global.clarify",
+        "global.look",
+        "global.help_me_progress"
+      ],
       "exit_conditions": [
         {
           "id": "to_sc10",
@@ -204,10 +328,22 @@
     {
       "id": "sc10",
       "beat_id": "b3",
-      "scene_seed": "The balcony shakes as the core drifts toward breach.",
-      "present_npcs": ["Ivo", "Director Vale"],
-      "enabled_moves": ["stabilize_reactor", "decode_core", "aid_citizen"],
-      "always_available_moves": ["global.clarify", "global.look", "global.help_me_progress"],
+      "scene_seed": "Push toward core descent without stalling momentum. Objective: Advance core descent. Conflict: Escalating pressure from the city-wide signal breach..",
+      "present_npcs": [
+        "Niko",
+        "Tamsin"
+      ],
+      "enabled_moves": [
+        "trace_anomaly",
+        "reroute_power",
+        "scan_signal",
+        "decode_core"
+      ],
+      "always_available_moves": [
+        "global.clarify",
+        "global.look",
+        "global.help_me_progress"
+      ],
       "exit_conditions": [
         {
           "id": "to_sc11",
@@ -221,10 +357,22 @@
     {
       "id": "sc11",
       "beat_id": "b3",
-      "scene_seed": "Inner ring shutters grind open one by one.",
-      "present_npcs": ["Mara", "Ivo"],
-      "enabled_moves": ["scan_signal", "stabilize_reactor", "confront_director"],
-      "always_available_moves": ["global.clarify", "global.look", "global.help_me_progress"],
+      "scene_seed": "Push toward core descent without stalling momentum. Objective: Advance core descent. Conflict: Escalating pressure from the city-wide signal breach..",
+      "present_npcs": [
+        "Tamsin",
+        "Rook"
+      ],
+      "enabled_moves": [
+        "trace_anomaly",
+        "decode_core",
+        "reroute_power",
+        "inspect_infrastructure"
+      ],
+      "always_available_moves": [
+        "global.clarify",
+        "global.look",
+        "global.help_me_progress"
+      ],
       "exit_conditions": [
         {
           "id": "to_sc12",
@@ -238,10 +386,23 @@
     {
       "id": "sc12",
       "beat_id": "b4",
-      "scene_seed": "Core vestibule doors open onto white-hot machinery.",
-      "present_npcs": ["Director Vale", "Ivo"],
-      "enabled_moves": ["decode_core", "confront_director", "stabilize_reactor"],
-      "always_available_moves": ["global.clarify", "global.look", "global.help_me_progress"],
+      "scene_seed": "Push toward dawn resolution without stalling momentum. Objective: Advance dawn resolution. Conflict: Escalating pressure from the city-wide signal breach..",
+      "present_npcs": [
+        "Rook",
+        "Kael"
+      ],
+      "enabled_moves": [
+        "trace_anomaly",
+        "decode_core",
+        "aid_citizen",
+        "reroute_power",
+        "scan_signal"
+      ],
+      "always_available_moves": [
+        "global.clarify",
+        "global.look",
+        "global.help_me_progress"
+      ],
       "exit_conditions": [
         {
           "id": "to_sc13",
@@ -255,10 +416,23 @@
     {
       "id": "sc13",
       "beat_id": "b4",
-      "scene_seed": "Sparks arc across the failing core chamber.",
-      "present_npcs": ["Mara", "Director Vale"],
-      "enabled_moves": ["stabilize_reactor", "aid_citizen", "confront_director"],
-      "always_available_moves": ["global.clarify", "global.look", "global.help_me_progress"],
+      "scene_seed": "Push toward dawn resolution without stalling momentum. Objective: Advance dawn resolution. Conflict: Escalating pressure from the city-wide signal breach..",
+      "present_npcs": [
+        "Kael",
+        "Niko"
+      ],
+      "enabled_moves": [
+        "trace_anomaly",
+        "broker_truce",
+        "inspect_infrastructure",
+        "decode_core",
+        "reroute_power"
+      ],
+      "always_available_moves": [
+        "global.clarify",
+        "global.look",
+        "global.help_me_progress"
+      ],
       "exit_conditions": [
         {
           "id": "to_sc14",
@@ -272,10 +446,22 @@
     {
       "id": "sc14",
       "beat_id": "b4",
-      "scene_seed": "The evacuation route floods with displaced civilians.",
-      "present_npcs": ["Jex", "Ivo"],
-      "enabled_moves": ["aid_citizen", "convince_guard", "stabilize_reactor"],
-      "always_available_moves": ["global.clarify", "global.look", "global.help_me_progress"],
+      "scene_seed": "Push toward dawn resolution without stalling momentum. Objective: Advance dawn resolution. Conflict: Escalating pressure from the city-wide signal breach..",
+      "present_npcs": [
+        "Niko",
+        "Tamsin"
+      ],
+      "enabled_moves": [
+        "trace_anomaly",
+        "reroute_power",
+        "scan_signal",
+        "decode_core"
+      ],
+      "always_available_moves": [
+        "global.clarify",
+        "global.look",
+        "global.help_me_progress"
+      ],
       "exit_conditions": [
         {
           "id": "to_sc15",
@@ -289,10 +475,23 @@
     {
       "id": "sc15",
       "beat_id": "b4",
-      "scene_seed": "Dawn breaks over a city that stayed standing.",
-      "present_npcs": ["Mara", "Jex"],
-      "enabled_moves": ["global.look", "global.clarify", "global.help_me_progress"],
-      "always_available_moves": ["global.clarify", "global.look", "global.help_me_progress"],
+      "scene_seed": "Push toward dawn resolution without stalling momentum. Objective: Advance dawn resolution. Conflict: Escalating pressure from the city-wide signal breach..",
+      "present_npcs": [
+        "Tamsin",
+        "Rook"
+      ],
+      "enabled_moves": [
+        "trace_anomaly",
+        "aid_citizen",
+        "decode_core",
+        "inspect_infrastructure",
+        "reroute_power"
+      ],
+      "always_available_moves": [
+        "global.clarify",
+        "global.look",
+        "global.help_me_progress"
+      ],
       "exit_conditions": [
         {
           "id": "ending",
@@ -306,590 +505,1707 @@
   "moves": [
     {
       "id": "global.clarify",
-      "label": "Clarify Intent",
-      "intents": ["global.clarify", "explain", "ask"],
-      "synonyms": ["what", "how", "help"],
-      "args_schema": {},
+      "label": "Clarify Intent [steady but slow]",
+      "strategy_style": "steady_slow",
+      "intents": [
+        "global.clarify",
+        "clarify",
+        "explain my plan",
+        "what should I do"
+      ],
+      "synonyms": [
+        "explain",
+        "clarify",
+        "unclear",
+        "ask",
+        "rook"
+      ],
+      "args_schema": {
+        "tone": {
+          "type": "string",
+          "enum": [
+            "calm",
+            "urgent",
+            "firm"
+          ]
+        }
+      },
       "resolution_policy": "prefer_success",
       "outcomes": [
         {
-          "id": "clarify_success",
+          "id": "global.clarify.success.succ_diplomatic",
           "result": "success",
           "preconditions": [],
           "effects": [
-            {"type": "add_event", "key": "clarify_success"},
-            {"type": "advance_beat_progress", "value": 1}
+            {
+              "type": "add_event",
+              "key": "diplomatic_progress"
+            },
+            {
+              "type": "inc_state",
+              "key": "trust",
+              "value": 1
+            },
+            {
+              "type": "advance_beat_progress",
+              "value": 1
+            },
+            {
+              "type": "inc_state",
+              "key": "coordination_noise",
+              "value": -1
+            },
+            {
+              "type": "inc_state",
+              "key": "time_spent",
+              "value": 1
+            }
           ],
           "narration_slots": {
-            "npc_reaction": "Mara narrows the objective into one clean step.",
-            "world_shift": "The noise in your plan drops.",
-            "clue_delta": "A practical path becomes visible.",
-            "cost_delta": "You spend a moment but gain direction.",
-            "next_hook": "Pick one concrete action and commit."
+            "npc_reaction": "An ally nods and backs your call.",
+            "world_shift": "A tense standoff softens for a moment.",
+            "clue_delta": "You gain a reliable detail about timing.",
+            "cost_delta": "The move costs little beyond attention. Steady but slow: noise drops, but time pressure increases.",
+            "next_hook": "Press the advantage before the window closes."
           }
         },
         {
-          "id": "clarify_partial",
+          "id": "global.clarify.partial.part_tradeoff",
           "result": "partial",
           "preconditions": [],
           "effects": [
-            {"type": "add_event", "key": "clarify_partial"},
-            {"type": "advance_beat_progress", "value": 1},
-            {"type": "cost", "value": 1}
+            {
+              "type": "add_event",
+              "key": "tradeoff_taken"
+            },
+            {
+              "type": "inc_state",
+              "key": "trust",
+              "value": -1
+            },
+            {
+              "type": "advance_beat_progress",
+              "value": 1
+            },
+            {
+              "type": "cost",
+              "value": 1
+            },
+            {
+              "type": "inc_state",
+              "key": "coordination_noise",
+              "value": -1
+            },
+            {
+              "type": "inc_state",
+              "key": "time_spent",
+              "value": 1
+            }
           ],
           "narration_slots": {
-            "npc_reaction": "Jex gives you half an answer under pressure.",
-            "world_shift": "The route is clearer but time tightens.",
-            "clue_delta": "You get enough context to move.",
-            "cost_delta": "Delay adds strain to the team.",
-            "next_hook": "Move now before conditions worsen."
+            "npc_reaction": "An ally accepts with visible doubt.",
+            "world_shift": "You gain access but trigger scrutiny.",
+            "clue_delta": "You get a clue with gaps to resolve.",
+            "cost_delta": "You spend leverage to keep moving. Steady but slow: noise drops, but time pressure increases.",
+            "next_hook": "Follow up before the tradeoff worsens."
           }
         },
         {
-          "id": "clarify_fail_forward",
+          "id": "global.clarify.fail_forward.fail_pressure",
           "result": "fail_forward",
           "preconditions": [],
           "effects": [
-            {"type": "add_event", "key": "clarify_forced"},
-            {"type": "advance_beat_progress", "value": 1},
-            {"type": "cost", "value": 1}
+            {
+              "type": "add_event",
+              "key": "pressure_spike"
+            },
+            {
+              "type": "inc_state",
+              "key": "time_spent",
+              "value": 2
+            },
+            {
+              "type": "advance_beat_progress",
+              "value": 1
+            },
+            {
+              "type": "cost",
+              "value": 2
+            },
+            {
+              "type": "inc_state",
+              "key": "coordination_noise",
+              "value": -1
+            },
+            {
+              "type": "inc_state",
+              "key": "time_spent",
+              "value": 2
+            }
           ],
           "narration_slots": {
-            "npc_reaction": "No one has time for a full briefing.",
-            "world_shift": "The situation keeps moving without perfect clarity.",
-            "clue_delta": "You still catch one usable signal.",
-            "cost_delta": "You pay with uncertainty.",
-            "next_hook": "Act on the strongest clue immediately."
+            "npc_reaction": "Your first attempt misses, and urgency spikes.",
+            "world_shift": "Time pressure rises sharply.",
+            "clue_delta": "A failed angle reveals a safer next path.",
+            "cost_delta": "You pay in time and composure. Steady but slow: noise drops, but time pressure increases.",
+            "next_hook": "Ask for help and reframe quickly."
           }
         }
       ]
     },
     {
       "id": "global.look",
-      "label": "Survey Scene",
-      "intents": ["global.look", "inspect", "observe"],
-      "synonyms": ["check", "scan", "watch"],
-      "args_schema": {},
+      "label": "Survey Scene [steady but slow]",
+      "strategy_style": "steady_slow",
+      "intents": [
+        "global.look",
+        "look around",
+        "scan the area",
+        "observe"
+      ],
+      "synonyms": [
+        "look",
+        "inspect",
+        "scan",
+        "watch",
+        "kael"
+      ],
+      "args_schema": {
+        "goal_tag": {
+          "type": "string",
+          "enum": [
+            "clue",
+            "threat",
+            "route"
+          ]
+        }
+      },
       "resolution_policy": "prefer_success",
       "outcomes": [
         {
-          "id": "look_success",
+          "id": "global.look.success.succ_technical",
           "result": "success",
+          "preconditions": [],
           "effects": [
-            {"type": "add_event", "key": "look_success"},
-            {"type": "advance_beat_progress", "value": 1}
+            {
+              "type": "add_event",
+              "key": "system_stable"
+            },
+            {
+              "type": "inc_state",
+              "key": "resource",
+              "value": -1
+            },
+            {
+              "type": "advance_beat_progress",
+              "value": 1
+            },
+            {
+              "type": "inc_state",
+              "key": "coordination_noise",
+              "value": -1
+            },
+            {
+              "type": "inc_state",
+              "key": "time_spent",
+              "value": 1
+            }
           ],
           "narration_slots": {
-            "npc_reaction": "Ivo points out structural weak points.",
-            "world_shift": "Hidden details surface.",
-            "clue_delta": "You identify the safest immediate line.",
-            "cost_delta": "No major cost beyond focus.",
-            "next_hook": "Choose whether to push fast or stabilize first."
+            "npc_reaction": "Your technical call earns instant trust.",
+            "world_shift": "An automated lock cycle pauses.",
+            "clue_delta": "You map an actionable subsystem link.",
+            "cost_delta": "You spend power, but avoid chaos. Steady but slow: noise drops, but time pressure increases.",
+            "next_hook": "Exploit the stable subsystem now."
           }
         },
         {
-          "id": "look_partial",
+          "id": "global.look.partial.part_delay",
           "result": "partial",
+          "preconditions": [],
           "effects": [
-            {"type": "add_event", "key": "look_partial"},
-            {"type": "advance_beat_progress", "value": 1},
-            {"type": "cost", "value": 1}
+            {
+              "type": "add_event",
+              "key": "delay_pressure"
+            },
+            {
+              "type": "inc_state",
+              "key": "time_spent",
+              "value": 2
+            },
+            {
+              "type": "advance_beat_progress",
+              "value": 1
+            },
+            {
+              "type": "cost",
+              "value": 1
+            },
+            {
+              "type": "inc_state",
+              "key": "coordination_noise",
+              "value": -1
+            },
+            {
+              "type": "inc_state",
+              "key": "time_spent",
+              "value": 1
+            }
           ],
           "narration_slots": {
-            "npc_reaction": "Your scan catches only part of the picture.",
-            "world_shift": "Some blind spots remain.",
-            "clue_delta": "You still get one dependable cue.",
-            "cost_delta": "Delay increases ambient risk.",
-            "next_hook": "Move before the scene shifts again."
+            "npc_reaction": "People comply, but too slowly.",
+            "world_shift": "External pressure increases mid-action.",
+            "clue_delta": "A clue arrives late but still helps.",
+            "cost_delta": "Momentum slows but does not stop. Steady but slow: noise drops, but time pressure increases.",
+            "next_hook": "Use the clue before it expires."
           }
         },
         {
-          "id": "look_fail_forward",
+          "id": "global.look.fail_forward.fail_detour",
           "result": "fail_forward",
+          "preconditions": [],
           "effects": [
-            {"type": "add_event", "key": "look_forced"},
-            {"type": "advance_beat_progress", "value": 1},
-            {"type": "cost", "value": 1}
+            {
+              "type": "add_event",
+              "key": "detour_taken"
+            },
+            {
+              "type": "inc_state",
+              "key": "time_spent",
+              "value": 1
+            },
+            {
+              "type": "advance_beat_progress",
+              "value": 1
+            },
+            {
+              "type": "cost",
+              "value": 1
+            },
+            {
+              "type": "inc_state",
+              "key": "coordination_noise",
+              "value": -1
+            },
+            {
+              "type": "inc_state",
+              "key": "time_spent",
+              "value": 2
+            }
           ],
           "narration_slots": {
-            "npc_reaction": "Dust and alarms ruin a clean read.",
-            "world_shift": "You must infer from fragments.",
-            "clue_delta": "A rough direction is still actionable.",
-            "cost_delta": "You commit with higher uncertainty.",
-            "next_hook": "Take the workable option and keep moving."
+            "npc_reaction": "A fast plan collapses into a detour.",
+            "world_shift": "The map shifts and new obstacles appear.",
+            "clue_delta": "You spot a secondary route marker.",
+            "cost_delta": "Time slips, options remain. Steady but slow: noise drops, but time pressure increases.",
+            "next_hook": "Take a route-control move next."
           }
         }
       ]
     },
     {
       "id": "global.help_me_progress",
-      "label": "Help Me Progress",
-      "intents": ["progress", "advance", "keep going"],
-      "synonyms": ["idk", "whatever", "random"],
-      "args_schema": {},
-      "resolution_policy": "prefer_success",
+      "label": "Help Me Progress [steady but slow]",
+      "strategy_style": "steady_slow",
+      "intents": [
+        "global.help_me_progress",
+        "help me progress",
+        "i am stuck",
+        "guide me"
+      ],
+      "synonyms": [
+        "help",
+        "stuck",
+        "next step",
+        "progress",
+        "tamsin"
+      ],
+      "args_schema": {
+        "tone": {
+          "type": "string",
+          "enum": [
+            "direct",
+            "supportive"
+          ]
+        }
+      },
+      "resolution_policy": "always_fail_forward",
       "outcomes": [
         {
-          "id": "help_progress_success",
+          "id": "global.help_me_progress.success.succ_diplomatic",
           "result": "success",
+          "preconditions": [],
           "effects": [
-            {"type": "add_event", "key": "help_progress_success"},
-            {"type": "advance_beat_progress", "value": 1},
-            {"type": "set_state", "key": "assisted", "value": true}
+            {
+              "type": "add_event",
+              "key": "diplomatic_progress"
+            },
+            {
+              "type": "inc_state",
+              "key": "trust",
+              "value": 1
+            },
+            {
+              "type": "advance_beat_progress",
+              "value": 1
+            },
+            {
+              "type": "inc_state",
+              "key": "coordination_noise",
+              "value": -1
+            },
+            {
+              "type": "inc_state",
+              "key": "time_spent",
+              "value": 1
+            }
           ],
           "narration_slots": {
-            "npc_reaction": "Mara pushes you toward the highest-impact move.",
-            "world_shift": "Decision paralysis breaks.",
-            "clue_delta": "A concrete next objective appears.",
-            "cost_delta": "You trade autonomy for speed.",
-            "next_hook": "Execute the suggested move now."
+            "npc_reaction": "Your calm tone lowers resistance.",
+            "world_shift": "Two bystanders clear a lane for you.",
+            "clue_delta": "A useful route hint slips out.",
+            "cost_delta": "You spend almost no extra effort. Steady but slow: noise drops, but time pressure increases.",
+            "next_hook": "Choose who to direct next."
           }
         },
         {
-          "id": "help_progress_partial",
+          "id": "global.help_me_progress.partial.part_tradeoff",
           "result": "partial",
+          "preconditions": [],
           "effects": [
-            {"type": "add_event", "key": "help_progress_partial"},
-            {"type": "advance_beat_progress", "value": 1},
-            {"type": "cost", "value": 1}
+            {
+              "type": "add_event",
+              "key": "tradeoff_taken"
+            },
+            {
+              "type": "inc_state",
+              "key": "trust",
+              "value": -1
+            },
+            {
+              "type": "advance_beat_progress",
+              "value": 1
+            },
+            {
+              "type": "cost",
+              "value": 1
+            },
+            {
+              "type": "inc_state",
+              "key": "coordination_noise",
+              "value": -1
+            },
+            {
+              "type": "inc_state",
+              "key": "time_spent",
+              "value": 1
+            }
           ],
           "narration_slots": {
-            "npc_reaction": "You get a rough push in the right direction.",
-            "world_shift": "Momentum returns unevenly.",
-            "clue_delta": "The next action is viable, not ideal.",
-            "cost_delta": "The team absorbs a small inefficiency.",
-            "next_hook": "Commit before hesitation returns."
+            "npc_reaction": "You get agreement, but only conditionally.",
+            "world_shift": "A door opens while another route closes.",
+            "clue_delta": "You get a clue with gaps to resolve.",
+            "cost_delta": "You spend leverage to keep moving. Steady but slow: noise drops, but time pressure increases.",
+            "next_hook": "Patch the new weakness on your next move."
           }
         },
         {
-          "id": "help_progress_fail_forward",
+          "id": "global.help_me_progress.fail_forward.fail_detour",
           "result": "fail_forward",
+          "preconditions": [],
           "effects": [
-            {"type": "add_event", "key": "help_progress_forced"},
-            {"type": "advance_beat_progress", "value": 1},
-            {"type": "cost", "value": 2}
+            {
+              "type": "add_event",
+              "key": "detour_taken"
+            },
+            {
+              "type": "inc_state",
+              "key": "time_spent",
+              "value": 1
+            },
+            {
+              "type": "advance_beat_progress",
+              "value": 1
+            },
+            {
+              "type": "cost",
+              "value": 1
+            },
+            {
+              "type": "inc_state",
+              "key": "coordination_noise",
+              "value": -1
+            },
+            {
+              "type": "inc_state",
+              "key": "time_spent",
+              "value": 2
+            }
           ],
           "narration_slots": {
-            "npc_reaction": "No perfect guidance arrives in time.",
-            "world_shift": "The crisis chooses for you.",
-            "clue_delta": "A forced route still opens.",
-            "cost_delta": "You pay in fatigue and resources.",
-            "next_hook": "Work the forced route to your advantage."
+            "npc_reaction": "You are forced into a longer route.",
+            "world_shift": "You must route through a less stable corridor.",
+            "clue_delta": "The detour reveals a side clue.",
+            "cost_delta": "You lose speed but keep agency. Steady but slow: noise drops, but time pressure increases.",
+            "next_hook": "Use the detour clue to reconverge fast."
           }
         }
       ]
     },
     {
       "id": "scan_signal",
-      "label": "Scan The Signal",
-      "intents": ["scan", "trace", "analyze signal"],
-      "synonyms": ["radio", "frequency", "ping"],
-      "args_schema": {},
-      "resolution_policy": "prefer_success",
-      "outcomes": [
-        {
-          "id": "scan_success",
-          "result": "success",
-          "effects": [
-            {"type": "add_event", "key": "signal_traced"},
-            {"type": "advance_beat_progress", "value": 1}
-          ],
-          "narration_slots": {
-            "npc_reaction": "Ivo confirms your reading with a sharp nod.",
-            "world_shift": "A hidden channel lines up with your map.",
-            "clue_delta": "You gain a stable route marker.",
-            "cost_delta": "Minimal resource drain.",
-            "next_hook": "Use the marker before the signal hops."
-          }
+      "label": "Trace The Signal [steady but slow]",
+      "strategy_style": "steady_slow",
+      "intents": [
+        "scan_signal",
+        "trace signal",
+        "locate source",
+        "ping relay"
+      ],
+      "synonyms": [
+        "signal",
+        "trace",
+        "relay",
+        "frequency",
+        "niko"
+      ],
+      "args_schema": {
+        "target_npc": {
+          "type": "string"
         },
-        {
-          "id": "scan_partial",
-          "result": "partial",
-          "effects": [
-            {"type": "add_event", "key": "signal_partial"},
-            {"type": "advance_beat_progress", "value": 1},
-            {"type": "cost", "value": 1}
-          ],
-          "narration_slots": {
-            "npc_reaction": "Jex catches only fragments.",
-            "world_shift": "Interference keeps shifting the band.",
-            "clue_delta": "You still lock one probable direction.",
-            "cost_delta": "Power cells drain faster than planned.",
-            "next_hook": "Move while the partial lock holds."
-          }
-        },
-        {
-          "id": "scan_fail_forward",
-          "result": "fail_forward",
-          "effects": [
-            {"type": "add_event", "key": "signal_forced"},
-            {"type": "advance_beat_progress", "value": 1},
-            {"type": "cost", "value": 2}
-          ],
-          "narration_slots": {
-            "npc_reaction": "The scanner blows a fuse mid-read.",
-            "world_shift": "You pivot to manual tracking.",
-            "clue_delta": "A rough but actionable path remains.",
-            "cost_delta": "You lose gear reliability.",
-            "next_hook": "Press forward before the trail cools."
-          }
+        "goal_tag": {
+          "type": "string",
+          "enum": [
+            "source",
+            "shortcut",
+            "risk"
+          ]
         }
-      ]
-    },
-    {
-      "id": "convince_guard",
-      "label": "Convince The Guard",
-      "intents": ["convince", "persuade", "talk through"],
-      "synonyms": ["negotiate", "plead", "argue"],
-      "args_schema": {},
+      },
       "resolution_policy": "prefer_success",
       "outcomes": [
         {
-          "id": "convince_success",
+          "id": "scan_signal.success.succ_technical",
           "result": "success",
+          "preconditions": [],
           "effects": [
-            {"type": "add_event", "key": "guard_aligned"},
-            {"type": "advance_beat_progress", "value": 1}
+            {
+              "type": "add_event",
+              "key": "system_stable"
+            },
+            {
+              "type": "inc_state",
+              "key": "resource",
+              "value": -1
+            },
+            {
+              "type": "advance_beat_progress",
+              "value": 1
+            },
+            {
+              "type": "inc_state",
+              "key": "coordination_noise",
+              "value": -1
+            },
+            {
+              "type": "inc_state",
+              "key": "time_spent",
+              "value": 1
+            }
           ],
           "narration_slots": {
-            "npc_reaction": "The guard steps aside and shares access notes.",
-            "world_shift": "A social barrier opens cleanly.",
-            "clue_delta": "You gain trusted corridor intel.",
-            "cost_delta": "No major cost beyond urgency.",
-            "next_hook": "Take the opening before command rescinds it."
+            "npc_reaction": "Your technical call earns instant trust.",
+            "world_shift": "System readouts stabilize in your favor.",
+            "clue_delta": "Diagnostics expose a useful control path.",
+            "cost_delta": "You spend power, but avoid chaos. Steady but slow: noise drops, but time pressure increases.",
+            "next_hook": "Exploit the stable subsystem now."
           }
         },
         {
-          "id": "convince_partial",
+          "id": "scan_signal.partial.part_noisy",
           "result": "partial",
+          "preconditions": [],
           "effects": [
-            {"type": "add_event", "key": "guard_uncertain"},
-            {"type": "advance_beat_progress", "value": 1},
-            {"type": "cost", "value": 1}
+            {
+              "type": "add_event",
+              "key": "noisy_progress"
+            },
+            {
+              "type": "inc_state",
+              "key": "heat",
+              "value": 2
+            },
+            {
+              "type": "advance_beat_progress",
+              "value": 1
+            },
+            {
+              "type": "cost",
+              "value": 1
+            },
+            {
+              "type": "inc_state",
+              "key": "coordination_noise",
+              "value": -1
+            },
+            {
+              "type": "inc_state",
+              "key": "time_spent",
+              "value": 1
+            }
           ],
           "narration_slots": {
-            "npc_reaction": "The guard allows passage but logs your team.",
-            "world_shift": "You pass with scrutiny.",
-            "clue_delta": "You get in with a narrow time window.",
-            "cost_delta": "Future checkpoints may tighten.",
-            "next_hook": "Move quickly before the alert propagates."
+            "npc_reaction": "Your move works but draws attention.",
+            "world_shift": "A third party starts tracking your activity.",
+            "clue_delta": "Information comes with a visibility penalty.",
+            "cost_delta": "You keep momentum but raise exposure. Steady but slow: noise drops, but time pressure increases.",
+            "next_hook": "Use this opening before lockdown escalates."
           }
         },
         {
-          "id": "convince_fail_forward",
+          "id": "scan_signal.fail_forward.fail_misread",
           "result": "fail_forward",
+          "preconditions": [],
           "effects": [
-            {"type": "add_event", "key": "guard_refused"},
-            {"type": "advance_beat_progress", "value": 1},
-            {"type": "cost", "value": 2}
+            {
+              "type": "add_event",
+              "key": "misread_corrected"
+            },
+            {
+              "type": "set_flag",
+              "key": "needs_clarify",
+              "value": true
+            },
+            {
+              "type": "advance_beat_progress",
+              "value": 1
+            },
+            {
+              "type": "cost",
+              "value": 1
+            },
+            {
+              "type": "inc_state",
+              "key": "coordination_noise",
+              "value": -1
+            },
+            {
+              "type": "inc_state",
+              "key": "time_spent",
+              "value": 2
+            }
           ],
           "narration_slots": {
-            "npc_reaction": "The guard refuses, but chaos opens a side lane.",
-            "world_shift": "Diplomacy fails, improvisation takes over.",
-            "clue_delta": "A risky route appears anyway.",
-            "cost_delta": "Trust drops and risk rises.",
-            "next_hook": "Take the side lane before it collapses."
+            "npc_reaction": "You read the signal wrong on first pass.",
+            "world_shift": "You move into a suboptimal lane.",
+            "clue_delta": "You recover with a partial correction.",
+            "cost_delta": "The correction costs one extra cycle. Steady but slow: noise drops, but time pressure increases.",
+            "next_hook": "Re-check assumptions with a focused scan."
           }
         }
       ]
     },
     {
       "id": "sneak_route",
-      "label": "Take A Sneak Route",
-      "intents": ["sneak", "bypass", "slip through"],
-      "synonyms": ["stealth", "quiet", "crawl"],
-      "args_schema": {},
+      "label": "Slip Through Side Route [fast but dirty]",
+      "strategy_style": "fast_dirty",
+      "intents": [
+        "sneak_route",
+        "sneak through",
+        "take side route",
+        "move quietly"
+      ],
+      "synonyms": [
+        "sneak",
+        "quiet",
+        "route",
+        "bypass",
+        "rook"
+      ],
+      "args_schema": {
+        "goal_tag": {
+          "type": "string",
+          "enum": [
+            "stealth",
+            "speed"
+          ]
+        },
+        "tone": {
+          "type": "string",
+          "enum": [
+            "careful",
+            "aggressive"
+          ]
+        }
+      },
       "resolution_policy": "prefer_success",
       "outcomes": [
         {
-          "id": "sneak_success",
+          "id": "sneak_route.success.succ_stealth",
           "result": "success",
+          "preconditions": [],
           "effects": [
-            {"type": "add_event", "key": "sneak_success"},
-            {"type": "advance_beat_progress", "value": 1}
+            {
+              "type": "add_event",
+              "key": "stealth_window"
+            },
+            {
+              "type": "inc_state",
+              "key": "time_spent",
+              "value": 1
+            },
+            {
+              "type": "advance_beat_progress",
+              "value": 1
+            },
+            {
+              "type": "inc_state",
+              "key": "coordination_noise",
+              "value": 1
+            },
+            {
+              "type": "inc_state",
+              "key": "public_trust",
+              "value": -1
+            }
           ],
           "narration_slots": {
-            "npc_reaction": "Jex grins as you vanish past patrol lights.",
-            "world_shift": "The route shifts to hidden infrastructure.",
-            "clue_delta": "You discover a maintenance vector.",
-            "cost_delta": "Low immediate cost.",
-            "next_hook": "Exploit the hidden vector while unseen."
+            "npc_reaction": "No one notices your shift in position.",
+            "world_shift": "A blind spot opens for a short moment.",
+            "clue_delta": "You capture a quiet indicator others missed.",
+            "cost_delta": "You burn time but keep risk low. Fast but dirty: coordination noise rises and trust may slip.",
+            "next_hook": "Move now while the blind spot lasts."
           }
         },
         {
-          "id": "sneak_partial",
+          "id": "sneak_route.partial.part_noisy",
           "result": "partial",
+          "preconditions": [],
           "effects": [
-            {"type": "add_event", "key": "sneak_partial"},
-            {"type": "advance_beat_progress", "value": 1},
-            {"type": "cost", "value": 1}
+            {
+              "type": "add_event",
+              "key": "noisy_progress"
+            },
+            {
+              "type": "inc_state",
+              "key": "heat",
+              "value": 2
+            },
+            {
+              "type": "advance_beat_progress",
+              "value": 1
+            },
+            {
+              "type": "cost",
+              "value": 1
+            },
+            {
+              "type": "inc_state",
+              "key": "coordination_noise",
+              "value": 2
+            },
+            {
+              "type": "inc_state",
+              "key": "public_trust",
+              "value": -1
+            }
           ],
           "narration_slots": {
-            "npc_reaction": "You pass, but sensors catch a heat trace.",
-            "world_shift": "Stealth works with residue.",
-            "clue_delta": "You keep the route but lose anonymity.",
-            "cost_delta": "Threat level ticks upward.",
-            "next_hook": "Stay mobile before response teams converge."
+            "npc_reaction": "Your move works but draws attention.",
+            "world_shift": "A third party starts tracking your activity.",
+            "clue_delta": "Information comes with a visibility penalty.",
+            "cost_delta": "You keep momentum but raise exposure. Fast but dirty: coordination noise rises and trust may slip.",
+            "next_hook": "Use this opening before lockdown escalates."
           }
         },
         {
-          "id": "sneak_fail_forward",
+          "id": "sneak_route.fail_forward.fail_pressure",
           "result": "fail_forward",
+          "preconditions": [],
           "effects": [
-            {"type": "add_event", "key": "sneak_forced"},
-            {"type": "advance_beat_progress", "value": 1},
-            {"type": "cost", "value": 2}
+            {
+              "type": "add_event",
+              "key": "pressure_spike"
+            },
+            {
+              "type": "inc_state",
+              "key": "time_spent",
+              "value": 2
+            },
+            {
+              "type": "advance_beat_progress",
+              "value": 1
+            },
+            {
+              "type": "cost",
+              "value": 2
+            },
+            {
+              "type": "inc_state",
+              "key": "coordination_noise",
+              "value": 2
+            },
+            {
+              "type": "inc_state",
+              "key": "public_trust",
+              "value": -1
+            }
           ],
           "narration_slots": {
-            "npc_reaction": "A panel collapses and gives your position away.",
-            "world_shift": "You push through a loud detour.",
-            "clue_delta": "The detour still reaches your objective.",
-            "cost_delta": "You lose stealth and time.",
-            "next_hook": "Turn noise into momentum before pursuers align."
+            "npc_reaction": "Your first attempt misses, and urgency spikes.",
+            "world_shift": "Opposition tightens response protocols.",
+            "clue_delta": "A failed angle reveals a safer next path.",
+            "cost_delta": "The setback costs tempo. Fast but dirty: coordination noise rises and trust may slip.",
+            "next_hook": "Take a safer action that secures momentum."
           }
         }
       ]
     },
     {
       "id": "decode_core",
-      "label": "Decode Core Patterns",
-      "intents": ["decode", "decrypt", "read core"],
-      "synonyms": ["cipher", "terminal", "protocol"],
-      "args_schema": {},
+      "label": "Decode Control Pattern [steady but slow]",
+      "strategy_style": "steady_slow",
+      "intents": [
+        "decode_core",
+        "decode core",
+        "parse code",
+        "read control pattern"
+      ],
+      "synonyms": [
+        "decode",
+        "pattern",
+        "code",
+        "protocol",
+        "kael"
+      ],
+      "args_schema": {
+        "goal_tag": {
+          "type": "string",
+          "enum": [
+            "stabilize",
+            "unlock",
+            "diagnose"
+          ]
+        },
+        "target_npc": {
+          "type": "string"
+        }
+      },
       "resolution_policy": "prefer_success",
       "outcomes": [
         {
-          "id": "decode_success",
+          "id": "decode_core.success.succ_technical",
           "result": "success",
-          "preconditions": [
-            {"kind": "event_present", "key": "signal_traced"}
-          ],
+          "preconditions": [],
           "effects": [
-            {"type": "add_event", "key": "core_decoded"},
-            {"type": "advance_beat_progress", "value": 1}
+            {
+              "type": "add_event",
+              "key": "system_stable"
+            },
+            {
+              "type": "inc_state",
+              "key": "resource",
+              "value": -1
+            },
+            {
+              "type": "advance_beat_progress",
+              "value": 1
+            },
+            {
+              "type": "inc_state",
+              "key": "coordination_noise",
+              "value": -1
+            },
+            {
+              "type": "inc_state",
+              "key": "time_spent",
+              "value": 1
+            }
           ],
           "narration_slots": {
-            "npc_reaction": "Ivo syncs with your logic and confirms the key.",
-            "world_shift": "The core's behavior becomes legible.",
-            "clue_delta": "You isolate the failure pattern.",
-            "cost_delta": "You spend concentration, not resources.",
-            "next_hook": "Use the decoded pattern to control the next hazard."
+            "npc_reaction": "The engineer on-site follows your lead.",
+            "world_shift": "System readouts stabilize in your favor.",
+            "clue_delta": "You map an actionable subsystem link.",
+            "cost_delta": "It consumes resources, not momentum. Steady but slow: noise drops, but time pressure increases.",
+            "next_hook": "Chain this with a decisive follow-up."
           }
         },
         {
-          "id": "decode_partial",
+          "id": "decode_core.partial.part_costly",
           "result": "partial",
-          "preconditions": [
-            {"kind": "event_present", "key": "guard_aligned"}
-          ],
+          "preconditions": [],
           "effects": [
-            {"type": "add_event", "key": "core_partial"},
-            {"type": "advance_beat_progress", "value": 1},
-            {"type": "cost", "value": 1}
+            {
+              "type": "add_event",
+              "key": "costly_progress"
+            },
+            {
+              "type": "inc_state",
+              "key": "resource",
+              "value": -2
+            },
+            {
+              "type": "advance_beat_progress",
+              "value": 1
+            },
+            {
+              "type": "cost",
+              "value": 2
+            },
+            {
+              "type": "inc_state",
+              "key": "coordination_noise",
+              "value": -1
+            },
+            {
+              "type": "inc_state",
+              "key": "time_spent",
+              "value": 1
+            }
           ],
           "narration_slots": {
-            "npc_reaction": "You decode only the safety layer.",
-            "world_shift": "The core calms briefly.",
-            "clue_delta": "Partial insight is enough to proceed.",
-            "cost_delta": "System stress still rises slowly.",
-            "next_hook": "Act before partial control expires."
+            "npc_reaction": "Someone warns this pace is expensive.",
+            "world_shift": "Stability improves while resources thin out.",
+            "clue_delta": "The answer comes at a practical cost.",
+            "cost_delta": "The win is real, the bill is immediate. Steady but slow: noise drops, but time pressure increases.",
+            "next_hook": "Secure resources before the next push."
           }
         },
         {
-          "id": "decode_fail_forward",
+          "id": "decode_core.fail_forward.fail_misread",
           "result": "fail_forward",
           "preconditions": [],
           "effects": [
-            {"type": "add_event", "key": "core_forced"},
-            {"type": "advance_beat_progress", "value": 1},
-            {"type": "cost", "value": 2}
+            {
+              "type": "add_event",
+              "key": "misread_corrected"
+            },
+            {
+              "type": "set_flag",
+              "key": "needs_clarify",
+              "value": true
+            },
+            {
+              "type": "advance_beat_progress",
+              "value": 1
+            },
+            {
+              "type": "cost",
+              "value": 1
+            },
+            {
+              "type": "inc_state",
+              "key": "coordination_noise",
+              "value": -1
+            },
+            {
+              "type": "inc_state",
+              "key": "time_spent",
+              "value": 2
+            }
           ],
           "narration_slots": {
-            "npc_reaction": "The interface rejects your first pass.",
-            "world_shift": "You brute-force a narrower fallback route.",
-            "clue_delta": "A degraded command channel opens.",
-            "cost_delta": "Heat and fatigue spike.",
-            "next_hook": "Use the fallback route before it burns out."
+            "npc_reaction": "You read the signal wrong on first pass.",
+            "world_shift": "The wrong assumption burns your margin.",
+            "clue_delta": "A false clue is corrected mid-step.",
+            "cost_delta": "You pay in confusion and time. Steady but slow: noise drops, but time pressure increases.",
+            "next_hook": "Re-check assumptions with a focused scan."
           }
         }
       ]
     },
     {
       "id": "aid_citizen",
-      "label": "Aid Civilians",
-      "intents": ["rescue", "aid", "help people"],
-      "synonyms": ["save", "evacuate", "protect"],
-      "args_schema": {},
+      "label": "Protect Civilians [politically safe, resource heavy]",
+      "strategy_style": "political_safe_resource_heavy",
+      "intents": [
+        "aid_citizen",
+        "help civilians",
+        "secure evac route",
+        "aid crowd"
+      ],
+      "synonyms": [
+        "aid",
+        "protect",
+        "evac",
+        "civilians",
+        "rook"
+      ],
+      "args_schema": {
+        "goal_tag": {
+          "type": "string",
+          "enum": [
+            "rescue",
+            "stabilize",
+            "escort"
+          ]
+        },
+        "tone": {
+          "type": "string",
+          "enum": [
+            "gentle",
+            "decisive"
+          ]
+        }
+      },
       "resolution_policy": "prefer_success",
       "outcomes": [
         {
-          "id": "aid_success",
+          "id": "aid_citizen.success.succ_diplomatic",
           "result": "success",
+          "preconditions": [],
           "effects": [
-            {"type": "add_event", "key": "citizens_safe"},
-            {"type": "advance_beat_progress", "value": 1}
+            {
+              "type": "add_event",
+              "key": "diplomatic_progress"
+            },
+            {
+              "type": "inc_state",
+              "key": "trust",
+              "value": 1
+            },
+            {
+              "type": "advance_beat_progress",
+              "value": 1
+            },
+            {
+              "type": "inc_state",
+              "key": "public_trust",
+              "value": 1
+            },
+            {
+              "type": "inc_state",
+              "key": "resource_stress",
+              "value": 1
+            }
           ],
           "narration_slots": {
-            "npc_reaction": "Families follow your route markers.",
-            "world_shift": "Panic converts to movement.",
-            "clue_delta": "Evac lanes become usable for your team too.",
-            "cost_delta": "You spend time but gain civilian support.",
-            "next_hook": "Leverage the opened lanes for your next push."
+            "npc_reaction": "An ally nods and backs your call.",
+            "world_shift": "A tense standoff softens for a moment.",
+            "clue_delta": "A useful route hint slips out.",
+            "cost_delta": "The move costs little beyond attention. Politically safe: trust improves, but resource stress climbs.",
+            "next_hook": "Choose who to direct next."
           }
         },
         {
-          "id": "aid_partial",
+          "id": "aid_citizen.partial.part_costly",
           "result": "partial",
+          "preconditions": [],
           "effects": [
-            {"type": "add_event", "key": "citizens_moved"},
-            {"type": "advance_beat_progress", "value": 1},
-            {"type": "cost", "value": 1}
+            {
+              "type": "add_event",
+              "key": "costly_progress"
+            },
+            {
+              "type": "inc_state",
+              "key": "resource",
+              "value": -2
+            },
+            {
+              "type": "advance_beat_progress",
+              "value": 1
+            },
+            {
+              "type": "cost",
+              "value": 2
+            },
+            {
+              "type": "inc_state",
+              "key": "public_trust",
+              "value": 1
+            },
+            {
+              "type": "inc_state",
+              "key": "resource_stress",
+              "value": 2
+            }
           ],
           "narration_slots": {
-            "npc_reaction": "You move part of the crowd to shelter.",
-            "world_shift": "Pressure eases but does not clear.",
-            "clue_delta": "You gain one safe pocket.",
-            "cost_delta": "The team loses pace.",
-            "next_hook": "Decide whether to secure more people or press ahead."
+            "npc_reaction": "The team follows, but looks strained.",
+            "world_shift": "Stability improves while resources thin out.",
+            "clue_delta": "The answer comes at a practical cost.",
+            "cost_delta": "The win is real, the bill is immediate. Politically safe: trust improves, but resource stress climbs.",
+            "next_hook": "Secure resources before the next push."
           }
         },
         {
-          "id": "aid_fail_forward",
+          "id": "aid_citizen.fail_forward.fail_complication",
           "result": "fail_forward",
+          "preconditions": [],
           "effects": [
-            {"type": "add_event", "key": "aid_forced"},
-            {"type": "advance_beat_progress", "value": 1},
-            {"type": "cost", "value": 2}
+            {
+              "type": "add_event",
+              "key": "complication_spawned"
+            },
+            {
+              "type": "inc_state",
+              "key": "trust",
+              "value": -1
+            },
+            {
+              "type": "inc_state",
+              "key": "heat",
+              "value": 1
+            },
+            {
+              "type": "advance_beat_progress",
+              "value": 1
+            },
+            {
+              "type": "cost",
+              "value": 2
+            },
+            {
+              "type": "inc_state",
+              "key": "public_trust",
+              "value": 1
+            },
+            {
+              "type": "inc_state",
+              "key": "resource_stress",
+              "value": 2
+            }
           ],
           "narration_slots": {
-            "npc_reaction": "A surge breaks your formation.",
-            "world_shift": "You redirect survivors through a harsher route.",
-            "clue_delta": "The new path still carries people out.",
-            "cost_delta": "You pay in stamina and supplies.",
-            "next_hook": "Hold the new route until flow stabilizes."
+            "npc_reaction": "Your move backfires into argument.",
+            "world_shift": "A side actor interferes unexpectedly.",
+            "clue_delta": "The setback exposes a missing dependency.",
+            "cost_delta": "Trust and heat both worsen. Politically safe: trust improves, but resource stress climbs.",
+            "next_hook": "Stabilize relationships before forcing progress."
           }
         }
       ]
     },
     {
-      "id": "confront_director",
-      "label": "Confront Director Vale",
-      "intents": ["confront", "challenge", "call out"],
-      "synonyms": ["accuse", "threaten", "pressure"],
-      "args_schema": {},
-      "resolution_policy": "prefer_success",
+      "id": "broker_truce",
+      "label": "Broker A Truce [steady but slow]",
+      "strategy_style": "steady_slow",
+      "intents": [
+        "broker_truce",
+        "broker truce",
+        "mediate conflict",
+        "calm both sides"
+      ],
+      "synonyms": [
+        "truce",
+        "mediate",
+        "calm",
+        "settle",
+        "tamsin"
+      ],
+      "args_schema": {
+        "target_npc": {
+          "type": "string"
+        },
+        "tone": {
+          "type": "string",
+          "enum": [
+            "calm",
+            "firm"
+          ]
+        }
+      },
+      "resolution_policy": "prefer_partial",
       "outcomes": [
         {
-          "id": "confront_success",
+          "id": "broker_truce.success.succ_discovery",
           "result": "success",
+          "preconditions": [],
           "effects": [
-            {"type": "add_event", "key": "director_yielded"},
-            {"type": "advance_beat_progress", "value": 1}
+            {
+              "type": "add_event",
+              "key": "clue_found"
+            },
+            {
+              "type": "set_flag",
+              "key": "fresh_lead",
+              "value": true
+            },
+            {
+              "type": "advance_beat_progress",
+              "value": 1
+            },
+            {
+              "type": "inc_state",
+              "key": "coordination_noise",
+              "value": -1
+            },
+            {
+              "type": "inc_state",
+              "key": "time_spent",
+              "value": 1
+            }
           ],
           "narration_slots": {
-            "npc_reaction": "Director Vale drops the pretense and yields access.",
-            "world_shift": "Command hierarchy cracks.",
-            "clue_delta": "You gain privileged control codes.",
-            "cost_delta": "Political fallout is deferred.",
-            "next_hook": "Use the codes before Vale regroups."
+            "npc_reaction": "Someone points at a hidden marker.",
+            "world_shift": "A blocked path reveals a side opening.",
+            "clue_delta": "You secure a concrete clue fragment.",
+            "cost_delta": "You trade focus for clarity, but keep momentum. Steady but slow: noise drops, but time pressure increases.",
+            "next_hook": "Follow the freshest clue immediately."
           }
         },
         {
-          "id": "confront_partial",
+          "id": "broker_truce.partial.part_delay",
           "result": "partial",
+          "preconditions": [],
           "effects": [
-            {"type": "add_event", "key": "director_stalled"},
-            {"type": "advance_beat_progress", "value": 1},
-            {"type": "cost", "value": 1}
+            {
+              "type": "add_event",
+              "key": "delay_pressure"
+            },
+            {
+              "type": "inc_state",
+              "key": "time_spent",
+              "value": 2
+            },
+            {
+              "type": "advance_beat_progress",
+              "value": 1
+            },
+            {
+              "type": "cost",
+              "value": 1
+            },
+            {
+              "type": "inc_state",
+              "key": "coordination_noise",
+              "value": -1
+            },
+            {
+              "type": "inc_state",
+              "key": "time_spent",
+              "value": 1
+            }
           ],
           "narration_slots": {
-            "npc_reaction": "Vale bargains for leverage while buying seconds.",
-            "world_shift": "Power remains contested.",
-            "clue_delta": "You extract one critical override phrase.",
-            "cost_delta": "You lose precious time in the exchange.",
-            "next_hook": "Exploit the phrase before it is revoked."
+            "npc_reaction": "Your instruction lands, yet timing slips.",
+            "world_shift": "The window narrows as clocks advance.",
+            "clue_delta": "A clue arrives late but still helps.",
+            "cost_delta": "Momentum slows but does not stop. Steady but slow: noise drops, but time pressure increases.",
+            "next_hook": "Take a speed-oriented action now."
           }
         },
         {
-          "id": "confront_fail_forward",
+          "id": "broker_truce.fail_forward.fail_sacrifice",
           "result": "fail_forward",
+          "preconditions": [],
           "effects": [
-            {"type": "add_event", "key": "director_resisted"},
-            {"type": "advance_beat_progress", "value": 1},
-            {"type": "cost", "value": 2}
+            {
+              "type": "add_event",
+              "key": "sacrifice_made"
+            },
+            {
+              "type": "inc_state",
+              "key": "resource",
+              "value": -2
+            },
+            {
+              "type": "inc_state",
+              "key": "trust",
+              "value": -1
+            },
+            {
+              "type": "advance_beat_progress",
+              "value": 1
+            },
+            {
+              "type": "cost",
+              "value": 2
+            },
+            {
+              "type": "inc_state",
+              "key": "coordination_noise",
+              "value": -1
+            },
+            {
+              "type": "inc_state",
+              "key": "time_spent",
+              "value": 2
+            }
           ],
           "narration_slots": {
-            "npc_reaction": "Vale refuses and triggers emergency locks.",
-            "world_shift": "Negotiation collapses into forceful adaptation.",
-            "clue_delta": "The lock cycle exposes a short exploit window.",
-            "cost_delta": "You absorb political and tactical damage.",
-            "next_hook": "Push through the exploit window immediately."
+            "npc_reaction": "An ally takes a hit to keep the line intact.",
+            "world_shift": "You hold position but deplete reserves.",
+            "clue_delta": "The loss reveals a critical weak point.",
+            "cost_delta": "The team survives, but feels the strain. Steady but slow: noise drops, but time pressure increases.",
+            "next_hook": "Secure a recovery step before the final push."
           }
         }
       ]
     },
     {
-      "id": "stabilize_reactor",
-      "label": "Stabilize Reactor",
-      "intents": ["stabilize", "contain", "balance core"],
-      "synonyms": ["cool", "anchor", "patch"],
-      "args_schema": {},
+      "id": "trace_anomaly",
+      "label": "Trace The Anomaly [fast but dirty]",
+      "strategy_style": "fast_dirty",
+      "intents": [
+        "trace_anomaly",
+        "trace anomaly",
+        "follow glitch",
+        "investigate spike"
+      ],
+      "synonyms": [
+        "anomaly",
+        "glitch",
+        "spike",
+        "trace",
+        "rook"
+      ],
+      "args_schema": {
+        "goal_tag": {
+          "type": "string",
+          "enum": [
+            "source",
+            "pattern",
+            "threat"
+          ]
+        }
+      },
       "resolution_policy": "prefer_success",
       "outcomes": [
         {
-          "id": "stabilize_success",
+          "id": "trace_anomaly.success.succ_technical",
           "result": "success",
-          "preconditions": [
-            {"kind": "event_present", "key": "core_decoded"}
-          ],
+          "preconditions": [],
           "effects": [
-            {"type": "add_event", "key": "reactor_stable"},
-            {"type": "advance_beat_progress", "value": 1}
+            {
+              "type": "add_event",
+              "key": "system_stable"
+            },
+            {
+              "type": "inc_state",
+              "key": "resource",
+              "value": -1
+            },
+            {
+              "type": "advance_beat_progress",
+              "value": 1
+            },
+            {
+              "type": "inc_state",
+              "key": "coordination_noise",
+              "value": 1
+            },
+            {
+              "type": "inc_state",
+              "key": "public_trust",
+              "value": -1
+            }
           ],
           "narration_slots": {
-            "npc_reaction": "Mara calls out a clean rhythm and you match it.",
-            "world_shift": "The reactor settles into a survivable band.",
-            "clue_delta": "You confirm a stable output envelope.",
-            "cost_delta": "Major catastrophe is averted for now.",
-            "next_hook": "Transition from containment to recovery."
+            "npc_reaction": "The engineer on-site follows your lead.",
+            "world_shift": "System readouts stabilize in your favor.",
+            "clue_delta": "Diagnostics expose a useful control path.",
+            "cost_delta": "You spend power, but avoid chaos. Fast but dirty: coordination noise rises and trust may slip.",
+            "next_hook": "Exploit the stable subsystem now."
           }
         },
         {
-          "id": "stabilize_partial",
+          "id": "trace_anomaly.partial.part_delay",
           "result": "partial",
-          "preconditions": [
-            {"kind": "event_present", "key": "core_partial"}
-          ],
+          "preconditions": [],
           "effects": [
-            {"type": "add_event", "key": "reactor_partial"},
-            {"type": "advance_beat_progress", "value": 1},
-            {"type": "cost", "value": 1}
+            {
+              "type": "add_event",
+              "key": "delay_pressure"
+            },
+            {
+              "type": "inc_state",
+              "key": "time_spent",
+              "value": 2
+            },
+            {
+              "type": "advance_beat_progress",
+              "value": 1
+            },
+            {
+              "type": "cost",
+              "value": 1
+            },
+            {
+              "type": "inc_state",
+              "key": "coordination_noise",
+              "value": 2
+            },
+            {
+              "type": "inc_state",
+              "key": "public_trust",
+              "value": -1
+            }
           ],
           "narration_slots": {
-            "npc_reaction": "Containment holds in pulses, not fully.",
-            "world_shift": "Instability drops but does not vanish.",
-            "clue_delta": "You gain a narrow operating window.",
-            "cost_delta": "Maintenance burden rises.",
-            "next_hook": "Use the window to secure evacuation and shutdown."
+            "npc_reaction": "People comply, but too slowly.",
+            "world_shift": "External pressure increases mid-action.",
+            "clue_delta": "A clue arrives late but still helps.",
+            "cost_delta": "Momentum slows but does not stop. Fast but dirty: coordination noise rises and trust may slip.",
+            "next_hook": "Take a speed-oriented action now."
           }
         },
         {
-          "id": "stabilize_fail_forward",
+          "id": "trace_anomaly.fail_forward.fail_misread",
           "result": "fail_forward",
+          "preconditions": [],
           "effects": [
-            {"type": "add_event", "key": "reactor_forced"},
-            {"type": "advance_beat_progress", "value": 1},
-            {"type": "cost", "value": 2}
+            {
+              "type": "add_event",
+              "key": "misread_corrected"
+            },
+            {
+              "type": "set_flag",
+              "key": "needs_clarify",
+              "value": true
+            },
+            {
+              "type": "advance_beat_progress",
+              "value": 1
+            },
+            {
+              "type": "cost",
+              "value": 1
+            },
+            {
+              "type": "inc_state",
+              "key": "coordination_noise",
+              "value": 2
+            },
+            {
+              "type": "inc_state",
+              "key": "public_trust",
+              "value": -1
+            }
           ],
           "narration_slots": {
-            "npc_reaction": "The core bucks against your controls.",
-            "world_shift": "You shift from stabilization to managed collapse.",
-            "clue_delta": "A controlled fallback path still saves the city.",
-            "cost_delta": "Infrastructure damage becomes unavoidable.",
-            "next_hook": "Execute the fallback protocol without delay."
+            "npc_reaction": "A teammate catches the mismatch too late.",
+            "world_shift": "The wrong assumption burns your margin.",
+            "clue_delta": "You recover with a partial correction.",
+            "cost_delta": "The correction costs one extra cycle. Fast but dirty: coordination noise rises and trust may slip.",
+            "next_hook": "Re-check assumptions with a focused scan."
           }
         }
       ]
+    },
+    {
+      "id": "reroute_power",
+      "label": "Reroute Emergency Power [politically safe, resource heavy]",
+      "strategy_style": "political_safe_resource_heavy",
+      "intents": [
+        "reroute_power",
+        "reroute power",
+        "redirect grid",
+        "stabilize circuits"
+      ],
+      "synonyms": [
+        "power",
+        "grid",
+        "reroute",
+        "circuits",
+        "kael"
+      ],
+      "args_schema": {
+        "goal_tag": {
+          "type": "string",
+          "enum": [
+            "support",
+            "containment",
+            "access"
+          ]
+        }
+      },
+      "resolution_policy": "prefer_success",
+      "outcomes": [
+        {
+          "id": "reroute_power.success.succ_technical",
+          "result": "success",
+          "preconditions": [],
+          "effects": [
+            {
+              "type": "add_event",
+              "key": "system_stable"
+            },
+            {
+              "type": "inc_state",
+              "key": "resource",
+              "value": -1
+            },
+            {
+              "type": "advance_beat_progress",
+              "value": 1
+            },
+            {
+              "type": "inc_state",
+              "key": "public_trust",
+              "value": 1
+            },
+            {
+              "type": "inc_state",
+              "key": "resource_stress",
+              "value": 1
+            }
+          ],
+          "narration_slots": {
+            "npc_reaction": "The engineer on-site follows your lead.",
+            "world_shift": "An automated lock cycle pauses.",
+            "clue_delta": "Diagnostics expose a useful control path.",
+            "cost_delta": "It consumes resources, not momentum. Politically safe: trust improves, but resource stress climbs.",
+            "next_hook": "Chain this with a decisive follow-up."
+          }
+        },
+        {
+          "id": "reroute_power.partial.part_costly",
+          "result": "partial",
+          "preconditions": [],
+          "effects": [
+            {
+              "type": "add_event",
+              "key": "costly_progress"
+            },
+            {
+              "type": "inc_state",
+              "key": "resource",
+              "value": -2
+            },
+            {
+              "type": "advance_beat_progress",
+              "value": 1
+            },
+            {
+              "type": "cost",
+              "value": 2
+            },
+            {
+              "type": "inc_state",
+              "key": "public_trust",
+              "value": 1
+            },
+            {
+              "type": "inc_state",
+              "key": "resource_stress",
+              "value": 2
+            }
+          ],
+          "narration_slots": {
+            "npc_reaction": "Someone warns this pace is expensive.",
+            "world_shift": "Immediate danger drops, future risk grows.",
+            "clue_delta": "You gain a clue after burning supplies.",
+            "cost_delta": "The win is real, the bill is immediate. Politically safe: trust improves, but resource stress climbs.",
+            "next_hook": "Choose a low-cost move next."
+          }
+        },
+        {
+          "id": "reroute_power.fail_forward.fail_complication",
+          "result": "fail_forward",
+          "preconditions": [],
+          "effects": [
+            {
+              "type": "add_event",
+              "key": "complication_spawned"
+            },
+            {
+              "type": "inc_state",
+              "key": "trust",
+              "value": -1
+            },
+            {
+              "type": "inc_state",
+              "key": "heat",
+              "value": 1
+            },
+            {
+              "type": "advance_beat_progress",
+              "value": 1
+            },
+            {
+              "type": "cost",
+              "value": 2
+            },
+            {
+              "type": "inc_state",
+              "key": "public_trust",
+              "value": 1
+            },
+            {
+              "type": "inc_state",
+              "key": "resource_stress",
+              "value": 2
+            }
+          ],
+          "narration_slots": {
+            "npc_reaction": "Coordination fractures under stress.",
+            "world_shift": "A side actor interferes unexpectedly.",
+            "clue_delta": "The setback exposes a missing dependency.",
+            "cost_delta": "Trust and heat both worsen. Politically safe: trust improves, but resource stress climbs.",
+            "next_hook": "Stabilize relationships before forcing progress."
+          }
+        }
+      ]
+    },
+    {
+      "id": "inspect_infrastructure",
+      "label": "Inspect Infrastructure Evidence [steady but slow]",
+      "strategy_style": "steady_slow",
+      "intents": [
+        "inspect_infrastructure",
+        "inspect infrastructure",
+        "review incident logs",
+        "analyze field evidence"
+      ],
+      "synonyms": [
+        "infrastructure",
+        "evidence",
+        "logs",
+        "inspect",
+        "analyze",
+        "tamsin"
+      ],
+      "args_schema": {
+        "goal_tag": {
+          "type": "string",
+          "enum": [
+            "logs",
+            "fault",
+            "clue"
+          ]
+        }
+      },
+      "resolution_policy": "prefer_success",
+      "outcomes": [
+        {
+          "id": "inspect_infrastructure.success.succ_technical",
+          "result": "success",
+          "preconditions": [],
+          "effects": [
+            {
+              "type": "add_event",
+              "key": "system_stable"
+            },
+            {
+              "type": "inc_state",
+              "key": "resource",
+              "value": -1
+            },
+            {
+              "type": "advance_beat_progress",
+              "value": 1
+            },
+            {
+              "type": "inc_state",
+              "key": "coordination_noise",
+              "value": -1
+            },
+            {
+              "type": "inc_state",
+              "key": "time_spent",
+              "value": 1
+            }
+          ],
+          "narration_slots": {
+            "npc_reaction": "The engineer on-site follows your lead.",
+            "world_shift": "An automated lock cycle pauses.",
+            "clue_delta": "You map an actionable subsystem link.",
+            "cost_delta": "You spend power, but avoid chaos. Steady but slow: noise drops, but time pressure increases.",
+            "next_hook": "Exploit the stable subsystem now."
+          }
+        },
+        {
+          "id": "inspect_infrastructure.partial.part_tradeoff",
+          "result": "partial",
+          "preconditions": [],
+          "effects": [
+            {
+              "type": "add_event",
+              "key": "tradeoff_taken"
+            },
+            {
+              "type": "inc_state",
+              "key": "trust",
+              "value": -1
+            },
+            {
+              "type": "advance_beat_progress",
+              "value": 1
+            },
+            {
+              "type": "cost",
+              "value": 1
+            },
+            {
+              "type": "inc_state",
+              "key": "coordination_noise",
+              "value": -1
+            },
+            {
+              "type": "inc_state",
+              "key": "time_spent",
+              "value": 1
+            }
+          ],
+          "narration_slots": {
+            "npc_reaction": "An ally accepts with visible doubt.",
+            "world_shift": "You gain access but trigger scrutiny.",
+            "clue_delta": "Useful info arrives with uncertainty.",
+            "cost_delta": "You trade trust for speed. Steady but slow: noise drops, but time pressure increases.",
+            "next_hook": "Patch the new weakness on your next move."
+          }
+        },
+        {
+          "id": "inspect_infrastructure.fail_forward.fail_detour",
+          "result": "fail_forward",
+          "preconditions": [],
+          "effects": [
+            {
+              "type": "add_event",
+              "key": "detour_taken"
+            },
+            {
+              "type": "inc_state",
+              "key": "time_spent",
+              "value": 1
+            },
+            {
+              "type": "advance_beat_progress",
+              "value": 1
+            },
+            {
+              "type": "cost",
+              "value": 1
+            },
+            {
+              "type": "inc_state",
+              "key": "coordination_noise",
+              "value": -1
+            },
+            {
+              "type": "inc_state",
+              "key": "time_spent",
+              "value": 2
+            }
+          ],
+          "narration_slots": {
+            "npc_reaction": "A fast plan collapses into a detour.",
+            "world_shift": "The map shifts and new obstacles appear.",
+            "clue_delta": "The detour reveals a side clue.",
+            "cost_delta": "You lose speed but keep agency. Steady but slow: noise drops, but time pressure increases.",
+            "next_hook": "Take a route-control move next."
+          }
+        }
+      ]
+    }
+  ],
+  "npc_profiles": [
+    {
+      "name": "Kael",
+      "red_line": "Kael: Do not sacrifice civilian corridors for short-term speed."
+    },
+    {
+      "name": "Niko",
+      "red_line": "Niko: Do not erase operational evidence under political pressure."
+    },
+    {
+      "name": "Tamsin",
+      "red_line": "Tamsin: Do not allow command ambiguity to paralyze response."
+    },
+    {
+      "name": "Rook",
+      "red_line": "Rook: Do not deplete critical reserves before the final push."
     }
   ]
 }

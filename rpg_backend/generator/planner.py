@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 import re
 from typing import Any
 
+from rpg_backend.generator.defaults import default_npc_red_line
 from rpg_backend.generator.spec_schema import StorySpec
 
 
@@ -33,6 +34,7 @@ class BeatPlan:
     tone: str | None = None
     move_bias: list[str] = field(default_factory=list)
     spec_summary: dict[str, Any] | None = None
+    npc_red_lines: dict[str, str] = field(default_factory=dict)
 
 
 _NAME_POOL = [
@@ -47,7 +49,6 @@ _NAME_POOL = [
     "Rook",
     "Lina",
 ]
-
 
 def _stable_seed_value(seed_text: str) -> int:
     return sum(ord(ch) for ch in seed_text)
@@ -82,32 +83,39 @@ def _slug(text: str) -> str:
     return compact[:28] or "milestone"
 
 
-def _normalized_npcs_from_spec(spec: StorySpec, npc_count: int, fallback_seed: str) -> list[str]:
+def _normalized_npc_profiles_from_spec(
+    spec: StorySpec,
+    npc_count: int,
+    fallback_seed: str,
+) -> tuple[list[str], dict[str, str]]:
     desired = max(3, min(5, npc_count))
-    names: list[str] = []
+    profiles: list[tuple[str, str]] = []
     seen: set[str] = set()
 
     for npc in spec.npcs:
         name = npc.name.strip()
-        if not name:
+        red_line = npc.red_line.strip()
+        if not name or not red_line:
             continue
         lowered = name.lower()
         if lowered in seen:
             continue
         seen.add(lowered)
-        names.append(name)
+        profiles.append((name, red_line))
 
-    if len(names) < desired:
+    if len(profiles) < desired:
         for candidate in _select_npc_names(fallback_seed or spec.title, desired * 2):
             lowered = candidate.lower()
             if lowered in seen:
                 continue
             seen.add(lowered)
-            names.append(candidate)
-            if len(names) >= desired:
+            profiles.append((candidate, default_npc_red_line(candidate, len(profiles))))
+            if len(profiles) >= desired:
                 break
 
-    return names[:desired]
+    npc_names = [name for name, _ in profiles[:desired]]
+    npc_red_lines = {name: red_line for name, red_line in profiles[:desired]}
+    return npc_names, npc_red_lines
 
 
 def plan_beats(seed_text: str, target_minutes: int, npc_count: int) -> BeatPlan:
@@ -138,6 +146,7 @@ def plan_beats(seed_text: str, target_minutes: int, npc_count: int) -> BeatPlan:
     ]
 
     npc_names = _select_npc_names(seed_text, npc_count)
+    npc_red_lines = {name: default_npc_red_line(name, idx) for idx, name in enumerate(npc_names)}
 
     return BeatPlan(
         seed_text=seed_text,
@@ -145,6 +154,7 @@ def plan_beats(seed_text: str, target_minutes: int, npc_count: int) -> BeatPlan:
         target_steps=target_steps,
         npc_names=npc_names,
         beats=beats,
+        npc_red_lines=npc_red_lines,
     )
 
 
@@ -160,10 +170,15 @@ def plan_beats_from_spec(
     entry_scene_ids = ["sc1", "sc5", "sc8", "sc12"]
     budgets = _distribute_step_budget(target_steps, beat_count=4)
 
+    selected_beats = list(spec.beats[:4])
+    selected_scene_constraints = list(spec.scene_constraints[:4])
+    if len(selected_beats) < 4 or len(selected_scene_constraints) < 4:
+        raise ValueError("StorySpec must contain at least 4 beats and 4 scene_constraints")
+
     beats: list[BeatPlanItem] = []
     for idx, beat_id in enumerate(beat_ids):
-        spec_beat = spec.beats[idx % len(spec.beats)]
-        scene_intent = spec.scene_constraints[idx % len(spec.scene_constraints)]
+        spec_beat = selected_beats[idx]
+        scene_intent = selected_scene_constraints[idx]
         event = spec_beat.required_event or f"{beat_id}.{_slug(spec_beat.objective)}"
         beats.append(
             BeatPlanItem(
@@ -179,7 +194,7 @@ def plan_beats_from_spec(
             )
         )
 
-    npc_names = _normalized_npcs_from_spec(spec, npc_count, seed_text or spec.title)
+    npc_names, npc_red_lines = _normalized_npc_profiles_from_spec(spec, npc_count, seed_text or spec.title)
     return BeatPlan(
         seed_text=seed_text,
         target_minutes=target_minutes,
@@ -192,4 +207,5 @@ def plan_beats_from_spec(
         tone=spec.tone.strip(),
         move_bias=list(dict.fromkeys(spec.move_bias)),
         spec_summary=spec.compact_summary(),
+        npc_red_lines=npc_red_lines,
     )

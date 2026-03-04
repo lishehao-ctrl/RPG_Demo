@@ -182,6 +182,7 @@ Auth governance:
 - all business/admin routes require Bearer token.
 - anonymous routes are limited to: `POST /admin/auth/login`, `GET /health`, `GET /ready`.
 - worker internal task routes require `X-Internal-Worker-Token`.
+- worker header value comes from `APP_INTERNAL_WORKER_TOKEN`.
 
 ### Stories
 - `POST /stories` — create draft with raw `pack_json`
@@ -306,8 +307,8 @@ Business endpoints use a unified error envelope:
 - Acceptance metrics:
   - meaningful_accept_rate (state/progress changed)
   - llm_route_success_rate
-  - global_help_route_rate (phase-A diagnostic KPI)
-  - non_global_text_route_rate (phase-A diagnostic KPI)
+  - global_help_route_rate (diagnostic KPI)
+  - non_global_text_route_rate (diagnostic KPI)
   - strategy_triangle_coverage_rate
   - pressure_recoil_trigger_rate
   - npc_stance_mentions_per_run_avg

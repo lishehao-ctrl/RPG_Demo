@@ -7,7 +7,7 @@ This file maps `docs/architecture.md` sections to current implementation status.
 - LLM gateway mode switch:
   - `local` direct provider path
   - `worker` mode via internal `rpg_backend.llm_worker` service (`POST /internal/llm/tasks/{route-intent|render-narration|json-object}`)
-  - worker task calls require `X-Internal-Worker-Token`
+  - worker task calls require `X-Internal-Worker-Token` sourced from `APP_INTERNAL_WORKER_TOKEN`
   - worker probes remain unversioned (`GET /health`, `GET /ready`)
   - legacy worker routes `/v2/llm/tasks/*` removed (hard cut, no compatibility alias)
 - Auth and account baseline:
@@ -39,7 +39,7 @@ This file maps `docs/architecture.md` sections to current implementation status.
 - Session create/get/step APIs.
 - Sample story pack and canary tests.
 - Deterministic story generator (`/stories/generate`) with lint + bounded regenerate attempts.
-- Eval diagnostics extended (non-hard-gate in phase A):
+- Eval diagnostics extended (non-hard-gate diagnostics):
   - `global_help_route_rate`
   - `non_global_text_route_rate`
   - `strategy_triangle_coverage_rate`

@@ -1,0 +1,8 @@
+[Unit]
+Description=RPG LLM Worker readiness probe (/ready)
+After=network-online.target rpg-llm-worker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/curl --silent --show-error --fail --max-time 8 http://127.0.0.1:8100/ready

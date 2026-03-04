@@ -23,6 +23,17 @@ class Settings(BaseSettings):
     llm_openai_temperature_narration: float = Field(default=0.4, ge=0.0, le=2.0)
     llm_openai_generator_temperature: float = Field(default=0.15, ge=0.0, le=2.0)
     llm_openai_generator_max_retries: int = Field(default=3, ge=1, le=3)
+    generator_candidate_parallelism: int = Field(default=1, ge=1, le=8)
+    llm_gateway_mode: str = Field(default="local")
+    llm_worker_base_url: str | None = None
+    llm_worker_timeout_seconds: float = Field(default=20.0, gt=0, le=120)
+    llm_worker_connect_timeout_seconds: float = Field(default=5.0, gt=0, le=30)
+    llm_worker_max_connections: int = Field(default=100, ge=1, le=2000)
+    llm_worker_max_keepalive_connections: int = Field(default=20, ge=0, le=500)
+    llm_worker_http2_enabled: bool = False
+    llm_worker_route_max_inflight: int = Field(default=64, ge=1, le=5000)
+    llm_worker_narration_max_inflight: int = Field(default=64, ge=1, le=5000)
+    llm_worker_json_max_inflight: int = Field(default=32, ge=1, le=5000)
     obs_log_level: str = "INFO"
     obs_request_id_header: str = "X-Request-ID"
     obs_redact_input_text: bool = True

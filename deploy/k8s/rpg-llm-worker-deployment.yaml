@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rpg-llm-worker
+  labels:
+    app: rpg-llm-worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: rpg-llm-worker
+  template:
+    metadata:
+      labels:
+        app: rpg-llm-worker
+    spec:
+      containers:
+        - name: rpg-llm-worker
+          image: ghcr.io/your-org/rpg-backend:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - uvicorn
+            - rpg_backend.llm_worker.main:app
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8100"
+            - --workers
+            - "2"
+          ports:
+            - name: http
+              containerPort: 8100
+          envFrom:
+            - configMapRef:
+                name: rpg-backend-config
+            - secretRef:
+                name: rpg-backend-secret
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 2
+            successThreshold: 1
+
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 24
+            timeoutSeconds: 2
+
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1024Mi"

@@ -14,13 +14,8 @@ from sqlmodel import Session as DBSession
 
 from rpg_backend.config.settings import get_settings
 from rpg_backend.llm.factory import resolve_openai_models
-from rpg_backend.llm.openai_compat import (
-    build_auth_headers,
-    build_json_mode_body,
-    extract_chat_content,
-    normalize_chat_completions_url,
-    parse_json_object,
-)
+from rpg_backend.llm.json_gateway import JsonGateway, JsonGatewayError
+from rpg_backend.llm.worker_client import WorkerClientError, get_worker_client
 from rpg_backend.storage.engine import engine
 
 _probe_cache_lock = threading.Lock()
@@ -56,8 +51,10 @@ def _build_check_result(
 
 def _resolved_probe_config() -> tuple[dict[str, Any], list[str]]:
     settings = get_settings()
+    gateway_mode = str(getattr(settings, "llm_gateway_mode", "local") or "local").strip().lower()
     base_url = (settings.llm_openai_base_url or "").strip()
     api_key = (settings.llm_openai_api_key or "").strip()
+    worker_base_url = (getattr(settings, "llm_worker_base_url", None) or "").strip()
     route_model, narration_model = resolve_openai_models(
         settings.llm_openai_route_model,
         settings.llm_openai_narration_model,
@@ -65,16 +62,24 @@ def _resolved_probe_config() -> tuple[dict[str, Any], list[str]]:
     )
     probe_model = (settings.llm_openai_generator_model or "").strip() or route_model or narration_model
     missing: list[str] = []
-    if not base_url:
-        missing.append("APP_LLM_OPENAI_BASE_URL")
-    if not api_key:
-        missing.append("APP_LLM_OPENAI_API_KEY")
-    if not probe_model:
-        missing.append("one of APP_LLM_OPENAI_GENERATOR_MODEL / APP_LLM_OPENAI_ROUTE_MODEL / APP_LLM_OPENAI_NARRATION_MODEL / APP_LLM_OPENAI_MODEL")
+    if gateway_mode == "worker":
+        if not worker_base_url:
+            missing.append("APP_LLM_WORKER_BASE_URL")
+    else:
+        if not base_url:
+            missing.append("APP_LLM_OPENAI_BASE_URL")
+        if not api_key:
+            missing.append("APP_LLM_OPENAI_API_KEY")
+        if not probe_model:
+            missing.append(
+                "one of APP_LLM_OPENAI_GENERATOR_MODEL / APP_LLM_OPENAI_ROUTE_MODEL / APP_LLM_OPENAI_NARRATION_MODEL / APP_LLM_OPENAI_MODEL"
+            )
     return (
         {
+            "gateway_mode": gateway_mode,
             "base_url": base_url,
             "api_key": api_key,
+            "worker_base_url": worker_base_url,
             "probe_model": probe_model,
             "route_model": route_model,
             "narration_model": narration_model,
@@ -109,11 +114,14 @@ def check_db() -> dict[str, Any]:
 def check_llm_config() -> dict[str, Any]:
     checked_at = _utc_now()
     config, missing = _resolved_probe_config()
+    gateway_mode = str(config.get("gateway_mode") or "local")
     meta = {
+        "gateway_mode": gateway_mode,
         "probe_model": config.get("probe_model"),
         "route_model": config.get("route_model"),
         "narration_model": config.get("narration_model"),
         "base_url_host": urlparse(str(config.get("base_url") or "")).hostname,
+        "worker_host": urlparse(str(config.get("worker_base_url") or "")).hostname,
     }
     if missing:
         return _build_check_result(
@@ -141,23 +149,31 @@ def _perform_llm_probe_request(
     probe_model: str,
     timeout_seconds: float,
 ) -> dict[str, Any]:
-    payload = build_json_mode_body(
-        model=probe_model,
+    gateway = JsonGateway(
+        gateway_mode="local",
+        base_url=base_url,
+        api_key=api_key,
+        default_timeout_seconds=float(timeout_seconds),
+        connect_timeout_seconds=5.0,
+        max_connections=100,
+        max_keepalive_connections=20,
+        http2_enabled=False,
+        worker_client=None,
+    )
+    result = gateway.call_json_object(
         system_prompt="Readiness probe. Return JSON only with keys ok, who.",
         user_prompt="who are you",
+        model=probe_model,
         temperature=0.0,
+        max_retries=1,
+        timeout_seconds=timeout_seconds,
     )
-    headers = build_auth_headers(api_key)
-    with httpx.Client(timeout=timeout_seconds) as client:
-        response = client.post(normalize_chat_completions_url(base_url), headers=headers, json=payload)
-        response.raise_for_status()
-        return response.json()
+    return result.payload
 
 
 def _validate_probe_payload(payload: dict[str, Any]) -> tuple[bool, str]:
-    parsed = parse_json_object(extract_chat_content(payload))
-    ok_value = parsed.get("ok")
-    who_value = parsed.get("who")
+    ok_value = payload.get("ok")
+    who_value = payload.get("who")
     if ok_value is not True:
         raise ValueError("probe response ok is not true")
     if not isinstance(who_value, str) or not who_value.strip():
@@ -187,10 +203,12 @@ def check_llm_probe(*, refresh: bool = False) -> dict[str, Any]:
         )
 
     config, missing = _resolved_probe_config()
+    gateway_mode = str(config.get("gateway_mode") or "local")
     base_url = str(config.get("base_url") or "")
     api_key = str(config.get("api_key") or "")
     probe_model = str(config.get("probe_model") or "")
-    cache_key = f"{base_url}|{probe_model}"
+    worker_base_url = str(config.get("worker_base_url") or "")
+    cache_key = f"{gateway_mode}|{worker_base_url or base_url}|{probe_model}"
     ttl_seconds = settings.ready_llm_probe_cache_ttl_seconds
 
     if missing:
@@ -202,8 +220,10 @@ def check_llm_probe(*, refresh: bool = False) -> dict[str, Any]:
             message=f"missing config: {', '.join(missing)}",
             meta={
                 "cached": False,
+                "gateway_mode": gateway_mode,
                 "probe_model": probe_model or None,
                 "base_url_host": urlparse(base_url).hostname,
+                "worker_host": urlparse(worker_base_url).hostname,
             },
         )
 
@@ -225,26 +245,96 @@ def check_llm_probe(*, refresh: bool = False) -> dict[str, Any]:
     started_at = _monotonic()
     timeout_seconds = settings.ready_llm_probe_timeout_seconds
     host = urlparse(base_url).hostname
+    worker_host = urlparse(worker_base_url).hostname
     try:
-        raw_payload = _perform_llm_probe_request(
-            base_url=base_url,
-            api_key=api_key,
-            probe_model=probe_model,
-            timeout_seconds=timeout_seconds,
-        )
-        _, who = _validate_probe_payload(raw_payload)
+        if gateway_mode == "worker":
+            worker_client = get_worker_client()
+            status_code, worker_payload = worker_client.probe_ready(refresh=refresh)
+            if status_code >= 400:
+                error_message = str(
+                    worker_payload.get("checks", {})
+                    .get("llm_probe", {})
+                    .get("error_code")
+                    or worker_payload.get("status")
+                    or f"worker status={status_code}"
+                )
+                result = _build_check_result(
+                    ok=False,
+                    latency_ms=int((_monotonic() - started_at) * 1000),
+                    checked_at=_utc_now(),
+                    error_code="llm_probe_worker_not_ready",
+                    message=error_message,
+                    meta={
+                        "cached": False,
+                        "gateway_mode": gateway_mode,
+                        "probe_model": probe_model,
+                        "worker_host": worker_host,
+                        "worker_status_code": status_code,
+                    },
+                )
+            else:
+                worker_status = str(worker_payload.get("status") or "")
+                if worker_status != "ready":
+                    raise ValueError(f"worker /ready returned unexpected status: {worker_status}")
+                llm_probe = (worker_payload.get("checks") or {}).get("llm_probe") or {}
+                result = _build_check_result(
+                    ok=True,
+                    latency_ms=int((_monotonic() - started_at) * 1000),
+                    checked_at=_utc_now(),
+                    error_code=None,
+                    message=None,
+                    meta={
+                        "cached": False,
+                        "gateway_mode": gateway_mode,
+                        "probe_model": probe_model,
+                        "worker_host": worker_host,
+                        "worker_probe_cached": bool((llm_probe.get("meta") or {}).get("cached", False)),
+                    },
+                )
+        else:
+            raw_payload = _perform_llm_probe_request(
+                base_url=base_url,
+                api_key=api_key,
+                probe_model=probe_model,
+                timeout_seconds=timeout_seconds,
+            )
+            _, who = _validate_probe_payload(raw_payload)
+            result = _build_check_result(
+                ok=True,
+                latency_ms=int((_monotonic() - started_at) * 1000),
+                checked_at=_utc_now(),
+                error_code=None,
+                message=None,
+                meta={
+                    "cached": False,
+                    "gateway_mode": gateway_mode,
+                    "probe_model": probe_model,
+                    "base_url_host": host,
+                    "who_preview": who[:120],
+                },
+            )
+    except WorkerClientError as exc:
         result = _build_check_result(
-            ok=True,
+            ok=False,
             latency_ms=int((_monotonic() - started_at) * 1000),
             checked_at=_utc_now(),
-            error_code=None,
-            message=None,
+            error_code="llm_probe_worker_unreachable",
+            message=f"{exc.error_code}: {exc.message}",
             meta={
                 "cached": False,
+                "gateway_mode": gateway_mode,
                 "probe_model": probe_model,
-                "base_url_host": host,
-                "who_preview": who[:120],
+                "worker_host": worker_host,
             },
+        )
+    except JsonGatewayError as exc:
+        result = _build_check_result(
+            ok=False,
+            latency_ms=int((_monotonic() - started_at) * 1000),
+            checked_at=_utc_now(),
+            error_code="llm_probe_http_error",
+            message=f"{exc.error_code}: {exc.message}",
+            meta={"cached": False, "gateway_mode": gateway_mode, "probe_model": probe_model, "base_url_host": host},
         )
     except httpx.TimeoutException as exc:
         result = _build_check_result(
@@ -253,7 +343,7 @@ def check_llm_probe(*, refresh: bool = False) -> dict[str, Any]:
             checked_at=_utc_now(),
             error_code="llm_probe_timeout",
             message=str(exc),
-            meta={"cached": False, "probe_model": probe_model, "base_url_host": host},
+            meta={"cached": False, "gateway_mode": gateway_mode, "probe_model": probe_model, "base_url_host": host},
         )
     except httpx.HTTPStatusError as exc:
         result = _build_check_result(
@@ -262,7 +352,7 @@ def check_llm_probe(*, refresh: bool = False) -> dict[str, Any]:
             checked_at=_utc_now(),
             error_code="llm_probe_http_error",
             message=f"status={exc.response.status_code}",
-            meta={"cached": False, "probe_model": probe_model, "base_url_host": host},
+            meta={"cached": False, "gateway_mode": gateway_mode, "probe_model": probe_model, "base_url_host": host},
         )
     except (json.JSONDecodeError, ValueError) as exc:
         result = _build_check_result(
@@ -271,7 +361,7 @@ def check_llm_probe(*, refresh: bool = False) -> dict[str, Any]:
             checked_at=_utc_now(),
             error_code="llm_probe_invalid_response",
             message=str(exc),
-            meta={"cached": False, "probe_model": probe_model, "base_url_host": host},
+            meta={"cached": False, "gateway_mode": gateway_mode, "probe_model": probe_model, "base_url_host": host},
         )
     except httpx.HTTPError as exc:
         result = _build_check_result(
@@ -280,7 +370,7 @@ def check_llm_probe(*, refresh: bool = False) -> dict[str, Any]:
             checked_at=_utc_now(),
             error_code="llm_probe_http_error",
             message=str(exc),
-            meta={"cached": False, "probe_model": probe_model, "base_url_host": host},
+            meta={"cached": False, "gateway_mode": gateway_mode, "probe_model": probe_model, "base_url_host": host},
         )
     except Exception as exc:  # noqa: BLE001
         result = _build_check_result(
@@ -289,7 +379,7 @@ def check_llm_probe(*, refresh: bool = False) -> dict[str, Any]:
             checked_at=_utc_now(),
             error_code="llm_probe_failed",
             message=str(exc),
-            meta={"cached": False, "probe_model": probe_model, "base_url_host": host},
+            meta={"cached": False, "gateway_mode": gateway_mode, "probe_model": probe_model, "base_url_host": host},
         )
 
     with _probe_cache_lock:

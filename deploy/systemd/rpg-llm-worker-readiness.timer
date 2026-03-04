@@ -1,0 +1,11 @@
+[Unit]
+Description=Run RPG LLM Worker readiness probe every 30s
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=30s
+Unit=rpg-llm-worker-readiness.service
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

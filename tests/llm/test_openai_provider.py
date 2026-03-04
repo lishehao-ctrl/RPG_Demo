@@ -199,6 +199,18 @@ def test_route_intent_prompt_includes_route_policy_and_is_global(monkeypatch) ->
             "fallback_move": "global.clarify",
             "scene_seed": "signal corridor",
             "allow_global_help": False,
+            "scene_snapshot": {
+                "scene_id": "sc3",
+                "beat_id": "b1",
+                "beat_index": 0,
+                "present_npcs": ["Kael", "Niko"],
+                "beat_title": "Fault Ignition",
+            },
+            "state_snapshot": {
+                "last_move": "trace_anomaly",
+                "pressure_tracks": {"public_trust": -1, "resource_stress": 2, "coordination_noise": 3},
+                "recent_events_tail": ["b1.root_cause_locked"],
+            },
         },
         "trace the fault",
     )
@@ -207,6 +219,8 @@ def test_route_intent_prompt_includes_route_policy_and_is_global(monkeypatch) ->
     assert user_payload["route_policy"]["prefer_scene_specific"] is True
     assert user_payload["route_policy"]["allow_global_help"] is False
     assert user_payload["moves"][0]["is_global"] is False
+    assert user_payload["scene_snapshot"]["scene_id"] == "sc3"
+    assert user_payload["state_snapshot"]["pressure_tracks"]["coordination_noise"] == 3
 
 
 def test_render_narration_uses_narration_model(monkeypatch) -> None:

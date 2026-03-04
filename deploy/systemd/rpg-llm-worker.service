@@ -1,0 +1,18 @@
+[Unit]
+Description=RPG LLM Worker API (FastAPI/Uvicorn)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/rpg-backend
+EnvironmentFile=/opt/rpg-backend/.env
+ExecStart=/opt/rpg-backend/.venv/bin/uvicorn rpg_backend.llm_worker.main:app --host 0.0.0.0 --port 8100 --workers 2
+Restart=always
+RestartSec=3
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

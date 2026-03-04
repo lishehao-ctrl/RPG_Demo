@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: rpg-llm-worker
+  labels:
+    app: rpg-llm-worker
+spec:
+  selector:
+    app: rpg-llm-worker
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

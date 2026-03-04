@@ -15,7 +15,6 @@ from rpg_backend.generator.versioning import compute_payload_hash
 from rpg_backend.llm.base import LLMProviderConfigError
 from rpg_backend.llm.factory import resolve_openai_models
 from rpg_backend.llm.json_gateway import JsonGateway, JsonGatewayError
-from rpg_backend.llm.openai_compat import extract_chat_content, parse_json_object
 from rpg_backend.llm.worker_client import WorkerClientError, get_worker_client
 
 
@@ -146,9 +145,6 @@ class PromptCompiler:
 
     def _call_json_object(self, *, system_prompt: str, payload: dict[str, Any]) -> dict[str, Any]:
         user_prompt = json.dumps(payload, ensure_ascii=False)
-        if self.gateway_mode != "worker":
-            raw = self._call_chat_completions(system_prompt=system_prompt, user_prompt=user_prompt)
-            return parse_json_object(extract_chat_content(raw))
         try:
             result = self._json_gateway.call_json_object(
                 system_prompt=system_prompt,
@@ -161,28 +157,6 @@ class PromptCompiler:
         except JsonGatewayError as exc:
             raise RuntimeError(f"{exc.error_code}: {exc.message}") from exc
         return result.payload
-
-    def _call_chat_completions(self, *, system_prompt: str, user_prompt: str) -> dict[str, Any]:
-        try:
-            result = self._json_gateway.call_json_object(
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                model=self.model,
-                temperature=self.temperature,
-                max_retries=self.max_retries,
-                timeout_seconds=self.timeout_seconds,
-            )
-        except JsonGatewayError as exc:
-            raise RuntimeError(f"{exc.error_code}: {exc.message}") from exc
-        return {
-            "choices": [
-                {
-                    "message": {
-                        "content": json.dumps(result.payload, ensure_ascii=False),
-                    }
-                }
-            ]
-        }
 
     def compile(
         self,

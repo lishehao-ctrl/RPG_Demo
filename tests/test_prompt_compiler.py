@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from types import SimpleNamespace
 
 import pytest
@@ -169,10 +168,6 @@ def _spec_payload(*, premise: str) -> dict[str, object]:
     }
 
 
-def _chat_payload(content: str) -> dict[str, object]:
-    return {"choices": [{"message": {"content": content}}]}
-
-
 def test_two_stage_compile_success_within_three_calls(monkeypatch) -> None:
     import rpg_backend.generator.prompt_compiler as prompt_module
 
@@ -181,12 +176,12 @@ def test_two_stage_compile_success_within_three_calls(monkeypatch) -> None:
     queued = [_outline_payload(), _spec_payload(premise="A compact premise that fits all schema limits.")]
     captured_prompts: list[dict[str, object]] = []
 
-    def _fake_call(self, *, system_prompt: str, user_prompt: str):  # noqa: ANN001, ANN201
+    def _fake_call(self, *, system_prompt: str, payload: dict[str, object]):  # noqa: ANN001, ANN201
         del system_prompt
-        captured_prompts.append(json.loads(user_prompt))
-        return _chat_payload(json.dumps(queued.pop(0), ensure_ascii=False))
+        captured_prompts.append(dict(payload))
+        return queued.pop(0)
 
-    monkeypatch.setattr(prompt_module.PromptCompiler, "_call_chat_completions", _fake_call)
+    monkeypatch.setattr(prompt_module.PromptCompiler, "_call_json_object", _fake_call)
     compiled = PromptCompiler().compile(
         prompt_text="Generate a concise emergency scenario",
         target_minutes=10,
@@ -212,12 +207,12 @@ def test_two_stage_compile_stage2_validation_feedback_then_success(monkeypatch) 
     ]
     captured_prompts: list[dict[str, object]] = []
 
-    def _fake_call(self, *, system_prompt: str, user_prompt: str):  # noqa: ANN001, ANN201
+    def _fake_call(self, *, system_prompt: str, payload: dict[str, object]):  # noqa: ANN001, ANN201
         del system_prompt
-        captured_prompts.append(json.loads(user_prompt))
-        return _chat_payload(json.dumps(queued.pop(0), ensure_ascii=False))
+        captured_prompts.append(dict(payload))
+        return queued.pop(0)
 
-    monkeypatch.setattr(prompt_module.PromptCompiler, "_call_chat_completions", _fake_call)
+    monkeypatch.setattr(prompt_module.PromptCompiler, "_call_json_object", _fake_call)
     compiled = PromptCompiler().compile(
         prompt_text="Generate a concise emergency scenario",
         target_minutes=10,
@@ -241,12 +236,12 @@ def test_two_stage_compile_outline_invalid_raises_prompt_outline_invalid(monkeyp
     invalid_outline["beats"][1]["title"] = invalid_outline["beats"][0]["title"]
     calls = {"count": 0}
 
-    def _always_invalid_outline(self, *, system_prompt: str, user_prompt: str):  # noqa: ANN001, ANN201
-        del system_prompt, user_prompt
+    def _always_invalid_outline(self, *, system_prompt: str, payload: dict[str, object]):  # noqa: ANN001, ANN201
+        del system_prompt, payload
         calls["count"] += 1
-        return _chat_payload(json.dumps(invalid_outline, ensure_ascii=False))
+        return invalid_outline
 
-    monkeypatch.setattr(prompt_module.PromptCompiler, "_call_chat_completions", _always_invalid_outline)
+    monkeypatch.setattr(prompt_module.PromptCompiler, "_call_json_object", _always_invalid_outline)
 
     with pytest.raises(PromptCompileError) as exc_info:
         PromptCompiler().compile(
@@ -270,12 +265,12 @@ def test_compile_never_truncates_premise_locally(monkeypatch) -> None:
     ]
     calls = {"count": 0}
 
-    def _always_invalid_spec(self, *, system_prompt: str, user_prompt: str):  # noqa: ANN001, ANN201
-        del system_prompt, user_prompt
+    def _always_invalid_spec(self, *, system_prompt: str, payload: dict[str, object]):  # noqa: ANN001, ANN201
+        del system_prompt, payload
         calls["count"] += 1
-        return _chat_payload(json.dumps(queued.pop(0), ensure_ascii=False))
+        return queued.pop(0)
 
-    monkeypatch.setattr(prompt_module.PromptCompiler, "_call_chat_completions", _always_invalid_spec)
+    monkeypatch.setattr(prompt_module.PromptCompiler, "_call_json_object", _always_invalid_spec)
 
     with pytest.raises(PromptCompileError) as exc_info:
         PromptCompiler().compile(
@@ -315,12 +310,12 @@ def test_outline_payload_contains_style_targets(monkeypatch) -> None:
     queued = [_outline_payload(), _spec_payload(premise="A compact premise that fits all schema limits.")]
     captured_prompts: list[dict[str, object]] = []
 
-    def _fake_call(self, *, system_prompt: str, user_prompt: str):  # noqa: ANN001, ANN201
+    def _fake_call(self, *, system_prompt: str, payload: dict[str, object]):  # noqa: ANN001, ANN201
         del system_prompt
-        captured_prompts.append(json.loads(user_prompt))
-        return _chat_payload(json.dumps(queued.pop(0), ensure_ascii=False))
+        captured_prompts.append(dict(payload))
+        return queued.pop(0)
 
-    monkeypatch.setattr(prompt_module.PromptCompiler, "_call_chat_completions", _fake_call)
+    monkeypatch.setattr(prompt_module.PromptCompiler, "_call_json_object", _fake_call)
     _ = PromptCompiler().compile(
         prompt_text="Generate a concise emergency scenario",
         target_minutes=10,
@@ -345,11 +340,11 @@ def test_outline_invalid_error_notes_include_outline_feedback(monkeypatch) -> No
     invalid_outline = _outline_payload()
     invalid_outline["premise_core"] = "x" * 300
 
-    def _always_invalid_outline(self, *, system_prompt: str, user_prompt: str):  # noqa: ANN001, ANN201
-        del system_prompt, user_prompt
-        return _chat_payload(json.dumps(invalid_outline, ensure_ascii=False))
+    def _always_invalid_outline(self, *, system_prompt: str, payload: dict[str, object]):  # noqa: ANN001, ANN201
+        del system_prompt, payload
+        return invalid_outline
 
-    monkeypatch.setattr(prompt_module.PromptCompiler, "_call_chat_completions", _always_invalid_outline)
+    monkeypatch.setattr(prompt_module.PromptCompiler, "_call_json_object", _always_invalid_outline)
 
     with pytest.raises(PromptCompileError) as exc_info:
         PromptCompiler().compile(

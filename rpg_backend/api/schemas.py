@@ -369,4 +369,30 @@ class ErrorEnvelope(BaseModel):
     error: ErrorPayload
 
 
+class AdminAuthLoginRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    password: str = Field(min_length=1, max_length=512)
+
+
+class AdminUserPublic(BaseModel):
+    id: str
+    email: str
+    role: str
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+    last_login_at: datetime | None = None
+
+
+class AdminAuthLoginResponse(BaseModel):
+    access_token: str
+    token_type: Literal["bearer"] = "bearer"
+    expires_at: datetime
+    user: AdminUserPublic
+
+
+class AdminUserListResponse(BaseModel):
+    items: list[AdminUserPublic] = Field(default_factory=list)
+
+
 StoryGenerateResponse.model_rebuild()

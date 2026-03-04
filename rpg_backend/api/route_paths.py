@@ -6,7 +6,9 @@ READY_PATH = "/ready"
 API_STORIES_PREFIX = "/stories"
 API_SESSIONS_PREFIX = "/sessions"
 API_ADMIN_PREFIX = "/admin"
+API_ADMIN_AUTH_PREFIX = "/admin/auth"
 API_ADMIN_SESSIONS_PREFIX = "/admin/sessions"
+API_ADMIN_USERS_PREFIX = "/admin/users"
 API_ADMIN_OBSERVABILITY_PREFIX = "/admin/observability"
 
 LEGACY_V2_STORIES_PREFIX = "/v2/stories"
@@ -64,3 +66,15 @@ def admin_llm_call_health_path() -> str:
 
 def admin_readiness_health_path() -> str:
     return f"{API_ADMIN_OBSERVABILITY_PREFIX}/readiness-health"
+
+
+def admin_auth_login_path() -> str:
+    return f"{API_ADMIN_AUTH_PREFIX}/login"
+
+
+def admin_users_path() -> str:
+    return API_ADMIN_USERS_PREFIX
+
+
+def admin_user_path(user_id: str) -> str:
+    return f"{API_ADMIN_USERS_PREFIX}/{user_id}"

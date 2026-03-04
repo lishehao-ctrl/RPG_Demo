@@ -2,6 +2,7 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 from sqlmodel import Session as DBSession
 
+from rpg_backend.api.route_paths import HEALTH_PATH, READY_PATH
 from rpg_backend.api.schemas import ReadinessResponse
 from rpg_backend.observability.context import get_request_id
 from rpg_backend.observability.logging import log_event
@@ -33,12 +34,12 @@ def _save_backend_readiness_probe(
         return
 
 
-@router.get("/health")
+@router.get(HEALTH_PATH)
 def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@router.get("/ready", response_model=ReadinessResponse)
+@router.get(READY_PATH, response_model=ReadinessResponse)
 def ready(request: Request, refresh: bool = Query(default=False)) -> ReadinessResponse | JSONResponse:
     request_id = getattr(request.state, "request_id", None) or get_request_id()
     report = ReadinessResponse.model_validate(run_readiness_checks(refresh=refresh))

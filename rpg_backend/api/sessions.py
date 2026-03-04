@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlmodel import Session
 
 from rpg_backend.api.errors import ApiError
+from rpg_backend.api.route_paths import API_V2_SESSIONS_PREFIX
 from rpg_backend.api.schemas import (
     SessionCreateRequest,
     SessionCreateResponse,
@@ -23,7 +24,7 @@ from rpg_backend.storage.engine import get_session
 from rpg_backend.storage.repositories.sessions import create_session, get_session as get_session_record
 from rpg_backend.storage.repositories.stories import get_story, get_story_version
 
-router = APIRouter(prefix="/v2/sessions", tags=["sessions"])
+router = APIRouter(prefix=API_V2_SESSIONS_PREFIX, tags=["sessions"])
 
 
 def _state_summary(state: dict) -> dict[str, int]:

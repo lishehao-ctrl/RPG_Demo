@@ -176,7 +176,7 @@ Narration renders `narration_slots` into player-facing text using a strict templ
 ### Stories
 - `POST /v2/stories` — create draft with raw `pack_json`
 - `POST /v2/stories/{story_id}/publish` — publish a version (store raw `pack_json`)
-- `GET /v2/stories/{story_id}?version=...` — returns wrapper with `pack` = raw `pack_json`
+- `GET /v2/stories/{story_id}?version=...` — returns response object with `pack` = raw `pack_json`
 
 ### Sessions
 - `POST /v2/sessions` — create session bound to `{story_id, version}`, initialize `state`, set `current_scene_id`
@@ -254,6 +254,7 @@ Business endpoints use a unified error envelope:
   - `generator/candidate_executor.py`: candidate parallelism + winner/best selection
   - `generator/result_builder.py`: diagnostics + `GeneratorBuildResult` assembly
   - `generator/errors.py`: `GeneratorBuildError` construction and mapping
+  - imports are explicit module imports; no legacy facade or wrapper path
 
 ---
 

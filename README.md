@@ -18,11 +18,14 @@ Backend-first interactive narrative RPG service with OpenAI-only runtime behavio
 ## Architecture
 Code is split by responsibilities:
 - `rpg_backend/domain`: Story Pack DSL schema + linter
-- `rpg_backend/generator`: deterministic story generator (`pipeline/candidate_executor/result_builder/errors` + `planner/builder/prompt_compiler/service facade`)
+- `rpg_backend/generator`: deterministic story generator (`pipeline/candidate_executor/result_builder/errors` + `planner/builder/prompt_compiler`)
 - `rpg_backend/runtime`: Pass A routing + Pass B deterministic resolution + narration composition
 - `rpg_backend/llm`: OpenAI provider abstraction (`OpenAIProvider`)
 - `rpg_backend/storage`: SQLModel entities + repositories
 - `rpg_backend/api`: REST API (stories/v2/sessions)
+
+Internal import policy:
+- use explicit module imports (for example `rpg_backend.generator.pipeline`) instead of wrapper/facade paths.
 
 Runtime architecture source of truth:
 - `docs/story_architecture_v3.md`
@@ -445,7 +448,7 @@ python scripts/evaluate_llm_story_generation.py \
 ```
 
 What it evaluates:
-- prompt mode generation only (`GeneratorService.generate_pack(prompt_text=...)`)
+- prompt mode generation only (`GeneratorPipeline.run(prompt_text=...)`)
 - playability replay using `provider=openai` (strict runtime behavior)
 - subjective quality via LLM Judge (chat completions JSON mode)
 

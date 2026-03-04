@@ -19,7 +19,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from rpg_backend.config.settings import get_settings
 from rpg_backend.eval.story_quality_judge import StoryQualityJudge, StoryQualityJudgeError
 from rpg_backend.generator.prompt_compiler import PromptCompileError, PromptCompiler
-from rpg_backend.generator.service import GeneratorBuildError, GeneratorService
+from rpg_backend.generator.errors import GeneratorBuildError
+from rpg_backend.generator.pipeline import GeneratorPipeline
 from rpg_backend.generator.versioning import compute_transcript_digest
 
 try:
@@ -643,7 +644,7 @@ def _evaluate_case_run(
     packs_dir: Path,
     artifacts_dir: Path,
     judge_model: str | None,
-    service: GeneratorService | None = None,
+    pipeline: GeneratorPipeline | None = None,
     judge: StoryQualityJudge | None = None,
 ) -> dict[str, Any]:
     case_seed = _derive_case_seed(case.id)
@@ -666,10 +667,10 @@ def _evaluate_case_run(
     global_judge_overall_scores: list[float] = []
     global_judge_fidelity_scores: list[float] = []
 
-    service_instance = service or GeneratorService()
+    pipeline_instance = pipeline or GeneratorPipeline()
 
     try:
-        generated = service_instance.generate_pack(
+        generated = pipeline_instance.run(
             prompt_text=case.prompt_text,
             target_minutes=case.target_minutes,
             npc_count=case.npc_count,
@@ -941,10 +942,10 @@ def evaluate_llm_story_generation(
             "cases": [],
         }
 
-    shared_service: GeneratorService | None = None
+    shared_pipeline: GeneratorPipeline | None = None
     shared_judge: StoryQualityJudge | None = None
     if max_workers <= 1:
-        shared_service = GeneratorService()
+        shared_pipeline = GeneratorPipeline()
         shared_judge = StoryQualityJudge(model_override=judge_model)
 
     total_runs = len(suite.cases) * runs_per_prompt
@@ -990,7 +991,7 @@ def evaluate_llm_story_generation(
                         packs_dir=packs_dir,
                         artifacts_dir=artifacts_dir,
                         judge_model=judge_model,
-                        service=shared_service,
+                        pipeline=shared_pipeline,
                         judge=shared_judge,
                     )
                 )
@@ -1006,7 +1007,7 @@ def evaluate_llm_story_generation(
                         packs_dir=packs_dir,
                         artifacts_dir=artifacts_dir,
                         judge_model=judge_model,
-                        service=None,
+                        pipeline=None,
                         judge=None,
                     ): run_index
                     for run_index in range(1, runs_per_prompt + 1)

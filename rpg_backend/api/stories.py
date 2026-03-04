@@ -10,10 +10,11 @@ from rpg_backend.api.schemas import (
     StoryGetResponse,
     StoryPublishResponse,
 )
-from rpg_backend.generator import GeneratorBuildError, GeneratorService
 from rpg_backend.observability.context import get_request_id
 from rpg_backend.observability.logging import log_event
 from rpg_backend.domain.linter import lint_story_pack
+from rpg_backend.generator.errors import GeneratorBuildError
+from rpg_backend.generator.pipeline import GeneratorPipeline
 from rpg_backend.storage.engine import get_session
 from rpg_backend.storage.repositories.stories import (
     create_story,
@@ -59,9 +60,9 @@ def generate_story_endpoint(
     db: Session = Depends(get_session),
 ) -> StoryGenerateResponse:
     request_id = getattr(request.state, "request_id", None) or get_request_id()
-    service = GeneratorService()
+    pipeline = GeneratorPipeline()
     try:
-        result = service.generate_pack(
+        result = pipeline.run(
             seed_text=payload.seed_text,
             prompt_text=payload.prompt_text,
             target_minutes=payload.target_minutes,

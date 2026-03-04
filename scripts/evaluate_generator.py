@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from rpg_backend.generator.service import GeneratorService
+from rpg_backend.generator.pipeline import GeneratorPipeline
 from rpg_backend.generator.versioning import PalettePolicy, compute_transcript_digest
 
 try:
@@ -41,7 +41,7 @@ def evaluate_generator(
     palette_policy: PalettePolicy = "random",
     packs_dir: Path | None = None,
 ) -> dict[str, Any]:
-    service = GeneratorService()
+    pipeline = GeneratorPipeline()
     selected_strategies = list(DEFAULT_STRATEGIES[: max(1, min(strategy_count, len(DEFAULT_STRATEGIES)))])
     output_packs_dir = packs_dir or Path("reports/packs")
     os.makedirs(output_packs_dir, exist_ok=True)
@@ -56,7 +56,7 @@ def evaluate_generator(
 
     for run_idx in range(1, runs + 1):
         run_variant_seed = f"{variant_seed}:{run_idx}" if variant_seed else None
-        generated = service.generate_pack(
+        generated = pipeline.run(
             seed_text=seed_text,
             target_minutes=target_minutes,
             npc_count=npc_count,

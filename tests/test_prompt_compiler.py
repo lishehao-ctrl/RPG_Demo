@@ -331,6 +331,51 @@ def test_outline_payload_contains_style_targets(monkeypatch) -> None:
     assert style_targets["npcs.*.conflict_tags"] == "Choose 1-3 tags from {anti_noise, anti_speed, anti_resource_burn}."
     assert captured_prompts[0]["npc_conflict_tag_catalog"]["anti_noise"]
     assert captured_prompts[1]["npc_conflict_tag_catalog"]["anti_speed"]
+    stage1_markdown = captured_prompts[0]["npc_conflict_tag_catalog_markdown"]
+    stage2_markdown = captured_prompts[1]["npc_conflict_tag_catalog_markdown"]
+    assert isinstance(stage1_markdown, str)
+    assert stage2_markdown == stage1_markdown
+    assert "- `anti_noise`: Rejects noisy, trust-eroding shortcuts and messy escalation." in stage1_markdown
+    assert "- `anti_speed`: Rejects slow pacing that burns decision windows and urgency." in stage1_markdown
+    assert "- `anti_resource_burn`: Rejects heavy resource burn and reserve depletion." in stage1_markdown
+
+
+def test_system_prompts_use_sectioned_contract_structure(monkeypatch) -> None:
+    import rpg_backend.generator.prompt_compiler as prompt_module
+
+    monkeypatch.setattr(prompt_module, "get_settings", lambda: _settings_stub(max_retries=3))
+    queued = [_outline_payload(), _spec_payload(premise="A compact premise that fits all schema limits.")]
+    captured_system_prompts: list[str] = []
+    captured_payloads: list[dict[str, object]] = []
+
+    def _fake_call(self, *, system_prompt: str, payload: dict[str, object]):  # noqa: ANN001, ANN201
+        captured_system_prompts.append(system_prompt)
+        captured_payloads.append(dict(payload))
+        return queued.pop(0)
+
+    monkeypatch.setattr(prompt_module.PromptCompiler, "_call_json_object", _fake_call)
+    _ = PromptCompiler().compile(
+        prompt_text="Generate a concise emergency scenario",
+        target_minutes=10,
+        npc_count=4,
+        style="neutral",
+    )
+
+    outline_prompt = captured_system_prompts[0]
+    spec_prompt = captured_system_prompts[1]
+    for prompt in (outline_prompt, spec_prompt):
+        assert "Role & Intent" in prompt
+        assert "CRITICAL SCHEMA CONSTRAINTS" in prompt
+        assert "DATA DICTIONARY & ENUM ANCHORING" in prompt
+        assert "OUTPUT FORMAT" in prompt
+    assert "premise_core" in outline_prompt
+    assert "stakes_core" in outline_prompt
+    assert '"premise": "string"' not in outline_prompt
+    assert '"stakes": "string"' not in outline_prompt
+    assert "Do NOT output any text outside JSON" in outline_prompt
+    assert "Do NOT output any text outside JSON" in spec_prompt
+    assert captured_payloads[0]["npc_conflict_tag_catalog_markdown"]
+    assert captured_payloads[1]["npc_conflict_tag_catalog_markdown"]
 
 
 def test_outline_invalid_error_notes_include_outline_feedback(monkeypatch) -> None:

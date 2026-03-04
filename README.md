@@ -29,6 +29,8 @@ Internal import policy:
 
 Runtime architecture source of truth:
 - `docs/story_architecture_v3.md`
+- Prompt authoring review baseline:
+  - `docs/prompt_authoring_structure.md`
 
 ## Quick Start
 

@@ -64,6 +64,7 @@ class PromptCompiler:
         "npcs.*.conflict_tags": "Choose 1-3 tags from {anti_noise, anti_speed, anti_resource_burn}.",
     }
     _NPC_CONFLICT_TAG_CATALOG: dict[str, str] = dict(NPC_CONFLICT_TAG_CATALOG)
+    _NPC_CONFLICT_TAG_ORDER: tuple[str, ...] = ("anti_noise", "anti_speed", "anti_resource_burn")
 
     def __init__(self) -> None:
         settings = get_settings()
@@ -143,6 +144,17 @@ class PromptCompiler:
             return PromptCompiler._OUTLINE_STYLE_TARGETS["npcs.*.conflict_tags"]
         return None
 
+    @staticmethod
+    def _format_npc_conflict_tag_catalog_markdown(catalog: dict[str, str]) -> str:
+        ordered_keys: list[str] = []
+        for key in PromptCompiler._NPC_CONFLICT_TAG_ORDER:
+            if key in catalog:
+                ordered_keys.append(key)
+        for key in sorted(catalog.keys()):
+            if key not in ordered_keys:
+                ordered_keys.append(key)
+        return "\n".join(f"- `{key}`: {catalog[key]}" for key in ordered_keys)
+
     def _call_json_object(self, *, system_prompt: str, payload: dict[str, Any]) -> dict[str, Any]:
         user_prompt = json.dumps(payload, ensure_ascii=False)
         try:
@@ -208,27 +220,66 @@ class PromptCompiler:
             "required_move_bias_tags": required_move_bias_tags,
             "required_ending_shapes": ["triumph", "pyrrhic", "uncertain", "sacrifice"],
         }
+        npc_conflict_tag_catalog = dict(self._NPC_CONFLICT_TAG_CATALOG)
+        npc_conflict_tag_catalog_markdown = self._format_npc_conflict_tag_catalog_markdown(npc_conflict_tag_catalog)
 
         outline_prompt = (
-            "You are a story architect for an interactive narrative game runtime. "
-            "Step 1/2: produce a compact outline JSON only. "
-            "Hard constraints: title<=90, premise_core<=240, tone<=100, stakes_core<=220, "
-            "beats exactly 4 with unique titles, npcs exactly 4 each with a concrete non-negotiable red_line, "
-            "each NPC must include conflict_tags (1..3) from {anti_noise, anti_speed, anti_resource_burn}, "
-            "scene_constraints exactly 4, move_bias 2..5. "
-            "Writing targets: premise_core should be 1-2 concise sentences; each beats.required_event should be a "
-            "snake_case tag style phrase of 3-5 words (not full prose); each beats.conflict should be a short "
-            "8-14 word sentence; NPC conflict_tags should align with each red_line semantics. "
-            "Design beats so each scene can offer strategy triangle choices (fast_dirty / steady_slow / political_safe_resource_heavy). "
-            "Ensure the last two beats can naturally collect debt from earlier risky choices. "
-            "Self-check all limits before returning."
+            "# Role & Intent\n"
+            "You are the core logic engine for a deterministic interactive RPG runtime.\n"
+            "Task: generate a compact StorySpecOutline in strict JSON format.\n"
+            "Do NOT generate full StorySpec fields. Do NOT output any text outside JSON.\n"
+            "Any schema violation crashes runtime parsing.\n\n"
+            "# Narrative Objectives\n"
+            "- Preserve strategy triangle feasibility for downstream scenes.\n"
+            "- Create design debt that must be paid back in the final beats.\n"
+            "- Keep red_line semantics aligned with conflict_tags.\n\n"
+            "# CRITICAL SCHEMA CONSTRAINTS (HARD LIMITS)\n"
+            "1. Counts are exact and mandatory.\n"
+            "2. You MUST produce exactly 4 beats and exactly 4 NPCs.\n"
+            "3. Keep fields within limits:\n"
+            "   - title <= 90 chars\n"
+            "   - premise_core <= 240 chars\n"
+            "   - tone <= 100 chars\n"
+            "   - stakes_core <= 220 chars\n"
+            "   - scene_constraints exactly 4\n"
+            "   - move_bias 2..5\n"
+            "4. Every NPC must include:\n"
+            "   - red_line (<=160 chars)\n"
+            "   - conflict_tags (1..3 items, exact enum matches)\n\n"
+            "# DATA DICTIONARY & ENUM ANCHORING\n"
+            "Allowed NPC conflict tags (use exact values only):\n"
+            f"{npc_conflict_tag_catalog_markdown}\n"
+            "Choose 1-3 tags per NPC strictly from the list above. Do NOT invent tags.\n\n"
+            "# OUTPUT FORMAT\n"
+            "Return valid JSON object with this structure only:\n"
+            "{\n"
+            '  "title": "string",\n'
+            '  "premise_core": "string",\n'
+            '  "tone": "string",\n'
+            '  "stakes_core": "string",\n'
+            '  "npcs": [\n'
+            "    {\n"
+            '      "name": "string",\n'
+            '      "role": "string",\n'
+            '      "motivation": "string",\n'
+            '      "red_line": "string",\n'
+            '      "conflict_tags": ["anti_noise"]\n'
+            "    }\n"
+            "  ],\n"
+            '  "beats": [{"title": "string", "objective": "string", "conflict": "string", "required_event": "snake_case_tag"}],\n'
+            '  "scene_constraints": ["string"],\n'
+            '  "move_bias": ["string"],\n'
+            '  "ending_shape": "triumph|pyrrhic|uncertain|sacrifice"\n'
+            "}\n"
+            "Hard fail if output is not parseable JSON."
         )
         outline_payload = {
             "task": "compile_story_outline",
             **common_payload,
             "field_limits": dict(self._OUTLINE_FIELD_LIMITS),
             "style_targets": dict(self._OUTLINE_STYLE_TARGETS),
-            "npc_conflict_tag_catalog": dict(self._NPC_CONFLICT_TAG_CATALOG),
+            "npc_conflict_tag_catalog": npc_conflict_tag_catalog,
+            "npc_conflict_tag_catalog_markdown": npc_conflict_tag_catalog_markdown,
             "output_schema": StorySpecOutline.model_json_schema(),
         }
 
@@ -253,21 +304,42 @@ class PromptCompiler:
             ) from exc
 
         spec_prompt = (
-            "You are a story architect for an interactive narrative game runtime. "
-            "Step 2/2: expand the provided outline into a full StorySpec JSON only. "
-            "Hard limits: title<=120, premise<=400, tone<=120, stakes<=300, beats 3..5, npcs 3..5, "
-            "scene_constraints 3..5, move_bias 1..6. Preserve grounded realism and avoid fantasy drift. "
-            "Every NPC must include red_line plus conflict_tags (1..3) from {anti_noise, anti_speed, anti_resource_burn}. "
-            "red_line text and conflict_tags must semantically align and conflict with at least one strategy style. "
-            "Ensure early risky shortcuts can be paid back in the final two beats via delayed consequences. "
-            "Self-check all limits before returning."
+            "# Role & Intent\n"
+            "You are the core logic engine for a deterministic interactive RPG runtime.\n"
+            "Task: expand the validated outline into full StorySpec as strict JSON only.\n"
+            "Do NOT output any text outside JSON. Non-JSON output crashes runtime.\n\n"
+            "# Narrative Objectives\n"
+            "- Preserve grounded realism and strategy triangle feasibility.\n"
+            "- Keep design debt visible so final beats must resolve earlier risky choices.\n"
+            "- Ensure NPC red_line semantics align with conflict_tags.\n\n"
+            "# CRITICAL SCHEMA CONSTRAINTS (HARD LIMITS)\n"
+            "1. Respect full StorySpec limits exactly:\n"
+            "   - title <= 120 chars\n"
+            "   - premise <= 400 chars\n"
+            "   - tone <= 120 chars\n"
+            "   - stakes <= 300 chars\n"
+            "   - beats 3..5\n"
+            "   - npcs 3..5\n"
+            "   - scene_constraints 3..5\n"
+            "   - move_bias 1..6\n"
+            "2. Every NPC requires red_line and conflict_tags (1..3 exact enum matches).\n"
+            "3. red_line text must semantically match chosen conflict_tags.\n"
+            "4. If validation feedback is provided, fix every listed violation in the regenerated JSON.\n\n"
+            "# DATA DICTIONARY & ENUM ANCHORING\n"
+            "Allowed NPC conflict tags (use exact values only):\n"
+            f"{npc_conflict_tag_catalog_markdown}\n"
+            "Do NOT invent new tags. Choose 1-3 tags for each NPC.\n\n"
+            "# OUTPUT FORMAT\n"
+            "Return one parseable JSON object that matches the provided StorySpec output_schema.\n"
+            "No markdown, no commentary, no prefixes, no suffixes."
         )
         spec_payload = {
             "task": "compile_story_spec_from_outline",
             **common_payload,
             "outline": outline.model_dump(mode="json"),
             "field_limits": dict(self._SPEC_FIELD_LIMITS),
-            "npc_conflict_tag_catalog": dict(self._NPC_CONFLICT_TAG_CATALOG),
+            "npc_conflict_tag_catalog": npc_conflict_tag_catalog,
+            "npc_conflict_tag_catalog_markdown": npc_conflict_tag_catalog_markdown,
             "output_schema": StorySpec.model_json_schema(),
         }
 

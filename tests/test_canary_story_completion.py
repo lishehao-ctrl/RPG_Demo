@@ -39,7 +39,7 @@ def test_sample_story_finishes_in_14_to_16_steps(client, monkeypatch) -> None:
         assert body["resolution"]["consequences_summary"] != "none"
 
         steps = idx
-        if body["debug"] is not None:
+        if body.get("debug") is not None:
             pass
 
         session_state = client.get(f"/v2/sessions/{session_id}").json()

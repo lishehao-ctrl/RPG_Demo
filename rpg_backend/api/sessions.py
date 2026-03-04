@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 from sqlmodel import Session
 
+from rpg_backend.api.errors import ApiError
 from rpg_backend.api.schemas import (
     SessionCreateRequest,
     SessionCreateResponse,
@@ -38,13 +39,11 @@ def _build_runtime_or_503() -> RuntimeService:
     try:
         provider = get_llm_provider()
     except LLMProviderConfigError as exc:
-        raise HTTPException(
+        raise ApiError(
             status_code=503,
-            detail={
-                "error_code": "service_unavailable",
-                "message": f"llm provider misconfigured: {exc}",
-                "retryable": False,
-            },
+            code="service_unavailable",
+            message=f"llm provider misconfigured: {exc}",
+            retryable=False,
         ) from exc
     return RuntimeService(provider)
 
@@ -53,11 +52,11 @@ def _build_runtime_or_503() -> RuntimeService:
 def create_session_endpoint(payload: SessionCreateRequest, db: Session = Depends(get_session)) -> SessionCreateResponse:
     story = get_story(db, payload.story_id)
     if story is None:
-        raise HTTPException(status_code=404, detail="story not found")
+        raise ApiError(status_code=404, code="not_found", message="story not found", retryable=False)
 
     story_version = get_story_version(db, payload.story_id, payload.version)
     if story_version is None:
-        raise HTTPException(status_code=404, detail="story version not found")
+        raise ApiError(status_code=404, code="not_found", message="story version not found", retryable=False)
 
     pack = StoryPack.model_validate(story_version.pack_json)
     runtime = _build_runtime_or_503()
@@ -90,7 +89,7 @@ def get_session_endpoint(
 ) -> SessionGetResponse:
     session = get_session_record(db, session_id)
     if session is None:
-        raise HTTPException(status_code=404, detail="session not found")
+        raise ApiError(status_code=404, code="not_found", message="session not found", retryable=False)
 
     return SessionGetResponse(
         session_id=session.id,
@@ -102,7 +101,7 @@ def get_session_endpoint(
     )
 
 
-@router.post("/{session_id}/step", response_model=SessionStepResponse)
+@router.post("/{session_id}/step", response_model=SessionStepResponse, response_model_exclude_none=True)
 def step_session_endpoint(
     session_id: str,
     payload: SessionStepRequest,

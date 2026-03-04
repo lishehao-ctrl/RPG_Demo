@@ -246,6 +246,65 @@ def test_step_tolerates_missing_or_invalid_input_shape(client, monkeypatch) -> N
     }
 
 
+def test_step_response_strict_shape_and_debug_only_in_dev_mode(client, monkeypatch) -> None:
+    from rpg_backend.api import sessions as sessions_api
+
+    monkeypatch.setattr(sessions_api, "get_llm_provider", lambda: DeterministicProvider())
+    story_id, version = _bootstrap_story(client)
+    session_resp = client.post("/v2/sessions", json={"story_id": story_id, "version": version})
+    session_id = session_resp.json()["session_id"]
+
+    normal = client.post(
+        f"/v2/sessions/{session_id}/step",
+        json={
+            "client_action_id": "strict-shape-1",
+            "input": {"type": "text", "text": "advance story"},
+            "dev_mode": False,
+        },
+    )
+    assert normal.status_code == 200
+    normal_body = normal.json()
+    assert set(normal_body["recognized"].keys()) == {
+        "interpreted_intent",
+        "move_id",
+        "confidence",
+        "route_source",
+        "llm_duration_ms",
+        "llm_gateway_mode",
+    }
+    assert set(normal_body["resolution"].keys()) == {"result", "costs_summary", "consequences_summary"}
+    assert set(normal_body["ui"].keys()) == {"moves", "input_hint"}
+    assert "debug" not in normal_body
+    assert all(set(move.keys()) == {"move_id", "label", "risk_hint"} for move in normal_body["ui"]["moves"])
+
+    dev = client.post(
+        f"/v2/sessions/{session_id}/step",
+        json={
+            "client_action_id": "strict-shape-2",
+            "input": {"type": "text", "text": "advance again"},
+            "dev_mode": True,
+        },
+    )
+    assert dev.status_code == 200
+    dev_body = dev.json()
+    assert "debug" in dev_body
+    assert set(dev_body["debug"].keys()) == {
+        "selected_move",
+        "selected_outcome",
+        "selected_strategy_style",
+        "pressure_recoil_triggered",
+        "stance_snapshot",
+        "state",
+        "beat_progress",
+    }
+    assert set(dev_body["debug"]["stance_snapshot"].keys()) == {
+        "support",
+        "oppose",
+        "contested",
+        "red_line_hits",
+    }
+
+
 def test_session_create_returns_503_when_openai_provider_misconfigured(client, monkeypatch) -> None:
     story_id, version = _bootstrap_story(client)
     monkeypatch.setenv("APP_LLM_OPENAI_BASE_URL", "")

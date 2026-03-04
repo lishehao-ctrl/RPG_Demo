@@ -91,15 +91,72 @@ class SessionStepRequest(BaseModel):
     dev_mode: bool = False
 
 
+class SessionRecognizedPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    interpreted_intent: str
+    move_id: str
+    confidence: float = Field(ge=0.0, le=1.0)
+    route_source: Literal["button", "button_fallback", "llm"]
+    llm_duration_ms: int | None = Field(default=None, ge=0)
+    llm_gateway_mode: Literal["local", "worker", "unknown"] | None = None
+
+
+class SessionResolutionPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    result: str
+    costs_summary: str
+    consequences_summary: str
+
+
+class SessionUiMovePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    move_id: str
+    label: str
+    risk_hint: str
+
+
+class SessionUiPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    moves: list[SessionUiMovePayload] = Field(default_factory=list)
+    input_hint: str
+
+
+class SessionStepDebugStancePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    support: list[str] = Field(default_factory=list)
+    oppose: list[str] = Field(default_factory=list)
+    contested: list[str] = Field(default_factory=list)
+    red_line_hits: list[str] = Field(default_factory=list)
+
+
+class SessionStepDebugPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    selected_move: str
+    selected_outcome: str
+    selected_strategy_style: str
+    pressure_recoil_triggered: bool
+    stance_snapshot: SessionStepDebugStancePayload
+    state: dict[str, Any] = Field(default_factory=dict)
+    beat_progress: dict[str, int] = Field(default_factory=dict)
+
+
 class SessionStepResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     session_id: str
     version: int
     scene_id: str
     narration_text: str
-    recognized: dict[str, Any]
-    resolution: dict[str, Any]
-    ui: dict[str, Any]
-    debug: dict[str, Any] | None = None
+    recognized: SessionRecognizedPayload
+    resolution: SessionResolutionPayload
+    ui: SessionUiPayload
+    debug: SessionStepDebugPayload | None = None
 
 
 class SessionGetResponse(BaseModel):
@@ -180,6 +237,74 @@ class RuntimeErrorsAggregateResponse(BaseModel):
     failed_total: int = Field(ge=0)
     step_error_rate: float = Field(ge=0.0, le=1.0)
     buckets: list[RuntimeErrorBucketPayload] = Field(default_factory=list)
+
+
+class Http5xxPathBucketPayload(BaseModel):
+    path: str
+    failed_count: int = Field(ge=0)
+    sample_request_ids: list[str] = Field(default_factory=list)
+
+
+class ObservabilityWindowPayload(BaseModel):
+    generated_at: datetime
+    window_started_at: datetime
+    window_ended_at: datetime
+    window_seconds: int = Field(ge=60, le=3600)
+
+
+class HttpHealthAggregateResponse(ObservabilityWindowPayload):
+    service: Literal["backend", "worker"]
+    total_requests: int = Field(ge=0)
+    failed_5xx: int = Field(ge=0)
+    error_rate: float = Field(ge=0.0, le=1.0)
+    p95_ms: int | None = Field(default=None, ge=0)
+    top_5xx_paths: list[Http5xxPathBucketPayload] = Field(default_factory=list)
+
+
+class LLMCallGroupHealthPayload(BaseModel):
+    total_calls: int = Field(default=0, ge=0)
+    failed_calls: int = Field(default=0, ge=0)
+    failure_rate: float = Field(default=0.0, ge=0.0, le=1.0)
+    p95_ms: int | None = Field(default=None, ge=0)
+
+
+class LLMCallByStagePayload(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    route: LLMCallGroupHealthPayload = Field(default_factory=LLMCallGroupHealthPayload)
+    narration: LLMCallGroupHealthPayload = Field(default_factory=LLMCallGroupHealthPayload)
+    json_stage: LLMCallGroupHealthPayload = Field(default_factory=LLMCallGroupHealthPayload, alias="json")
+    unknown: LLMCallGroupHealthPayload = Field(default_factory=LLMCallGroupHealthPayload)
+
+
+class LLMCallByGatewayModePayload(BaseModel):
+    local: LLMCallGroupHealthPayload = Field(default_factory=LLMCallGroupHealthPayload)
+    worker: LLMCallGroupHealthPayload = Field(default_factory=LLMCallGroupHealthPayload)
+    unknown: LLMCallGroupHealthPayload = Field(default_factory=LLMCallGroupHealthPayload)
+
+
+class LLMCallHealthAggregateResponse(ObservabilityWindowPayload):
+    total_calls: int = Field(ge=0)
+    failed_calls: int = Field(ge=0)
+    failure_rate: float = Field(ge=0.0, le=1.0)
+    p95_ms: int | None = Field(default=None, ge=0)
+    by_stage: LLMCallByStagePayload = Field(default_factory=LLMCallByStagePayload)
+    by_gateway_mode: LLMCallByGatewayModePayload = Field(default_factory=LLMCallByGatewayModePayload)
+
+
+class ReadinessFailurePayload(BaseModel):
+    service: Literal["backend", "worker"]
+    error_code: str | None = None
+    request_id: str | None = None
+    created_at: datetime
+
+
+class ReadinessHealthAggregateResponse(ObservabilityWindowPayload):
+    backend_ready_fail_count: int = Field(ge=0)
+    worker_ready_fail_count: int = Field(ge=0)
+    backend_fail_streak: int = Field(ge=0)
+    worker_fail_streak: int = Field(ge=0)
+    last_failures: list[ReadinessFailurePayload] = Field(default_factory=list)
 
 
 class ReadinessCheckPayload(BaseModel):

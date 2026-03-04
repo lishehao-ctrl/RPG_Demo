@@ -18,7 +18,7 @@ from rpg_backend.llm.base import LLMProviderConfigError
 from rpg_backend.llm.factory import get_llm_provider
 from rpg_backend.observability.context import get_request_id
 from rpg_backend.runtime.service import RuntimeService
-from rpg_backend.runtime.session_step_service import process_step_request
+from rpg_backend.runtime.session_step.orchestrator import process_step_request
 from rpg_backend.storage.engine import get_session
 from rpg_backend.storage.repositories.sessions import create_session, get_session as get_session_record
 from rpg_backend.storage.repositories.stories import get_story, get_story_version

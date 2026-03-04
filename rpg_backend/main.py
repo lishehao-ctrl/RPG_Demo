@@ -5,6 +5,10 @@ from fastapi import FastAPI
 from rpg_backend.api.errors import register_error_handlers
 from rpg_backend.api.router_registry import register_routers
 from rpg_backend.observability.logging import configure_logging
+from rpg_backend.security.bootstrap import (
+    assert_production_secret_requirements,
+    ensure_bootstrap_admin,
+)
 from rpg_backend.observability.middleware import RequestIdMiddleware
 from rpg_backend.storage.migrations import assert_schema_current
 
@@ -13,6 +17,8 @@ from rpg_backend.storage.migrations import assert_schema_current
 async def lifespan(_: FastAPI):
     configure_logging()
     assert_schema_current()
+    assert_production_secret_requirements()
+    ensure_bootstrap_admin()
     yield
 
 

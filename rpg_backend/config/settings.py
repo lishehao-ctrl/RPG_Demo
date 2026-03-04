@@ -9,6 +9,12 @@ class Settings(BaseSettings):
     app_env: str = "dev"
     debug: bool = False
     database_url: str = "sqlite:///./app.db"
+    auth_jwt_secret: str = "dev-only-change-me"
+    auth_jwt_expire_minutes: int = Field(default=480, ge=1, le=10080)
+    auth_jwt_issuer: str = "rpg-backend"
+    admin_bootstrap_email: str = "admin@example.com"
+    admin_bootstrap_password: str = "admin123456"
+    internal_worker_token: str = "dev-worker-token"
     routing_confidence_threshold: float = 0.55
     llm_openai_base_url: str | None = None
     llm_openai_api_key: str | None = None

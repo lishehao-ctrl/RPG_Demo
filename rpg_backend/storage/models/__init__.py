@@ -1,4 +1,5 @@
 from rpg_backend.storage.models.entities import (
+    AdminUser,
     HttpRequestEvent,
     LLMCallEvent,
     ReadinessProbeEvent,
@@ -12,6 +13,7 @@ from rpg_backend.storage.models.entities import (
 )
 
 __all__ = [
+    "AdminUser",
     "Story",
     "StoryVersion",
     "Session",

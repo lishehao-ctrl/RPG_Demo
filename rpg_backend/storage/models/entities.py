@@ -30,6 +30,19 @@ class StoryVersion(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utc_now, nullable=False)
 
 
+class AdminUser(SQLModel, table=True):
+    __table_args__ = (UniqueConstraint("email", name="uq_admin_user_email"),)
+
+    id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
+    email: str = Field(index=True)
+    password_hash: str
+    role: str = Field(default="admin")
+    is_active: bool = True
+    last_login_at: datetime | None = None
+    created_at: datetime = Field(default_factory=utc_now, index=True, nullable=False)
+    updated_at: datetime = Field(default_factory=utc_now, nullable=False)
+
+
 class Session(SQLModel, table=True):
     id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
     story_id: str = Field(index=True, foreign_key="story.id")

@@ -57,6 +57,7 @@ def get_session_action(db: DBSession, session_id: str, client_action_id: str) ->
 class StepCommitResult:
     applied: bool
     actual_turn_count: int
+    reason: str
 
 
 def commit_step_transition_if_turn_matches(
@@ -100,6 +101,7 @@ def commit_step_transition_if_turn_matches(
             return StepCommitResult(
                 applied=False,
                 actual_turn_count=_read_turn_count(db, session_id, fallback=expected_turn_count),
+                reason="turn_conflict",
             )
 
         db.add(
@@ -111,12 +113,13 @@ def commit_step_transition_if_turn_matches(
             )
         )
         db.commit()
-        return StepCommitResult(applied=True, actual_turn_count=next_turn_count)
+        return StepCommitResult(applied=True, actual_turn_count=next_turn_count, reason="applied")
     except IntegrityError:
         db.rollback()
         return StepCommitResult(
             applied=False,
             actual_turn_count=_read_turn_count(db, session_id, fallback=expected_turn_count),
+            reason="idempotency_conflict",
         )
 
 

@@ -70,3 +70,21 @@ def test_story_pack_linter_rejects_missing_strategy_style_schema_field() -> None
     report = lint_story_pack(pack)
     assert not report.ok
     assert any("schema validation failed" in err for err in report.errors)
+
+
+def test_story_pack_linter_rejects_missing_npc_conflict_tags_schema_field() -> None:
+    pack = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    pack["npc_profiles"][0].pop("conflict_tags", None)
+
+    report = lint_story_pack(pack)
+    assert not report.ok
+    assert any("schema validation failed" in err for err in report.errors)
+
+
+def test_story_pack_linter_rejects_invalid_npc_conflict_tag_value() -> None:
+    pack = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    pack["npc_profiles"][0]["conflict_tags"] = ["unknown_tag"]
+
+    report = lint_story_pack(pack)
+    assert not report.ok
+    assert any("schema validation failed" in err for err in report.errors)

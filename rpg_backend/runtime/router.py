@@ -5,7 +5,7 @@ from typing import Any
 
 from rpg_backend.config.settings import get_settings
 from rpg_backend.domain.constants import GLOBAL_CLARIFY_MOVE_ID, GLOBAL_HELP_ME_PROGRESS_MOVE_ID
-from rpg_backend.domain.pack_schema import Move, Scene
+from rpg_backend.domain.pack_schema import Beat, Move, Scene
 from rpg_backend.llm.base import LLMProvider
 from rpg_backend.runtime.errors import RuntimeRouteError
 
@@ -24,6 +24,11 @@ def route_player_action(
     scene: Scene,
     move_map: dict[str, Move],
     action_input: dict[str, Any],
+    *,
+    state: dict[str, Any] | None = None,
+    beat_progress: dict[str, int] | None = None,
+    beat: Beat | None = None,
+    beat_index: int | None = None,
 ) -> dict[str, Any]:
     settings = get_settings()
     threshold = settings.routing_confidence_threshold
@@ -61,6 +66,35 @@ def route_player_action(
     if not llm_available:
         llm_available = list(available)
 
+    state_values = ((state or {}).get("values") or {}) if isinstance(state, dict) else {}
+    events = ((state or {}).get("events") or []) if isinstance(state, dict) else []
+    if not isinstance(events, list):
+        events = []
+    beat_progress_map = beat_progress or {}
+    scene_snapshot = {
+        "scene_id": scene.id,
+        "beat_id": scene.beat_id,
+        "beat_index": beat_index,
+        "present_npcs": list(scene.present_npcs),
+        "scene_seed": scene.scene_seed,
+        "beat_title": beat.title if beat is not None else "",
+        "beat_required_events": list(beat.required_events) if beat is not None else [],
+        "beat_step_budget": beat.step_budget if beat is not None else None,
+        "beat_progress_value": int(beat_progress_map.get(scene.beat_id, 0)),
+    }
+    state_snapshot = {
+        "last_move": state_values.get("last_move"),
+        "pressure_tracks": {
+            "public_trust": int(state_values.get("public_trust", 0)),
+            "resource_stress": int(state_values.get("resource_stress", 0)),
+            "coordination_noise": int(state_values.get("coordination_noise", 0)),
+        },
+        "time_spent": int(state_values.get("time_spent", 0)),
+        "runtime_turn": int(state_values.get("runtime_turn", 0)),
+        "cost_total": int(state_values.get("cost_total", 0)),
+        "recent_events_tail": [str(event) for event in events[-8:]],
+    }
+
     scene_context = {
         "moves": [
             {
@@ -76,6 +110,8 @@ def route_player_action(
         "fallback_move": GLOBAL_CLARIFY_MOVE_ID if not allow_global_help else fallback_move,
         "scene_seed": scene.scene_seed,
         "allow_global_help": allow_global_help,
+        "scene_snapshot": scene_snapshot,
+        "state_snapshot": state_snapshot,
     }
     provider_name = "openai"
 

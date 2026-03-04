@@ -21,7 +21,7 @@ from rpg_backend.domain.move_library import (
     StrategyStyle,
 )
 from rpg_backend.domain.outcome_palette import OUTCOME_PALETTE_BY_ID, OutcomePalette
-from rpg_backend.generator.defaults import default_npc_red_line
+from rpg_backend.generator.defaults import default_npc_conflict_tags, default_npc_red_line
 from rpg_backend.generator.planner import BeatPlan
 from rpg_backend.generator.versioning import PalettePolicy
 
@@ -334,6 +334,7 @@ def build_pack(
         {
             "name": name,
             "red_line": plan.npc_red_lines.get(name) or default_npc_red_line(name, idx),
+            "conflict_tags": list(plan.npc_conflict_tags.get(name) or default_npc_conflict_tags(idx)),
         }
         for idx, name in enumerate(plan.npc_names)
     ]

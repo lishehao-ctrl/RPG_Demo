@@ -5,21 +5,18 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-import httpx
 from pydantic import ValidationError
 
 from rpg_backend.config.settings import get_settings
+from rpg_backend.domain.conflict_tags import NPC_CONFLICT_TAG_CATALOG
 from rpg_backend.generator.spec_outline_schema import StorySpecOutline
 from rpg_backend.generator.spec_schema import StorySpec
 from rpg_backend.generator.versioning import compute_payload_hash
+from rpg_backend.llm.base import LLMProviderConfigError
 from rpg_backend.llm.factory import resolve_openai_models
-from rpg_backend.llm.openai_compat import (
-    build_auth_headers,
-    build_json_mode_body,
-    extract_chat_content,
-    normalize_chat_completions_url,
-    parse_json_object,
-)
+from rpg_backend.llm.json_gateway import JsonGateway, JsonGatewayError
+from rpg_backend.llm.openai_compat import extract_chat_content, parse_json_object
+from rpg_backend.llm.worker_client import WorkerClientError, get_worker_client
 
 
 @dataclass
@@ -46,7 +43,7 @@ class PromptCompiler:
         "tone": "<=100 chars",
         "stakes_core": "<=220 chars",
         "beats": "exactly 4 items with unique titles",
-        "npcs": "exactly 4 items; each NPC must include red_line <=160 chars",
+        "npcs": "exactly 4 items; each NPC must include red_line <=160 chars and conflict_tags 1..3",
         "scene_constraints": "exactly 4 items",
         "move_bias": "2..5 items",
     }
@@ -56,7 +53,7 @@ class PromptCompiler:
         "tone": "<=120 chars",
         "stakes": "<=300 chars",
         "beats": "3..5 items",
-        "npcs": "3..5 items",
+        "npcs": "3..5 items; each NPC must include conflict_tags 1..3",
         "scene_constraints": "3..5 items",
         "move_bias": "1..6 items",
     }
@@ -65,16 +62,38 @@ class PromptCompiler:
         "premise_core": "Write 1-2 sentences, concise and concrete.",
         "beats.*.required_event": "Use snake_case tag style, 3-5 words, no full sentence.",
         "beats.*.conflict": "Write one short sentence, 8-14 words.",
+        "npcs.*.conflict_tags": "Choose 1-3 tags from {anti_noise, anti_speed, anti_resource_burn}.",
     }
+    _NPC_CONFLICT_TAG_CATALOG: dict[str, str] = dict(NPC_CONFLICT_TAG_CATALOG)
 
     def __init__(self) -> None:
         settings = get_settings()
+        self.gateway_mode = str(getattr(settings, "llm_gateway_mode", "local") or "local").strip().lower()
         self.base_url = (settings.llm_openai_base_url or "").strip()
         self.api_key = (settings.llm_openai_api_key or "").strip()
         self.model = self._resolve_model(settings)
         self.timeout_seconds = settings.llm_openai_timeout_seconds
         self.temperature = settings.llm_openai_generator_temperature
-        self.chat_completions_url = normalize_chat_completions_url(self.base_url)
+        self.max_retries = settings.llm_openai_generator_max_retries
+        worker_client = None
+        if self.gateway_mode == "worker":
+            try:
+                worker_client = get_worker_client()
+            except WorkerClientError as exc:
+                raise LLMProviderConfigError(
+                    f"llm worker misconfigured for prompt compiler: {exc.error_code}: {exc.message}"
+                ) from exc
+        self._json_gateway = JsonGateway(
+            gateway_mode=self.gateway_mode,
+            base_url=self.base_url,
+            api_key=self.api_key,
+            default_timeout_seconds=float(self.timeout_seconds),
+            connect_timeout_seconds=5.0,
+            max_connections=100,
+            max_keepalive_connections=20,
+            http2_enabled=False,
+            worker_client=worker_client,
+        )
 
     @staticmethod
     def _resolve_model(settings) -> str:
@@ -121,27 +140,49 @@ class PromptCompiler:
             return PromptCompiler._OUTLINE_STYLE_TARGETS["beats.*.required_event"]
         if re.fullmatch(r"beats\.\d+\.conflict", path):
             return PromptCompiler._OUTLINE_STYLE_TARGETS["beats.*.conflict"]
+        if re.fullmatch(r"npcs\.\d+\.conflict_tags(?:\.\d+)?", path):
+            return PromptCompiler._OUTLINE_STYLE_TARGETS["npcs.*.conflict_tags"]
         return None
 
-    def _call_chat_completions(self, *, system_prompt: str, user_prompt: str) -> dict[str, Any]:
-        body = build_json_mode_body(
-            model=self.model,
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            temperature=self.temperature,
-        )
-        headers = build_auth_headers(self.api_key)
-        with httpx.Client(timeout=self.timeout_seconds) as client:
-            response = client.post(self.chat_completions_url, headers=headers, json=body)
-            response.raise_for_status()
-            return response.json()
-
     def _call_json_object(self, *, system_prompt: str, payload: dict[str, Any]) -> dict[str, Any]:
-        raw = self._call_chat_completions(
-            system_prompt=system_prompt,
-            user_prompt=json.dumps(payload, ensure_ascii=False),
-        )
-        return parse_json_object(extract_chat_content(raw))
+        user_prompt = json.dumps(payload, ensure_ascii=False)
+        if self.gateway_mode != "worker":
+            raw = self._call_chat_completions(system_prompt=system_prompt, user_prompt=user_prompt)
+            return parse_json_object(extract_chat_content(raw))
+        try:
+            result = self._json_gateway.call_json_object(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                model=self.model,
+                temperature=self.temperature,
+                max_retries=self.max_retries,
+                timeout_seconds=self.timeout_seconds,
+            )
+        except JsonGatewayError as exc:
+            raise RuntimeError(f"{exc.error_code}: {exc.message}") from exc
+        return result.payload
+
+    def _call_chat_completions(self, *, system_prompt: str, user_prompt: str) -> dict[str, Any]:
+        try:
+            result = self._json_gateway.call_json_object(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                model=self.model,
+                temperature=self.temperature,
+                max_retries=self.max_retries,
+                timeout_seconds=self.timeout_seconds,
+            )
+        except JsonGatewayError as exc:
+            raise RuntimeError(f"{exc.error_code}: {exc.message}") from exc
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(result.payload, ensure_ascii=False),
+                    }
+                }
+            ]
+        }
 
     def compile(
         self,
@@ -160,11 +201,17 @@ class PromptCompiler:
                 errors=["prompt_text must not be blank"],
                 notes=["prompt compiler input validation failed"],
             )
-        if not self.base_url or not self.api_key or not self.model:
+        if not self.model:
             raise PromptCompileError(
                 error_code="prompt_compile_failed",
-                errors=["openai generator config missing base_url/api_key/model"],
-                notes=["check APP_LLM_OPENAI_BASE_URL, APP_LLM_OPENAI_API_KEY, and generator model settings"],
+                errors=["openai generator config missing model"],
+                notes=["check APP_LLM_OPENAI_GENERATOR_MODEL / APP_LLM_OPENAI_ROUTE_MODEL / APP_LLM_OPENAI_MODEL"],
+            )
+        if self.gateway_mode != "worker" and (not self.base_url or not self.api_key):
+            raise PromptCompileError(
+                error_code="prompt_compile_failed",
+                errors=["openai generator config missing base_url/api_key"],
+                notes=["check APP_LLM_OPENAI_BASE_URL and APP_LLM_OPENAI_API_KEY"],
             )
 
         required_move_bias_tags = [
@@ -193,10 +240,11 @@ class PromptCompiler:
             "Step 1/2: produce a compact outline JSON only. "
             "Hard constraints: title<=90, premise_core<=240, tone<=100, stakes_core<=220, "
             "beats exactly 4 with unique titles, npcs exactly 4 each with a concrete non-negotiable red_line, "
+            "each NPC must include conflict_tags (1..3) from {anti_noise, anti_speed, anti_resource_burn}, "
             "scene_constraints exactly 4, move_bias 2..5. "
             "Writing targets: premise_core should be 1-2 concise sentences; each beats.required_event should be a "
             "snake_case tag style phrase of 3-5 words (not full prose); each beats.conflict should be a short "
-            "8-14 word sentence. "
+            "8-14 word sentence; NPC conflict_tags should align with each red_line semantics. "
             "Design beats so each scene can offer strategy triangle choices (fast_dirty / steady_slow / political_safe_resource_heavy). "
             "Ensure the last two beats can naturally collect debt from earlier risky choices. "
             "Self-check all limits before returning."
@@ -206,6 +254,7 @@ class PromptCompiler:
             **common_payload,
             "field_limits": dict(self._OUTLINE_FIELD_LIMITS),
             "style_targets": dict(self._OUTLINE_STYLE_TARGETS),
+            "npc_conflict_tag_catalog": dict(self._NPC_CONFLICT_TAG_CATALOG),
             "output_schema": StorySpecOutline.model_json_schema(),
         }
 
@@ -234,7 +283,8 @@ class PromptCompiler:
             "Step 2/2: expand the provided outline into a full StorySpec JSON only. "
             "Hard limits: title<=120, premise<=400, tone<=120, stakes<=300, beats 3..5, npcs 3..5, "
             "scene_constraints 3..5, move_bias 1..6. Preserve grounded realism and avoid fantasy drift. "
-            "Every NPC must include red_line and those red lines must conflict with at least one strategy style. "
+            "Every NPC must include red_line plus conflict_tags (1..3) from {anti_noise, anti_speed, anti_resource_burn}. "
+            "red_line text and conflict_tags must semantically align and conflict with at least one strategy style. "
             "Ensure early risky shortcuts can be paid back in the final two beats via delayed consequences. "
             "Self-check all limits before returning."
         )
@@ -243,6 +293,7 @@ class PromptCompiler:
             **common_payload,
             "outline": outline.model_dump(mode="json"),
             "field_limits": dict(self._SPEC_FIELD_LIMITS),
+            "npc_conflict_tag_catalog": dict(self._NPC_CONFLICT_TAG_CATALOG),
             "output_schema": StorySpec.model_json_schema(),
         }
 

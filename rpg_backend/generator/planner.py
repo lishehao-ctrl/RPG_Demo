@@ -4,7 +4,8 @@ from dataclasses import dataclass, field
 import re
 from typing import Any
 
-from rpg_backend.generator.defaults import default_npc_red_line
+from rpg_backend.domain.conflict_tags import NPCConflictTag
+from rpg_backend.generator.defaults import default_npc_conflict_tags, default_npc_red_line
 from rpg_backend.generator.spec_schema import StorySpec
 
 
@@ -35,6 +36,7 @@ class BeatPlan:
     move_bias: list[str] = field(default_factory=list)
     spec_summary: dict[str, Any] | None = None
     npc_red_lines: dict[str, str] = field(default_factory=dict)
+    npc_conflict_tags: dict[str, list[NPCConflictTag]] = field(default_factory=dict)
 
 
 _NAME_POOL = [
@@ -87,21 +89,22 @@ def _normalized_npc_profiles_from_spec(
     spec: StorySpec,
     npc_count: int,
     fallback_seed: str,
-) -> tuple[list[str], dict[str, str]]:
+) -> tuple[list[str], dict[str, str], dict[str, list[NPCConflictTag]]]:
     desired = max(3, min(5, npc_count))
-    profiles: list[tuple[str, str]] = []
+    profiles: list[tuple[str, str, list[NPCConflictTag]]] = []
     seen: set[str] = set()
 
     for npc in spec.npcs:
         name = npc.name.strip()
         red_line = npc.red_line.strip()
-        if not name or not red_line:
+        conflict_tags = list(dict.fromkeys(npc.conflict_tags))
+        if not name or not red_line or not conflict_tags:
             continue
         lowered = name.lower()
         if lowered in seen:
             continue
         seen.add(lowered)
-        profiles.append((name, red_line))
+        profiles.append((name, red_line, conflict_tags))
 
     if len(profiles) < desired:
         for candidate in _select_npc_names(fallback_seed or spec.title, desired * 2):
@@ -109,13 +112,20 @@ def _normalized_npc_profiles_from_spec(
             if lowered in seen:
                 continue
             seen.add(lowered)
-            profiles.append((candidate, default_npc_red_line(candidate, len(profiles))))
+            profiles.append(
+                (
+                    candidate,
+                    default_npc_red_line(candidate, len(profiles)),
+                    default_npc_conflict_tags(len(profiles)),
+                )
+            )
             if len(profiles) >= desired:
                 break
 
-    npc_names = [name for name, _ in profiles[:desired]]
-    npc_red_lines = {name: red_line for name, red_line in profiles[:desired]}
-    return npc_names, npc_red_lines
+    npc_names = [name for name, _, _ in profiles[:desired]]
+    npc_red_lines = {name: red_line for name, red_line, _ in profiles[:desired]}
+    npc_conflict_tags = {name: list(conflict_tags) for name, _, conflict_tags in profiles[:desired]}
+    return npc_names, npc_red_lines, npc_conflict_tags
 
 
 def plan_beats(seed_text: str, target_minutes: int, npc_count: int) -> BeatPlan:
@@ -147,6 +157,7 @@ def plan_beats(seed_text: str, target_minutes: int, npc_count: int) -> BeatPlan:
 
     npc_names = _select_npc_names(seed_text, npc_count)
     npc_red_lines = {name: default_npc_red_line(name, idx) for idx, name in enumerate(npc_names)}
+    npc_conflict_tags = {name: default_npc_conflict_tags(idx) for idx, name in enumerate(npc_names)}
 
     return BeatPlan(
         seed_text=seed_text,
@@ -155,6 +166,7 @@ def plan_beats(seed_text: str, target_minutes: int, npc_count: int) -> BeatPlan:
         npc_names=npc_names,
         beats=beats,
         npc_red_lines=npc_red_lines,
+        npc_conflict_tags=npc_conflict_tags,
     )
 
 
@@ -194,7 +206,7 @@ def plan_beats_from_spec(
             )
         )
 
-    npc_names, npc_red_lines = _normalized_npc_profiles_from_spec(spec, npc_count, seed_text or spec.title)
+    npc_names, npc_red_lines, npc_conflict_tags = _normalized_npc_profiles_from_spec(spec, npc_count, seed_text or spec.title)
     return BeatPlan(
         seed_text=seed_text,
         target_minutes=target_minutes,
@@ -208,4 +220,5 @@ def plan_beats_from_spec(
         move_bias=list(dict.fromkeys(spec.move_bias)),
         spec_summary=spec.compact_summary(),
         npc_red_lines=npc_red_lines,
+        npc_conflict_tags=npc_conflict_tags,
     )

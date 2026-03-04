@@ -24,6 +24,25 @@ def _load_pack() -> StoryPack:
     return StoryPack.model_validate(json.loads(PACK_PATH.read_text(encoding="utf-8")))
 
 
+def _move_id_for_style(pack: StoryPack, scene_id: str, strategy_style: str) -> str:
+    move_map = {move.id: move for move in pack.moves}
+    scene_map = {scene.id: scene for scene in pack.scenes}
+    scene = scene_map[scene_id]
+    for move_id in scene.enabled_moves:
+        move = move_map.get(move_id)
+        if move is not None and move.strategy_style == strategy_style:
+            return move_id
+    raise AssertionError(f"missing move for strategy_style={strategy_style} in scene={scene_id}")
+
+
+def _set_present_npc_conflict_tags(pack: StoryPack, scene_id: str, tags: list[str]) -> None:
+    scene_map = {scene.id: scene for scene in pack.scenes}
+    present = set(scene_map[scene_id].present_npcs)
+    for profile in pack.npc_profiles:
+        if profile.name in present:
+            profile.conflict_tags = list(tags)
+
+
 def test_fail_forward_for_always_fail_forward_move() -> None:
     pack = _load_pack()
     runtime = RuntimeService(DeterministicProvider())
@@ -217,3 +236,74 @@ def test_pressure_recoil_and_stance_summary_visible_in_late_beats() -> None:
 
     assert pressure_recoil_seen is True
     assert stance_line_seen is True
+
+
+def test_style_conflict_uses_anti_noise_tag() -> None:
+    pack = _load_pack()
+    runtime = RuntimeService(DeterministicProvider())
+    scene_id, beat_index, state, beat_progress = runtime.initialize_session_state(pack)
+
+    _set_present_npc_conflict_tags(pack, scene_id, ["anti_noise"])
+    move_id = _move_id_for_style(pack, scene_id, "fast_dirty")
+    result = runtime.process_step(
+        pack,
+        current_scene_id=scene_id,
+        beat_index=beat_index,
+        state=state,
+        beat_progress=beat_progress,
+        action_input={"type": "button", "move_id": move_id},
+        dev_mode=True,
+    )
+    assert result["debug"]["stance_snapshot"]["red_line_hits"]
+
+    pack = _load_pack()
+    runtime = RuntimeService(DeterministicProvider())
+    scene_id, beat_index, state, beat_progress = runtime.initialize_session_state(pack)
+    _set_present_npc_conflict_tags(pack, scene_id, ["anti_noise"])
+    move_id = _move_id_for_style(pack, scene_id, "steady_slow")
+    result = runtime.process_step(
+        pack,
+        current_scene_id=scene_id,
+        beat_index=beat_index,
+        state=state,
+        beat_progress=beat_progress,
+        action_input={"type": "button", "move_id": move_id},
+        dev_mode=True,
+    )
+    assert result["debug"]["stance_snapshot"]["red_line_hits"] == []
+
+
+def test_style_conflict_uses_anti_speed_tag() -> None:
+    pack = _load_pack()
+    runtime = RuntimeService(DeterministicProvider())
+    scene_id, beat_index, state, beat_progress = runtime.initialize_session_state(pack)
+    _set_present_npc_conflict_tags(pack, scene_id, ["anti_speed"])
+    move_id = _move_id_for_style(pack, scene_id, "steady_slow")
+    result = runtime.process_step(
+        pack,
+        current_scene_id=scene_id,
+        beat_index=beat_index,
+        state=state,
+        beat_progress=beat_progress,
+        action_input={"type": "button", "move_id": move_id},
+        dev_mode=True,
+    )
+    assert result["debug"]["stance_snapshot"]["red_line_hits"]
+
+
+def test_style_conflict_uses_anti_resource_burn_tag() -> None:
+    pack = _load_pack()
+    runtime = RuntimeService(DeterministicProvider())
+    scene_id, beat_index, state, beat_progress = runtime.initialize_session_state(pack)
+    _set_present_npc_conflict_tags(pack, scene_id, ["anti_resource_burn"])
+    move_id = _move_id_for_style(pack, scene_id, "political_safe_resource_heavy")
+    result = runtime.process_step(
+        pack,
+        current_scene_id=scene_id,
+        beat_index=beat_index,
+        state=state,
+        beat_progress=beat_progress,
+        action_input={"type": "button", "move_id": move_id},
+        dev_mode=True,
+    )
+    assert result["debug"]["stance_snapshot"]["red_line_hits"]

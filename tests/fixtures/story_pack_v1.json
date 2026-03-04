@@ -2193,19 +2193,31 @@
   "npc_profiles": [
     {
       "name": "Kael",
-      "red_line": "Kael: Do not sacrifice civilian corridors for short-term speed."
+      "red_line": "Kael: Do not sacrifice civilian corridors for short-term speed.",
+      "conflict_tags": [
+        "anti_noise"
+      ]
     },
     {
       "name": "Niko",
-      "red_line": "Niko: Do not erase operational evidence under political pressure."
+      "red_line": "Niko: Do not erase operational evidence under political pressure.",
+      "conflict_tags": [
+        "anti_noise"
+      ]
     },
     {
       "name": "Tamsin",
-      "red_line": "Tamsin: Do not allow command ambiguity to paralyze response."
+      "red_line": "Tamsin: Do not allow command ambiguity to paralyze response.",
+      "conflict_tags": [
+        "anti_speed"
+      ]
     },
     {
       "name": "Rook",
-      "red_line": "Rook: Do not deplete critical reserves before the final push."
+      "red_line": "Rook: Do not deplete critical reserves before the final push.",
+      "conflict_tags": [
+        "anti_resource_burn"
+      ]
     }
   ]
 }

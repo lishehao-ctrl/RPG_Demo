@@ -14,6 +14,11 @@ _STRATEGY_RISK_HINTS = {
     "steady_slow": "steady but slow: lowers noise but spends time",
     "political_safe_resource_heavy": "politically safe: spends resources to preserve trust",
 }
+_STYLE_CONFLICT_TAG: dict[str, str] = {
+    "fast_dirty": "anti_noise",
+    "steady_slow": "anti_speed",
+    "political_safe_resource_heavy": "anti_resource_burn",
+}
 
 
 class RuntimeService:
@@ -45,15 +50,11 @@ class RuntimeService:
         return "contested"
 
     @staticmethod
-    def _style_conflicts_red_line(strategy_style: str, red_line: str) -> bool:
-        text = red_line.lower()
-        if strategy_style == "fast_dirty":
-            return any(keyword in text for keyword in ("trust", "civilian", "evidence", "command", "public"))
-        if strategy_style == "steady_slow":
-            return any(keyword in text for keyword in ("speed", "window", "deadline", "rapid", "immediate"))
-        if strategy_style == "political_safe_resource_heavy":
-            return any(keyword in text for keyword in ("resource", "reserve", "budget", "supply", "power"))
-        return False
+    def _style_conflicts_profile(strategy_style: str, conflict_tags: list[str]) -> bool:
+        required_tag = _STYLE_CONFLICT_TAG.get(strategy_style)
+        if not required_tag:
+            return False
+        return required_tag in set(conflict_tags)
 
     def _apply_npc_stance_effects(
         self,
@@ -78,7 +79,7 @@ class RuntimeService:
                 continue
             trust_key = f"npc_trust::{npc_name}"
             current = int(values.get(trust_key, 0))
-            conflict = self._style_conflicts_red_line(strategy_style, profile.red_line)
+            conflict = self._style_conflicts_profile(strategy_style, list(profile.conflict_tags))
             delta = -2 if conflict else 1
             values[trust_key] = current + delta
             if conflict:
@@ -229,7 +230,17 @@ class RuntimeService:
         npc_profiles = self._npc_profile_map(pack)
 
         scene = scene_map[current_scene_id]
-        recognized = route_player_action(self.provider, scene, move_map, action_input)
+        current_beat = pack.beats[beat_index] if 0 <= beat_index < len(pack.beats) else None
+        recognized = route_player_action(
+            self.provider,
+            scene,
+            move_map,
+            action_input,
+            state=state,
+            beat_progress=beat_progress,
+            beat=current_beat,
+            beat_index=beat_index,
+        )
         chosen_move = move_map[recognized["move_id"]]
 
         state.setdefault("values", {})

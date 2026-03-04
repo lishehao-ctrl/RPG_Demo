@@ -5,7 +5,7 @@ import json
 import random
 from typing import Any, Literal
 
-GENERATOR_VERSION = "v3.2"
+GENERATOR_VERSION = "v3.3"
 PalettePolicy = Literal["random", "balanced", "fixed"]
 
 

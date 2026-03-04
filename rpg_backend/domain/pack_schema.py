@@ -4,6 +4,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from rpg_backend.domain.conflict_tags import NPCConflictTag
 from rpg_backend.domain.constants import GLOBAL_MOVE_IDS
 
 StrategyStyle = Literal[
@@ -119,6 +120,7 @@ class NPCProfile(BaseModel):
 
     name: str = Field(min_length=1)
     red_line: str = Field(min_length=1, max_length=160)
+    conflict_tags: list[NPCConflictTag] = Field(min_length=1, max_length=3)
 
 
 class StoryPack(BaseModel):

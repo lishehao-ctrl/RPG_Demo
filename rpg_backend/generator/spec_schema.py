@@ -4,6 +4,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from rpg_backend.domain.conflict_tags import NPCConflictTag
+
 MoveBiasTag = Literal[
     "social",
     "stealth",
@@ -34,6 +36,7 @@ class StorySpecNPC(BaseModel):
     role: str = Field(min_length=1)
     motivation: str = Field(min_length=1)
     red_line: str = Field(min_length=1, max_length=160)
+    conflict_tags: list[NPCConflictTag] = Field(min_length=1, max_length=3)
 
 
 class StorySpec(BaseModel):
@@ -57,5 +60,6 @@ class StorySpec(BaseModel):
             "beat_titles": [beat.title for beat in self.beats],
             "npc_names": [npc.name for npc in self.npcs],
             "npc_red_lines": {npc.name: npc.red_line for npc in self.npcs},
+            "npc_conflict_tags": {npc.name: list(npc.conflict_tags) for npc in self.npcs},
             "move_bias": list(self.move_bias),
         }

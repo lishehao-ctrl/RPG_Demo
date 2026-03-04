@@ -53,24 +53,28 @@ def _sample_story_spec() -> StorySpec:
                     "role": "field engineer",
                     "motivation": "prevent systemic collapse",
                     "red_line": "Never cut power to hospitals to protect industrial sectors.",
+                    "conflict_tags": ["anti_noise"],
                 },
                 {
                     "name": "Rook",
                     "role": "security lead",
                     "motivation": "protect civilians",
                     "red_line": "No plan may strand evacuees behind checkpoints.",
+                    "conflict_tags": ["anti_speed"],
                 },
                 {
                     "name": "Sera",
                     "role": "operations analyst",
                     "motivation": "preserve evidence",
                     "red_line": "No destruction of telemetry logs under political pressure.",
+                    "conflict_tags": ["anti_noise"],
                 },
                 {
                     "name": "Director Vale",
                     "role": "command authority",
                     "motivation": "retain control",
                     "red_line": "Public command legitimacy cannot collapse on my watch.",
+                    "conflict_tags": ["anti_resource_burn"],
                 },
             ],
             "scene_constraints": [
@@ -123,6 +127,8 @@ def test_generate_pack_passes_linter() -> None:
         assert profile["name"] in pack["npcs"]
         assert isinstance(profile["red_line"], str)
         assert profile["red_line"].strip()
+        assert isinstance(profile["conflict_tags"], list)
+        assert profile["conflict_tags"]
     assert result.pack_hash
     assert result.generator_version == GENERATOR_VERSION
     assert result.variant_seed
@@ -521,3 +527,51 @@ def test_prompt_spec_invalid_returns_generator_error(monkeypatch) -> None:
         assert getattr(exc, "lint_report").errors == ["beats must contain 3-5 items"]
     else:
         raise AssertionError("expected GeneratorBuildError for invalid prompt spec")
+
+
+def test_candidate_parallelism_can_select_non_primary_candidate(monkeypatch) -> None:
+    import rpg_backend.generator.service as service_module
+
+    sample_spec = _sample_story_spec()
+    monkeypatch.setattr(
+        "rpg_backend.generator.service.PromptCompiler.compile",
+        lambda *args, **kwargs: PromptCompileResult(
+            spec=sample_spec,
+            spec_hash="c" * 64,
+            model="test-generator-model",
+            attempts=1,
+            notes=["prompt compiler mocked"],
+        ),
+    )
+
+    original_build_candidate = service_module.GeneratorService._build_candidate
+
+    def _fake_build_candidate(**kwargs):  # noqa: ANN003, ANN201
+        candidate_seed = kwargs["candidate_seed"]
+        built = original_build_candidate(**kwargs)
+        ok = candidate_seed.endswith("#cand1")
+        lint = LintReport(errors=[] if ok else ["forced candidate lint fail"], warnings=[])
+        return service_module._CandidateBuildResult(
+            candidate_index=0,
+            candidate_seed=candidate_seed,
+            pack=built.pack,
+            lint_report=lint,
+        )
+
+    monkeypatch.setattr(
+        service_module.GeneratorService,
+        "_build_candidate",
+        staticmethod(_fake_build_candidate),
+    )
+
+    result = GeneratorService().generate_pack(
+        prompt_text="Generate in candidate parallel mode",
+        target_minutes=10,
+        npc_count=4,
+        variant_seed="parallel-seed",
+        candidate_parallelism=3,
+    )
+    assert result.lint_report.ok
+    assert result.generation_attempts == 1
+    assert result.regenerate_count == 0
+    assert result.variant_seed.endswith("#cand1")

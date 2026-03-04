@@ -61,24 +61,28 @@ def _outline_payload() -> dict[str, object]:
                 "role": "engineer",
                 "motivation": "prevent collapse",
                 "red_line": "Never abandon hospitals to save critical infrastructure.",
+                "conflict_tags": ["anti_noise"],
             },
             {
                 "name": "Rook",
                 "role": "security lead",
                 "motivation": "protect civilians",
                 "red_line": "No plan may sacrifice evacuee corridors for speed.",
+                "conflict_tags": ["anti_speed"],
             },
             {
                 "name": "Sera",
                 "role": "analyst",
                 "motivation": "preserve evidence",
                 "red_line": "Do not erase audit trails even under pressure.",
+                "conflict_tags": ["anti_noise"],
             },
             {
                 "name": "Vale",
                 "role": "director",
                 "motivation": "hold control",
                 "red_line": "Do not lose chain of command in public view.",
+                "conflict_tags": ["anti_resource_burn"],
             },
         ],
         "scene_constraints": [
@@ -130,24 +134,28 @@ def _spec_payload(*, premise: str) -> dict[str, object]:
                 "role": "engineer",
                 "motivation": "prevent collapse",
                 "red_line": "Never abandon hospitals to save critical infrastructure.",
+                "conflict_tags": ["anti_noise"],
             },
             {
                 "name": "Rook",
                 "role": "security lead",
                 "motivation": "protect civilians",
                 "red_line": "No plan may sacrifice evacuee corridors for speed.",
+                "conflict_tags": ["anti_speed"],
             },
             {
                 "name": "Sera",
                 "role": "analyst",
                 "motivation": "preserve evidence",
                 "red_line": "Do not erase audit trails even under pressure.",
+                "conflict_tags": ["anti_noise"],
             },
             {
                 "name": "Vale",
                 "role": "director",
                 "motivation": "hold control",
                 "red_line": "Do not lose chain of command in public view.",
+                "conflict_tags": ["anti_resource_burn"],
             },
         ],
         "scene_constraints": [
@@ -286,6 +294,7 @@ def test_build_validation_feedback_adds_style_targets_for_outline_fields() -> No
     invalid_outline["premise_core"] = "p" * 260
     invalid_outline["beats"][1]["required_event"] = "required_event_token_" + ("verylong_" * 10)
     invalid_outline["beats"][2]["conflict"] = "conflict_phrase " * 20
+    invalid_outline["npcs"][0]["conflict_tags"] = ["invalid_tag"]
 
     with pytest.raises(ValidationError) as exc_info:
         from rpg_backend.generator.spec_outline_schema import StorySpecOutline
@@ -296,6 +305,7 @@ def test_build_validation_feedback_adds_style_targets_for_outline_fields() -> No
     assert any("premise_core" in item and "target: Write 1-2 sentences" in item for item in feedback)
     assert any("beats.1.required_event" in item and "target: Use snake_case tag style, 3-5 words" in item for item in feedback)
     assert any("beats.2.conflict" in item and "target: Write one short sentence, 8-14 words." in item for item in feedback)
+    assert any("npcs.0.conflict_tags" in item and "target: Choose 1-3 tags" in item for item in feedback)
 
 
 def test_outline_payload_contains_style_targets(monkeypatch) -> None:
@@ -323,6 +333,9 @@ def test_outline_payload_contains_style_targets(monkeypatch) -> None:
     assert style_targets["premise_core"] == "Write 1-2 sentences, concise and concrete."
     assert style_targets["beats.*.required_event"] == "Use snake_case tag style, 3-5 words, no full sentence."
     assert style_targets["beats.*.conflict"] == "Write one short sentence, 8-14 words."
+    assert style_targets["npcs.*.conflict_tags"] == "Choose 1-3 tags from {anti_noise, anti_speed, anti_resource_burn}."
+    assert captured_prompts[0]["npc_conflict_tag_catalog"]["anti_noise"]
+    assert captured_prompts[1]["npc_conflict_tag_catalog"]["anti_speed"]
 
 
 def test_outline_invalid_error_notes_include_outline_feedback(monkeypatch) -> None:

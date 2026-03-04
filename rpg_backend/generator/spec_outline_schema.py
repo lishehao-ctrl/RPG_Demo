@@ -4,6 +4,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from rpg_backend.domain.conflict_tags import NPCConflictTag
 from rpg_backend.generator.spec_schema import EndingShape, MoveBiasTag
 
 
@@ -23,6 +24,7 @@ class StoryOutlineNPC(BaseModel):
     role: str = Field(min_length=1, max_length=100)
     motivation: str = Field(min_length=1, max_length=140)
     red_line: str = Field(min_length=1, max_length=160)
+    conflict_tags: list[NPCConflictTag] = Field(min_length=1, max_length=3)
 
 
 class StorySpecOutline(BaseModel):

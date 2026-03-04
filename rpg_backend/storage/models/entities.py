@@ -64,6 +64,41 @@ class RuntimeEvent(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utc_now, nullable=False)
 
 
+class HttpRequestEvent(SQLModel, table=True):
+    id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
+    service: str = Field(index=True)
+    method: str = Field(index=True)
+    path: str = Field(index=True)
+    status_code: int = Field(index=True)
+    duration_ms: int = Field(ge=0)
+    request_id: str | None = Field(default=None, index=True)
+    created_at: datetime = Field(default_factory=utc_now, index=True, nullable=False)
+
+
+class LLMCallEvent(SQLModel, table=True):
+    id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
+    session_id: str | None = Field(default=None, index=True, foreign_key="session.id")
+    turn_index: int | None = Field(default=None)
+    stage: str = Field(index=True)
+    gateway_mode: str = Field(index=True)
+    model: str = Field(index=True)
+    success: bool = Field(index=True)
+    error_code: str | None = Field(default=None, index=True)
+    duration_ms: int = Field(ge=0)
+    request_id: str | None = Field(default=None, index=True)
+    created_at: datetime = Field(default_factory=utc_now, index=True, nullable=False)
+
+
+class ReadinessProbeEvent(SQLModel, table=True):
+    id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
+    service: str = Field(index=True)
+    ok: bool = Field(index=True)
+    error_code: str | None = Field(default=None, index=True)
+    latency_ms: int | None = Field(default=None)
+    request_id: str | None = Field(default=None, index=True)
+    created_at: datetime = Field(default_factory=utc_now, index=True, nullable=False)
+
+
 class SessionFeedback(SQLModel, table=True):
     id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
     session_id: str = Field(index=True, foreign_key="session.id")

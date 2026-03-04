@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Query, Request
 from fastapi.responses import JSONResponse
+from sqlmodel import Session as DBSession
 
 from rpg_backend.llm_worker.errors import WorkerTaskError
 from rpg_backend.llm_worker.schemas import (
@@ -19,20 +20,44 @@ from rpg_backend.llm_worker.service import LLMWorkerService
 from rpg_backend.observability.context import get_request_id
 from rpg_backend.observability.logging import configure_logging, log_event
 from rpg_backend.observability.middleware import RequestIdMiddleware
+from rpg_backend.storage.engine import engine, init_db
+from rpg_backend.storage.repositories.observability import save_readiness_probe_event
 
 service = LLMWorkerService()
+
+
+def _save_worker_readiness_probe(
+    *,
+    ok: bool,
+    error_code: str | None,
+    latency_ms: int | None,
+    request_id: str | None,
+) -> None:
+    try:
+        with DBSession(engine) as db:
+            save_readiness_probe_event(
+                db,
+                service="worker",
+                ok=ok,
+                error_code=error_code,
+                latency_ms=latency_ms,
+                request_id=request_id,
+            )
+    except Exception:  # noqa: BLE001
+        return
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     configure_logging()
+    init_db()
     await service.startup()
     yield
     await service.shutdown()
 
 
 app = FastAPI(title="RPG LLM Worker", lifespan=lifespan)
-app.add_middleware(RequestIdMiddleware)
+app.add_middleware(RequestIdMiddleware, service_name="worker")
 
 
 def _task_error_response(exc: WorkerTaskError) -> JSONResponse:
@@ -52,6 +77,13 @@ async def ready(request: Request, refresh: bool = Query(default=False)) -> Worke
     llm_probe_ok = bool(report.checks["llm_probe"].ok)
 
     if report.status == "ready":
+        latency_ms = report.checks["llm_probe"].latency_ms
+        _save_worker_readiness_probe(
+            ok=True,
+            error_code=None,
+            latency_ms=latency_ms,
+            request_id=request_id,
+        )
         log_event(
             "llm_worker_ready_succeeded",
             level="INFO",
@@ -64,6 +96,13 @@ async def ready(request: Request, refresh: bool = Query(default=False)) -> Worke
         )
         return report
 
+    error_code = report.checks["llm_probe"].error_code or report.checks["llm_config"].error_code
+    _save_worker_readiness_probe(
+        ok=False,
+        error_code=error_code,
+        latency_ms=report.checks["llm_probe"].latency_ms,
+        request_id=request_id,
+    )
     log_event(
         "llm_worker_ready_failed",
         level="ERROR",
@@ -73,7 +112,7 @@ async def ready(request: Request, refresh: bool = Query(default=False)) -> Worke
         llm_probe_ok=llm_probe_ok,
         llm_probe_cached=bool(report.checks["llm_probe"].meta.get("cached")),
         refresh=bool(refresh),
-        error_code=report.checks["llm_probe"].error_code or report.checks["llm_config"].error_code,
+        error_code=error_code,
     )
     return JSONResponse(status_code=503, content=report.model_dump(mode="json"))
 

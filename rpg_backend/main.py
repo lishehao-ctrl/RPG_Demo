@@ -21,7 +21,7 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="RPG Backend API", lifespan=lifespan)
-app.add_middleware(RequestIdMiddleware)
+app.add_middleware(RequestIdMiddleware, service_name="backend")
 register_error_handlers(app)
 app.include_router(health_router)
 app.include_router(stories_router)

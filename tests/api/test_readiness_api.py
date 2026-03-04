@@ -3,7 +3,12 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
+from sqlmodel import Session as DBSession
+from sqlmodel import select
+
 from rpg_backend.observability import readiness as readiness_obs
+from rpg_backend.storage.engine import engine
+from rpg_backend.storage.models import ReadinessProbeEvent
 
 
 def _now() -> datetime:
@@ -240,3 +245,33 @@ def test_ready_worker_mode_uses_worker_probe(client, monkeypatch) -> None:
     body = response.json()
     assert body["status"] == "ready"
     assert body["checks"]["llm_config"]["meta"]["gateway_mode"] == "worker"
+
+
+def test_ready_persists_backend_probe_events(client, monkeypatch) -> None:
+    monkeypatch.setattr(readiness_obs, "check_db", lambda: _check(ok=True))
+    monkeypatch.setattr(readiness_obs, "check_llm_config", lambda: _check(ok=True))
+    monkeypatch.setattr(
+        readiness_obs,
+        "check_llm_probe",
+        lambda *, refresh=False: _check(ok=False, error_code="llm_probe_timeout", message="timed out"),
+    )
+
+    failed = client.get("/ready")
+    assert failed.status_code == 503
+
+    monkeypatch.setattr(readiness_obs, "check_llm_probe", lambda *, refresh=False: _check(ok=True))
+    success = client.get("/ready")
+    assert success.status_code == 200
+
+    with DBSession(engine) as db:
+        events = list(
+            db.exec(
+                select(ReadinessProbeEvent)
+                .where(ReadinessProbeEvent.service == "backend")
+                .order_by(ReadinessProbeEvent.created_at)
+            ).all()
+        )
+    assert len(events) >= 2
+    assert events[-2].ok is False
+    assert events[-2].error_code == "llm_probe_timeout"
+    assert events[-1].ok is True

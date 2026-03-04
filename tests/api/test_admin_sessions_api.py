@@ -224,3 +224,117 @@ def test_admin_runtime_errors_aggregate_endpoint(client, monkeypatch) -> None:
     assert filtered_body["buckets"]
     assert all(bucket["error_code"] == "llm_route_failed" for bucket in filtered_body["buckets"])
     assert all(bucket["stage"] == "route" for bucket in filtered_body["buckets"])
+
+
+def test_admin_http_health_endpoint(client, monkeypatch) -> None:
+    from rpg_backend.api import sessions as sessions_api
+
+    session_id = _create_session(client)
+    monkeypatch.setattr(sessions_api, "get_llm_provider", lambda: RouteFailureProvider())
+
+    for index in range(1, 4):
+        response = client.post(
+            f"/v2/sessions/{session_id}/step",
+            json={
+                "client_action_id": f"http-health-{index}",
+                "input": {"type": "text", "text": f"fail-{index}"},
+                "dev_mode": False,
+            },
+        )
+        assert response.status_code == 503
+
+    aggregated = client.get("/v2/admin/observability/http-health?window_seconds=300")
+    assert aggregated.status_code == 200
+    body = aggregated.json()
+    assert body["window_started_at"]
+    assert body["window_ended_at"]
+    assert body["total_requests"] >= 3
+    assert body["failed_5xx"] >= 3
+    assert body["error_rate"] > 0
+    assert body["p95_ms"] is not None
+    assert body["top_5xx_paths"]
+
+
+def test_admin_llm_call_health_endpoint(client, monkeypatch) -> None:
+    from rpg_backend.api import sessions as sessions_api
+
+    session_id = _create_session(client)
+
+    monkeypatch.setattr(sessions_api, "get_llm_provider", lambda: DeterministicProvider())
+    ok = client.post(
+        f"/v2/sessions/{session_id}/step",
+        json={
+            "client_action_id": "llm-call-ok-1",
+            "input": {"type": "text", "text": "progress"},
+            "dev_mode": False,
+        },
+    )
+    assert ok.status_code == 200
+
+    monkeypatch.setattr(sessions_api, "get_llm_provider", lambda: RouteFailureProvider())
+    failed = client.post(
+        f"/v2/sessions/{session_id}/step",
+        json={
+            "client_action_id": "llm-call-fail-1",
+            "input": {"type": "text", "text": "bad input"},
+            "dev_mode": False,
+        },
+    )
+    assert failed.status_code == 503
+
+    aggregated = client.get("/v2/admin/observability/llm-call-health?window_seconds=300")
+    assert aggregated.status_code == 200
+    body = aggregated.json()
+    assert body["window_started_at"]
+    assert body["window_ended_at"]
+    assert body["total_calls"] >= 2
+    assert body["failed_calls"] >= 1
+    assert body["p95_ms"] is not None
+    assert set(body["by_stage"].keys()) == {"route", "narration", "json", "unknown"}
+    assert set(body["by_gateway_mode"].keys()) == {"local", "worker", "unknown"}
+
+    route_only = client.get("/v2/admin/observability/llm-call-health?window_seconds=300&stage=route")
+    assert route_only.status_code == 200
+    assert route_only.json()["total_calls"] >= 1
+
+
+def test_admin_readiness_health_endpoint(client, monkeypatch) -> None:
+    from rpg_backend.observability import readiness as readiness_obs
+
+    def _ok_check():
+        return {
+            "ok": True,
+            "latency_ms": 1,
+            "checked_at": "2026-03-01T00:00:00+00:00",
+            "error_code": None,
+            "message": None,
+            "meta": {},
+        }
+
+    def _failed_probe(*, refresh: bool = False):  # noqa: ARG001
+        return {
+            "ok": False,
+            "latency_ms": 2,
+            "checked_at": "2026-03-01T00:00:01+00:00",
+            "error_code": "llm_probe_timeout",
+            "message": "timeout",
+            "meta": {"cached": False},
+        }
+
+    monkeypatch.setattr(readiness_obs, "check_db", _ok_check)
+    monkeypatch.setattr(readiness_obs, "check_llm_config", _ok_check)
+    monkeypatch.setattr(readiness_obs, "check_llm_probe", _failed_probe)
+
+    first = client.get("/ready")
+    second = client.get("/ready")
+    assert first.status_code == 503
+    assert second.status_code == 503
+
+    aggregated = client.get("/v2/admin/observability/readiness-health?window_seconds=300")
+    assert aggregated.status_code == 200
+    body = aggregated.json()
+    assert body["window_started_at"]
+    assert body["window_ended_at"]
+    assert body["backend_ready_fail_count"] >= 2
+    assert body["backend_fail_streak"] >= 2
+    assert body["last_failures"]

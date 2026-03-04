@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 from sqlmodel import Session
 
+from rpg_backend.api.errors import ApiError
 from rpg_backend.api.schemas import (
     StoryCreateRequest,
     StoryCreateResponse,
@@ -35,11 +36,17 @@ def create_story_endpoint(payload: StoryCreateRequest, db: Session = Depends(get
 def publish_story_endpoint(story_id: str, db: Session = Depends(get_session)) -> StoryPublishResponse:
     story = get_story(db, story_id)
     if story is None:
-        raise HTTPException(status_code=404, detail="story not found")
+        raise ApiError(status_code=404, code="not_found", message="story not found", retryable=False)
 
     report = lint_story_pack(story.draft_pack_json)
     if not report.ok:
-        raise HTTPException(status_code=422, detail={"errors": report.errors, "warnings": report.warnings})
+        raise ApiError(
+            status_code=422,
+            code="validation_error",
+            message="story lint failed",
+            retryable=False,
+            details={"errors": report.errors, "warnings": report.warnings},
+        )
 
     version = publish_story_version(db, story)
     return StoryPublishResponse(story_id=story_id, version=version.version, published_at=version.created_at)
@@ -84,12 +91,12 @@ def generate_story_endpoint(
             seed_text_len=len(payload.seed_text or ""),
             candidate_parallelism=payload.candidate_parallelism,
         )
-        raise HTTPException(
+        raise ApiError(
             status_code=422,
-            detail={
-                "error_code": exc.error_code or "generation_failed",
-                "message": "story generation failed",
-                "retryable": False,
+            code=exc.error_code or "generation_failed",
+            message="story generation failed",
+            retryable=False,
+            details={
                 "errors": exc.lint_report.errors,
                 "warnings": exc.lint_report.warnings,
                 "generation_attempts": exc.generation_attempts,
@@ -165,10 +172,10 @@ def get_story_endpoint(
 ) -> StoryGetResponse:
     story = get_story(db, story_id)
     if story is None:
-        raise HTTPException(status_code=404, detail="story not found")
+        raise ApiError(status_code=404, code="not_found", message="story not found", retryable=False)
 
     resolved = get_story_version(db, story_id, version) if version else get_latest_story_version(db, story_id)
     if resolved is None:
-        raise HTTPException(status_code=404, detail="published version not found")
+        raise ApiError(status_code=404, code="not_found", message="published version not found", retryable=False)
 
     return StoryGetResponse(story_id=story_id, version=resolved.version, pack=resolved.pack_json)

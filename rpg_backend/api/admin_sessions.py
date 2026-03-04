@@ -3,14 +3,21 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 from sqlmodel import Session
 
+from rpg_backend.api.errors import ApiError
 from rpg_backend.api.schemas import (
     AdminSessionTimelineEvent,
     AdminSessionTimelineResponse,
+    HttpHealthAggregateResponse,
+    LLMCallByGatewayModePayload,
+    LLMCallByStagePayload,
+    LLMCallGroupHealthPayload,
+    LLMCallHealthAggregateResponse,
     RuntimeErrorBucketPayload,
     RuntimeErrorsAggregateResponse,
+    ReadinessHealthAggregateResponse,
     SessionFeedbackCreateRequest,
     SessionFeedbackItem,
     SessionFeedbackListResponse,
@@ -18,7 +25,12 @@ from rpg_backend.api.schemas import (
 from rpg_backend.observability.context import get_request_id
 from rpg_backend.observability.logging import log_event
 from rpg_backend.storage.engine import get_session
-from rpg_backend.storage.repositories.observability import aggregate_runtime_error_buckets
+from rpg_backend.storage.repositories.observability import (
+    aggregate_http_health,
+    aggregate_llm_call_health,
+    aggregate_readiness_health,
+    aggregate_runtime_error_buckets,
+)
 from rpg_backend.storage.repositories.runtime_events import list_runtime_events
 from rpg_backend.storage.repositories.session_feedback import create_session_feedback, list_session_feedback
 from rpg_backend.storage.repositories.sessions import get_session as get_session_record
@@ -30,8 +42,29 @@ observability_router = APIRouter(prefix="/v2/admin/observability", tags=["admin"
 def _require_session(db: Session, session_id: str):
     session = get_session_record(db, session_id)
     if session is None:
-        raise HTTPException(status_code=404, detail="session not found")
+        raise ApiError(status_code=404, code="not_found", message="session not found", retryable=False)
     return session
+
+
+def _empty_llm_group() -> LLMCallGroupHealthPayload:
+    return LLMCallGroupHealthPayload(total_calls=0, failed_calls=0, failure_rate=0.0, p95_ms=None)
+
+
+def _stable_stage_groups(raw: dict[str, dict]) -> LLMCallByStagePayload:
+    return LLMCallByStagePayload(
+        route=LLMCallGroupHealthPayload.model_validate(raw.get("route") or _empty_llm_group().model_dump()),
+        narration=LLMCallGroupHealthPayload.model_validate(raw.get("narration") or _empty_llm_group().model_dump()),
+        json_stage=LLMCallGroupHealthPayload.model_validate(raw.get("json") or _empty_llm_group().model_dump()),
+        unknown=LLMCallGroupHealthPayload.model_validate(raw.get("unknown") or _empty_llm_group().model_dump()),
+    )
+
+
+def _stable_gateway_groups(raw: dict[str, dict]) -> LLMCallByGatewayModePayload:
+    return LLMCallByGatewayModePayload(
+        local=LLMCallGroupHealthPayload.model_validate(raw.get("local") or _empty_llm_group().model_dump()),
+        worker=LLMCallGroupHealthPayload.model_validate(raw.get("worker") or _empty_llm_group().model_dump()),
+        unknown=LLMCallGroupHealthPayload.model_validate(raw.get("unknown") or _empty_llm_group().model_dump()),
+    )
 
 
 @router.get("/{session_id}/timeline", response_model=AdminSessionTimelineResponse)
@@ -169,4 +202,85 @@ def get_runtime_errors_aggregate_endpoint(
             )
             for bucket in aggregated["buckets"]
         ],
+    )
+
+
+@observability_router.get("/http-health", response_model=HttpHealthAggregateResponse)
+def get_http_health_endpoint(
+    window_seconds: int = Query(default=300, ge=60, le=3600),
+    service: Literal["backend", "worker"] = Query(default="backend"),
+    path_prefix: str | None = Query(default=None),
+    exclude_paths: str | None = Query(default=None),
+    db: Session = Depends(get_session),
+) -> HttpHealthAggregateResponse:
+    excluded = [item.strip() for item in (exclude_paths or "").split(",") if item.strip()]
+    if service == "backend" and not excluded:
+        excluded = ["/health"]
+    aggregated = aggregate_http_health(
+        db,
+        window_seconds=window_seconds,
+        service=service,
+        path_prefix=path_prefix,
+        exclude_paths=excluded,
+    )
+    return HttpHealthAggregateResponse(
+        generated_at=aggregated.get("generated_at") or datetime.now(UTC),
+        window_started_at=aggregated.get("window_started_at") or datetime.now(UTC),
+        window_ended_at=aggregated.get("window_ended_at") or datetime.now(UTC),
+        window_seconds=window_seconds,
+        service=service,
+        total_requests=int(aggregated["total_requests"]),
+        failed_5xx=int(aggregated["failed_5xx"]),
+        error_rate=float(aggregated["error_rate"]),
+        p95_ms=int(aggregated["p95_ms"]) if aggregated.get("p95_ms") is not None else None,
+        top_5xx_paths=list(aggregated["top_5xx_paths"]),
+    )
+
+
+@observability_router.get("/llm-call-health", response_model=LLMCallHealthAggregateResponse)
+def get_llm_call_health_endpoint(
+    window_seconds: int = Query(default=300, ge=60, le=3600),
+    stage: Literal["route", "narration", "json"] | None = Query(default=None),
+    gateway_mode: Literal["local", "worker"] | None = Query(default=None),
+    db: Session = Depends(get_session),
+) -> LLMCallHealthAggregateResponse:
+    aggregated = aggregate_llm_call_health(
+        db,
+        window_seconds=window_seconds,
+        stage=stage,
+        gateway_mode=gateway_mode,
+    )
+    return LLMCallHealthAggregateResponse(
+        generated_at=aggregated.get("generated_at") or datetime.now(UTC),
+        window_started_at=aggregated.get("window_started_at") or datetime.now(UTC),
+        window_ended_at=aggregated.get("window_ended_at") or datetime.now(UTC),
+        window_seconds=window_seconds,
+        total_calls=int(aggregated["total_calls"]),
+        failed_calls=int(aggregated["failed_calls"]),
+        failure_rate=float(aggregated["failure_rate"]),
+        p95_ms=int(aggregated["p95_ms"]) if aggregated.get("p95_ms") is not None else None,
+        by_stage=_stable_stage_groups(dict(aggregated["by_stage"])),
+        by_gateway_mode=_stable_gateway_groups(dict(aggregated["by_gateway_mode"])),
+    )
+
+
+@observability_router.get("/readiness-health", response_model=ReadinessHealthAggregateResponse)
+def get_readiness_health_endpoint(
+    window_seconds: int = Query(default=300, ge=60, le=3600),
+    db: Session = Depends(get_session),
+) -> ReadinessHealthAggregateResponse:
+    aggregated = aggregate_readiness_health(
+        db,
+        window_seconds=window_seconds,
+    )
+    return ReadinessHealthAggregateResponse(
+        generated_at=aggregated.get("generated_at") or datetime.now(UTC),
+        window_started_at=aggregated.get("window_started_at") or datetime.now(UTC),
+        window_ended_at=aggregated.get("window_ended_at") or datetime.now(UTC),
+        window_seconds=window_seconds,
+        backend_ready_fail_count=int(aggregated["backend_ready_fail_count"]),
+        worker_ready_fail_count=int(aggregated["worker_ready_fail_count"]),
+        backend_fail_streak=int(aggregated["backend_fail_streak"]),
+        worker_fail_streak=int(aggregated["worker_fail_streak"]),
+        last_failures=list(aggregated["last_failures"]),
     )

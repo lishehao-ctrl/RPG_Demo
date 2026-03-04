@@ -158,8 +158,8 @@ def test_eval_report_shape_with_mocks(tmp_path, monkeypatch) -> None:
         },
     )
 
-    class _FakeGeneratorService:
-        def generate_pack(self, **kwargs):  # noqa: ANN003, ANN201
+    class _FakeGeneratorPipeline:
+        def run(self, **kwargs):  # noqa: ANN003, ANN201
             return SimpleNamespace(
                 pack=sample_pack,
                 pack_hash="a" * 64,
@@ -235,7 +235,7 @@ def test_eval_report_shape_with_mocks(tmp_path, monkeypatch) -> None:
             ],
         }
 
-    monkeypatch.setattr(eval_story, "GeneratorService", _FakeGeneratorService)
+    monkeypatch.setattr(eval_story, "GeneratorPipeline", _FakeGeneratorPipeline)
     monkeypatch.setattr(eval_story, "StoryQualityJudge", _FakeJudge)
     monkeypatch.setattr(eval_story, "simulate_pack_playthrough", _simulate)
 
@@ -320,8 +320,8 @@ def test_eval_parallel_max_workers_path(tmp_path, monkeypatch) -> None:
         },
     )
 
-    class _FakeGeneratorService:
-        def generate_pack(self, **kwargs):  # noqa: ANN003, ANN201
+    class _FakeGeneratorPipeline:
+        def run(self, **kwargs):  # noqa: ANN003, ANN201
             variant_seed = kwargs.get("variant_seed") or "seed"
             pack_hash = f"{hash(variant_seed) & 0xFFFFFFFF:064x}"
             return SimpleNamespace(
@@ -360,7 +360,7 @@ def test_eval_parallel_max_workers_path(tmp_path, monkeypatch) -> None:
                 notes=[],
             )
 
-    monkeypatch.setattr(eval_story, "GeneratorService", _FakeGeneratorService)
+    monkeypatch.setattr(eval_story, "GeneratorPipeline", _FakeGeneratorPipeline)
     monkeypatch.setattr(eval_story, "StoryQualityJudge", _FakeJudge)
     monkeypatch.setattr(
         eval_story,
@@ -442,11 +442,11 @@ def test_eval_collects_generation_failure_breakdown_and_prompt_fields(tmp_path, 
         },
     )
 
-    class _FlakyGeneratorService:
+    class _FlakyGeneratorPipeline:
         def __init__(self) -> None:
             self.calls = 0
 
-        def generate_pack(self, **kwargs):  # noqa: ANN003, ANN201
+        def run(self, **kwargs):  # noqa: ANN003, ANN201
             self.calls += 1
             if self.calls == 1:
                 raise GeneratorBuildError(
@@ -500,7 +500,7 @@ def test_eval_collects_generation_failure_breakdown_and_prompt_fields(tmp_path, 
                 notes=[],
             )
 
-    monkeypatch.setattr(eval_story, "GeneratorService", _FlakyGeneratorService)
+    monkeypatch.setattr(eval_story, "GeneratorPipeline", _FlakyGeneratorPipeline)
     monkeypatch.setattr(eval_story, "StoryQualityJudge", _FakeJudge)
     monkeypatch.setattr(
         eval_story,

@@ -359,6 +359,7 @@ def test_session_create_succeeds_when_only_narration_model_configured(client, mo
 def test_step_returns_503_when_provider_route_throws(client, monkeypatch) -> None:
     from rpg_backend.api import sessions as sessions_api
 
+    monkeypatch.setattr(sessions_api, "get_llm_provider", lambda: DeterministicProvider())
     story_id, version = _bootstrap_story(client)
     session_resp = client.post("/v2/sessions", json={"story_id": story_id, "version": version})
     session_id = session_resp.json()["session_id"]
@@ -397,6 +398,7 @@ def test_step_returns_503_when_provider_route_throws(client, monkeypatch) -> Non
 def test_step_returns_503_on_low_confidence_for_openai_strict(client, monkeypatch) -> None:
     from rpg_backend.api import sessions as sessions_api
 
+    monkeypatch.setattr(sessions_api, "get_llm_provider", lambda: DeterministicProvider())
     story_id, version = _bootstrap_story(client)
     session_resp = client.post("/v2/sessions", json={"story_id": story_id, "version": version})
     session_id = session_resp.json()["session_id"]
@@ -420,6 +422,7 @@ def test_step_returns_503_on_low_confidence_for_openai_strict(client, monkeypatc
 def test_step_returns_503_on_invalid_move_for_openai_strict(client, monkeypatch) -> None:
     from rpg_backend.api import sessions as sessions_api
 
+    monkeypatch.setattr(sessions_api, "get_llm_provider", lambda: DeterministicProvider())
     story_id, version = _bootstrap_story(client)
     session_resp = client.post("/v2/sessions", json={"story_id": story_id, "version": version})
     session_id = session_resp.json()["session_id"]
@@ -443,6 +446,7 @@ def test_step_returns_503_on_invalid_move_for_openai_strict(client, monkeypatch)
 def test_step_returns_503_when_narration_fails_for_openai_strict(client, monkeypatch) -> None:
     from rpg_backend.api import sessions as sessions_api
 
+    monkeypatch.setattr(sessions_api, "get_llm_provider", lambda: DeterministicProvider())
     story_id, version = _bootstrap_story(client)
     session_resp = client.post("/v2/sessions", json={"story_id": story_id, "version": version})
     session_id = session_resp.json()["session_id"]

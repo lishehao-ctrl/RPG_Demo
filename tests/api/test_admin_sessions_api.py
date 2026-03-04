@@ -22,7 +22,10 @@ def _bootstrap_story(client):
     return story_id, version
 
 
-def _create_session(client) -> str:
+def _create_session(client, monkeypatch) -> str:
+    from rpg_backend.api import sessions as sessions_api
+
+    monkeypatch.setattr(sessions_api, "get_llm_provider", lambda: DeterministicProvider())
     story_id, version = _bootstrap_story(client)
     session_resp = client.post("/v2/sessions", json={"story_id": story_id, "version": version})
     assert session_resp.status_code == 200
@@ -33,7 +36,7 @@ def test_admin_timeline_contains_started_and_succeeded_events(client, monkeypatc
     from rpg_backend.api import sessions as sessions_api
 
     monkeypatch.setattr(sessions_api, "get_llm_provider", lambda: DeterministicProvider())
-    session_id = _create_session(client)
+    session_id = _create_session(client, monkeypatch)
     step = client.post(
         f"/v2/sessions/{session_id}/step",
         json={
@@ -55,7 +58,7 @@ def test_admin_timeline_contains_started_and_succeeded_events(client, monkeypatc
 def test_admin_timeline_contains_step_failed_on_openai_strict_error(client, monkeypatch) -> None:
     from rpg_backend.api import sessions as sessions_api
 
-    session_id = _create_session(client)
+    session_id = _create_session(client, monkeypatch)
     monkeypatch.setattr(sessions_api, "get_llm_provider", lambda: RouteFailureProvider())
 
     step = client.post(
@@ -82,7 +85,7 @@ def test_admin_timeline_contains_step_replayed_for_idempotent_call(client, monke
     from rpg_backend.api import sessions as sessions_api
 
     monkeypatch.setattr(sessions_api, "get_llm_provider", lambda: DeterministicProvider())
-    session_id = _create_session(client)
+    session_id = _create_session(client, monkeypatch)
     payload = {
         "client_action_id": "admin-replay-1",
         "input": {"type": "text", "text": "help me progress"},
@@ -104,7 +107,7 @@ def test_admin_timeline_contains_step_conflicted_event(client, monkeypatch) -> N
 
     barrier = Barrier(2)
     monkeypatch.setattr(sessions_api, "get_llm_provider", lambda: BarrierDeterministicProvider(barrier))
-    session_id = _create_session(client)
+    session_id = _create_session(client, monkeypatch)
     request_url = f"/v2/sessions/{session_id}/step"
     payloads = [
         {
@@ -142,8 +145,8 @@ def test_admin_timeline_contains_step_conflicted_event(client, monkeypatch) -> N
     assert body["buckets"] == []
 
 
-def test_admin_feedback_create_and_list(client) -> None:
-    session_id = _create_session(client)
+def test_admin_feedback_create_and_list(client, monkeypatch) -> None:
+    session_id = _create_session(client, monkeypatch)
     created = client.post(
         f"/v2/admin/sessions/{session_id}/feedback",
         json={
@@ -185,7 +188,7 @@ def test_admin_endpoints_return_404_for_missing_session(client) -> None:
 def test_admin_runtime_errors_aggregate_endpoint(client, monkeypatch) -> None:
     from rpg_backend.api import sessions as sessions_api
 
-    session_id = _create_session(client)
+    session_id = _create_session(client, monkeypatch)
     monkeypatch.setattr(sessions_api, "get_llm_provider", lambda: RouteFailureProvider())
 
     collected_request_ids: list[str] = []
@@ -229,7 +232,7 @@ def test_admin_runtime_errors_aggregate_endpoint(client, monkeypatch) -> None:
 def test_admin_http_health_endpoint(client, monkeypatch) -> None:
     from rpg_backend.api import sessions as sessions_api
 
-    session_id = _create_session(client)
+    session_id = _create_session(client, monkeypatch)
     monkeypatch.setattr(sessions_api, "get_llm_provider", lambda: RouteFailureProvider())
 
     for index in range(1, 4):
@@ -258,7 +261,7 @@ def test_admin_http_health_endpoint(client, monkeypatch) -> None:
 def test_admin_llm_call_health_endpoint(client, monkeypatch) -> None:
     from rpg_backend.api import sessions as sessions_api
 
-    session_id = _create_session(client)
+    session_id = _create_session(client, monkeypatch)
 
     monkeypatch.setattr(sessions_api, "get_llm_provider", lambda: DeterministicProvider())
     ok = client.post(

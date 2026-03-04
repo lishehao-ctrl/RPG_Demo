@@ -6,9 +6,10 @@ from rpg_backend.domain.constants import GLOBAL_MOVE_IDS
 from rpg_backend.domain.linter import LintReport, lint_story_pack
 from rpg_backend.domain.move_library import MOVE_LIBRARY
 from rpg_backend.domain.pack_schema import StoryPack
+from rpg_backend.generator.errors import GeneratorBuildError
+from rpg_backend.generator.pipeline import GeneratorPipeline
 from rpg_backend.generator.prompt_compiler import PromptCompileError, PromptCompileResult
 from rpg_backend.generator.spec_schema import StorySpec
-from rpg_backend.generator.service import GeneratorBuildError, GeneratorService
 from rpg_backend.generator.versioning import GENERATOR_VERSION
 from rpg_backend.runtime.service import RuntimeService
 from tests.helpers.providers import DeterministicProvider
@@ -90,7 +91,7 @@ def _sample_story_spec() -> StorySpec:
 
 
 def test_generate_pack_passes_linter() -> None:
-    result = GeneratorService().generate_pack(
+    result = GeneratorPipeline().run(
         seed_text="A fractured city signal",
         target_minutes=10,
         npc_count=4,
@@ -144,7 +145,7 @@ def test_move_library_size_and_fail_forward_palette_coverage() -> None:
 
 
 def test_generate_pack_pacing_reaches_terminal_14_16() -> None:
-    generated = GeneratorService().generate_pack(
+    generated = GeneratorPipeline().run(
         seed_text="Contain the reactor breach",
         target_minutes=10,
         npc_count=4,
@@ -176,7 +177,7 @@ def test_generate_pack_pacing_reaches_terminal_14_16() -> None:
 
 
 def test_lint_first_pass_success_has_no_regenerate() -> None:
-    result = GeneratorService().generate_pack(
+    result = GeneratorPipeline().run(
         seed_text="first pass should lint",
         target_minutes=10,
         npc_count=4,
@@ -202,7 +203,7 @@ def test_first_lint_fail_then_second_attempt_succeeds(monkeypatch) -> None:
 
     monkeypatch.setattr(candidate_module, "lint_story_pack", _lint_once_then_pass)
 
-    result = GeneratorService().generate_pack(
+    result = GeneratorPipeline().run(
         seed_text="force second attempt",
         target_minutes=10,
         npc_count=4,
@@ -224,7 +225,7 @@ def test_all_regenerates_fail_returns_last_lint_report(monkeypatch) -> None:
         lambda _: LintReport(errors=["always bad"], warnings=["forced warning"]),
     )
     with pytest.raises(GeneratorBuildError) as exc_info:
-        GeneratorService().generate_pack(
+        GeneratorPipeline().run(
             seed_text="always fail lint",
             target_minutes=10,
             npc_count=4,
@@ -264,7 +265,7 @@ def test_prompt_mode_lint_fail_recompiles_each_attempt_with_derived_seed(monkeyp
     )
 
     with pytest.raises(GeneratorBuildError) as exc_info:
-        GeneratorService().generate_pack(
+        GeneratorPipeline().run(
             prompt_text="force prompt regenerate",
             target_minutes=10,
             npc_count=4,
@@ -283,12 +284,12 @@ def test_prompt_mode_lint_fail_recompiles_each_attempt_with_derived_seed(monkeyp
 
 
 def test_same_seed_10_generations_quality_target() -> None:
-    service = GeneratorService()
+    pipeline = GeneratorPipeline()
     steps: list[int] = []
     palette_ids: set[str] = set()
 
     for _ in range(10):
-        generated = service.generate_pack(
+        generated = pipeline.run(
             seed_text="same-seed-quality-check",
             target_minutes=10,
             npc_count=4,
@@ -333,7 +334,7 @@ def test_same_seed_10_generations_quality_target() -> None:
 
 
 def test_pack_hash_stability_for_same_seed_variant() -> None:
-    service = GeneratorService()
+    pipeline = GeneratorPipeline()
     kwargs = {
         "seed_text": "reproducible hash",
         "target_minutes": 10,
@@ -342,8 +343,8 @@ def test_pack_hash_stability_for_same_seed_variant() -> None:
         "variant_seed": "stable-42",
         "palette_policy": "random",
     }
-    first = service.generate_pack(**kwargs)
-    second = service.generate_pack(**kwargs)
+    first = pipeline.run(**kwargs)
+    second = pipeline.run(**kwargs)
     assert first.pack_hash == second.pack_hash
     assert first.pack == second.pack
     assert first.generator_version == second.generator_version == GENERATOR_VERSION
@@ -351,15 +352,15 @@ def test_pack_hash_stability_for_same_seed_variant() -> None:
 
 
 def test_palette_policy_fixed_vs_balanced_changes_distribution() -> None:
-    service = GeneratorService()
-    fixed = service.generate_pack(
+    pipeline = GeneratorPipeline()
+    fixed = pipeline.run(
         seed_text="palette policy compare",
         target_minutes=10,
         npc_count=4,
         variant_seed="policy-seed",
         palette_policy="fixed",
     )
-    balanced = service.generate_pack(
+    balanced = pipeline.run(
         seed_text="palette policy compare",
         target_minutes=10,
         npc_count=4,
@@ -396,7 +397,7 @@ def test_prompt_mode_generates_lint_ok_pack(monkeypatch) -> None:
         ),
     )
 
-    result = GeneratorService().generate_pack(
+    result = GeneratorPipeline().run(
         prompt_text="Generate a tense reactor incident story",
         target_minutes=10,
         npc_count=4,
@@ -421,7 +422,7 @@ def test_prompt_mode_pacing_reaches_terminal_14_16(monkeypatch) -> None:
         ),
     )
 
-    generated = GeneratorService().generate_pack(
+    generated = GeneratorPipeline().run(
         prompt_text="Generate a techno-thriller with hard tradeoffs",
         target_minutes=10,
         npc_count=4,
@@ -465,7 +466,7 @@ def test_prompt_compile_failure_returns_generator_error(monkeypatch) -> None:
     )
 
     try:
-        GeneratorService().generate_pack(
+        GeneratorPipeline().run(
             prompt_text="Create a story from this prompt",
             target_minutes=10,
             npc_count=4,
@@ -496,7 +497,7 @@ def test_prompt_compile_failure_does_not_fallback_to_seed_planner(monkeypatch) -
     )
 
     with pytest.raises(GeneratorBuildError) as exc_info:
-        GeneratorService().generate_pack(
+        GeneratorPipeline().run(
             prompt_text="Create a story from this prompt",
             target_minutes=10,
             npc_count=4,
@@ -517,7 +518,7 @@ def test_prompt_spec_invalid_returns_generator_error(monkeypatch) -> None:
     )
 
     try:
-        GeneratorService().generate_pack(
+        GeneratorPipeline().run(
             prompt_text="A very short malformed prompt",
             target_minutes=10,
             npc_count=4,
@@ -564,7 +565,7 @@ def test_candidate_parallelism_can_select_non_primary_candidate(monkeypatch) -> 
         _fake_build_candidate,
     )
 
-    result = GeneratorService().generate_pack(
+    result = GeneratorPipeline().run(
         prompt_text="Generate in candidate parallel mode",
         target_minutes=10,
         npc_count=4,

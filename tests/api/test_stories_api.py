@@ -255,7 +255,7 @@ def test_generate_story_unrepairable_returns_422(client, monkeypatch) -> None:
             error_code="generation_failed_after_regenerates",
         )
 
-    monkeypatch.setattr(stories_api.GeneratorService, "generate_pack", _always_fail)
+    monkeypatch.setattr(stories_api.GeneratorPipeline, "run", _always_fail)
     response = client.post(
         "/v2/stories/generate",
         json={
@@ -408,7 +408,7 @@ def test_generate_story_forwards_candidate_parallelism(client, monkeypatch) -> N
             spec_summary=None,
         )
 
-    monkeypatch.setattr(stories_api.GeneratorService, "generate_pack", _fake_generate_pack)
+    monkeypatch.setattr(stories_api.GeneratorPipeline, "run", _fake_generate_pack)
 
     response = client.post(
         "/v2/stories/generate",

@@ -130,6 +130,7 @@ def test_step_conflict_returns_409_and_preserves_single_commit(client, monkeypat
     session_id = session_resp.json()["session_id"]
 
     request_url = session_step_path(session_id)
+    auth_headers = dict(client.headers)
     payloads = [
         {
             "client_action_id": "concurrent-a",
@@ -145,7 +146,7 @@ def test_step_conflict_returns_409_and_preserves_single_commit(client, monkeypat
 
     def _post(payload: dict) -> tuple[int, dict]:
         with TestClient(app) as local_client:
-            response = local_client.post(request_url, json=payload)
+            response = local_client.post(request_url, json=payload, headers=auth_headers)
         return response.status_code, response.json()
 
     with ThreadPoolExecutor(max_workers=2) as pool:
@@ -180,6 +181,7 @@ def test_step_same_action_concurrent_requests_replay_without_500(client, monkeyp
     session_resp = client.post(sessions_path(), json={"story_id": story_id, "version": version})
     session_id = session_resp.json()["session_id"]
     request_url = session_step_path(session_id)
+    auth_headers = dict(client.headers)
     payload = {
         "client_action_id": "same-action-race",
         "input": {"type": "text", "text": "same action"},
@@ -188,7 +190,7 @@ def test_step_same_action_concurrent_requests_replay_without_500(client, monkeyp
 
     def _post() -> tuple[int, dict]:
         with TestClient(app) as local_client:
-            response = local_client.post(request_url, json=payload)
+            response = local_client.post(request_url, json=payload, headers=auth_headers)
         return response.status_code, response.json()
 
     with ThreadPoolExecutor(max_workers=2) as pool:

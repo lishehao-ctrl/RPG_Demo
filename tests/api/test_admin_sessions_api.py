@@ -118,10 +118,11 @@ def test_admin_timeline_contains_step_replayed_for_idempotent_call(client, monke
 def test_admin_timeline_contains_step_conflicted_event(client, monkeypatch) -> None:
     from rpg_backend.api import sessions as sessions_api
 
+    session_id = _create_session(client, monkeypatch)
     barrier = Barrier(2)
     monkeypatch.setattr(sessions_api, "get_llm_provider", lambda: BarrierDeterministicProvider(barrier))
-    session_id = _create_session(client, monkeypatch)
     request_url = session_step_path(session_id)
+    auth_headers = dict(client.headers)
     payloads = [
         {
             "client_action_id": "admin-conflict-a",
@@ -137,7 +138,7 @@ def test_admin_timeline_contains_step_conflicted_event(client, monkeypatch) -> N
 
     def _post(payload: dict) -> int:
         with TestClient(app) as local_client:
-            response = local_client.post(request_url, json=payload)
+            response = local_client.post(request_url, json=payload, headers=auth_headers)
         return response.status_code
 
     with ThreadPoolExecutor(max_workers=2) as pool:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+from rpg_backend.config.settings import get_settings
 from rpg_backend.llm_worker.main import app, service
 from rpg_backend.llm_worker.route_paths import (
     WORKER_JSON_OBJECT_TASK_PATH,
@@ -13,6 +14,10 @@ from rpg_backend.llm_worker.schemas import (
     WorkerTaskNarrationResponse,
     WorkerTaskRouteIntentResponse,
 )
+
+
+def _worker_headers() -> dict[str, str]:
+    return {"X-Internal-Worker-Token": get_settings().internal_worker_token}
 
 
 def test_worker_route_intent_uses_internal_path_and_v2_is_removed(monkeypatch) -> None:
@@ -32,6 +37,7 @@ def test_worker_route_intent_uses_internal_path_and_v2_is_removed(monkeypatch) -
     with TestClient(app) as client:
         response = client.post(
             WORKER_ROUTE_INTENT_TASK_PATH,
+            headers=_worker_headers(),
             json={
                 "scene_context": {"moves": [], "fallback_move": "global.help_me_progress"},
                 "text": "help me progress",
@@ -46,6 +52,7 @@ def test_worker_route_intent_uses_internal_path_and_v2_is_removed(monkeypatch) -
 
         legacy = client.post(
             "/v2/llm/tasks/route-intent",
+            headers=_worker_headers(),
             json={
                 "scene_context": {"moves": [], "fallback_move": "global.help_me_progress"},
                 "text": "help me progress",
@@ -69,6 +76,7 @@ def test_worker_render_narration_uses_internal_path_and_v2_is_removed(monkeypatc
     with TestClient(app) as client:
         response = client.post(
             WORKER_RENDER_NARRATION_TASK_PATH,
+            headers=_worker_headers(),
             json={
                 "slots": {"echo": "x"},
                 "style_guard": "neutral",
@@ -83,6 +91,7 @@ def test_worker_render_narration_uses_internal_path_and_v2_is_removed(monkeypatc
 
         legacy = client.post(
             "/v2/llm/tasks/render-narration",
+            headers=_worker_headers(),
             json={
                 "slots": {"echo": "x"},
                 "style_guard": "neutral",
@@ -106,6 +115,7 @@ def test_worker_json_object_uses_internal_path_and_v2_is_removed(monkeypatch) ->
     with TestClient(app) as client:
         response = client.post(
             WORKER_JSON_OBJECT_TASK_PATH,
+            headers=_worker_headers(),
             json={
                 "system_prompt": "return json",
                 "user_prompt": "{\"ok\":true}",
@@ -120,6 +130,7 @@ def test_worker_json_object_uses_internal_path_and_v2_is_removed(monkeypatch) ->
 
         legacy = client.post(
             "/v2/llm/tasks/json-object",
+            headers=_worker_headers(),
             json={
                 "system_prompt": "return json",
                 "user_prompt": "{\"ok\":true}",
@@ -127,3 +138,20 @@ def test_worker_json_object_uses_internal_path_and_v2_is_removed(monkeypatch) ->
             },
         )
         assert legacy.status_code == 404
+
+
+def test_worker_task_requires_internal_token() -> None:
+    with TestClient(app) as client:
+        response = client.post(
+            WORKER_ROUTE_INTENT_TASK_PATH,
+            json={
+                "scene_context": {"moves": [], "fallback_move": "global.help_me_progress"},
+                "text": "help me progress",
+                "model": "test-model",
+                "temperature": 0.1,
+                "max_retries": 1,
+                "timeout_seconds": 2.0,
+            },
+        )
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "worker_token_invalid"

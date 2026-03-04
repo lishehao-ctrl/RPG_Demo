@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import pytest
+from sqlalchemy import inspect
+
+from rpg_backend.storage.engine import engine
 
 from rpg_backend.storage.migrations import (
     DatabaseMigrationError,
@@ -15,6 +18,8 @@ from rpg_backend.storage.migrations import (
 def test_upgrade_head_matches_current_revision() -> None:
     run_upgrade("head")
     assert get_current_revision() == get_head_revision()
+    inspector = inspect(engine)
+    assert "adminuser" in inspector.get_table_names()
 
 
 def test_downgrade_and_upgrade_roundtrip() -> None:

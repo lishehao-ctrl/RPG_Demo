@@ -3,12 +3,15 @@ from __future__ import annotations
 from rpg_backend.api.route_paths import (
     HEALTH_PATH,
     READY_PATH,
+    admin_auth_login_path,
     admin_http_health_path,
     admin_llm_call_health_path,
     admin_readiness_health_path,
     admin_runtime_errors_path,
     admin_session_feedback_path,
     admin_session_timeline_path,
+    admin_user_path,
+    admin_users_path,
     session_path,
     session_step_path,
     sessions_path,
@@ -31,6 +34,9 @@ def test_backend_openapi_path_snapshot_is_stable() -> None:
         sessions_path(),
         session_path("{session_id}"),
         session_step_path("{session_id}"),
+        admin_auth_login_path(),
+        admin_users_path(),
+        admin_user_path("{user_id}"),
         admin_session_timeline_path("{session_id}"),
         admin_session_feedback_path("{session_id}"),
         admin_runtime_errors_path(),
@@ -40,4 +46,3 @@ def test_backend_openapi_path_snapshot_is_stable() -> None:
     }
     actual_paths = set(app.openapi()["paths"].keys())
     assert actual_paths == expected_paths
-

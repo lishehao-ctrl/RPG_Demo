@@ -132,3 +132,14 @@ class RuntimeAlertDispatch(SQLModel, table=True):
     sent_at: datetime = Field(default_factory=utc_now, index=True, nullable=False)
     status: str
     payload_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
+
+
+class LLMQuotaWindow(SQLModel, table=True):
+    __table_args__ = (UniqueConstraint("model", "window_epoch_minute", name="uq_llm_quota_window_model_minute"),)
+
+    id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
+    model: str = Field(index=True)
+    window_epoch_minute: int = Field(index=True)
+    rpm_used: int = Field(default=0, ge=0)
+    tpm_used: int = Field(default=0, ge=0)
+    updated_at: datetime = Field(default_factory=utc_now, index=True, nullable=False)

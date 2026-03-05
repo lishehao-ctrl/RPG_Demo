@@ -2,6 +2,7 @@ from rpg_backend.storage.models.entities import (
     AdminUser,
     HttpRequestEvent,
     LLMCallEvent,
+    LLMQuotaWindow,
     ReadinessProbeEvent,
     RuntimeAlertDispatch,
     RuntimeEvent,
@@ -23,5 +24,6 @@ __all__ = [
     "RuntimeAlertDispatch",
     "HttpRequestEvent",
     "LLMCallEvent",
+    "LLMQuotaWindow",
     "ReadinessProbeEvent",
 ]

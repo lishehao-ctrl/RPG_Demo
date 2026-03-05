@@ -1,0 +1,33 @@
+name: Contract Sync Guard
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  contract-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Verify OpenAPI artifact sync
+        run: python -m scripts.export_openapi --check
+
+      - name: Verify frontend SDK sync
+        run: python -m scripts.generate_frontend_sdk --check
+
+      - name: Verify route + contract tests
+        run: PYTHONPATH=. python -m pytest -q tests/test_contract_artifacts_sync.py tests/api/test_route_contract_snapshot.py

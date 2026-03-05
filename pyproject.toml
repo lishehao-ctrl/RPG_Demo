@@ -27,9 +27,13 @@ dev = [
   "pytest>=8.3.0,<9.0.0",
 ]
 
+[project.scripts]
+export-openapi = "scripts.export_openapi:main"
+generate-frontend-sdk = "scripts.generate_frontend_sdk:main"
+
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["rpg_backend*"]
+include = ["rpg_backend*", "scripts*"]
 
 [tool.pytest.ini_options]
 addopts = "-q -m 'not live_openai_critical'"

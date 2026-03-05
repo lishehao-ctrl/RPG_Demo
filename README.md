@@ -35,6 +35,7 @@ Route path policy:
 - backend business routes and probe paths must come from `rpg_backend.api.route_paths`.
 - worker task routes must come from `rpg_backend.llm_worker.route_paths`.
 - tests/scripts should import the same constants/helpers (no ad-hoc hardcoded route literals).
+- `LEGACY_V2_*` route constants are removed from production code; `/v2/*` probes live in tests only.
 
 Runtime architecture source of truth:
 - `docs/architecture.md`
@@ -228,6 +229,7 @@ Readiness endpoint contract:
   - `200` with `status=ready` when all checks pass
   - `503` with `status=not_ready` and detailed check diagnostics when any critical check fails
 - backend and worker readiness share one implementation core for config checks + probe cache semantics.
+- backend readiness checks are async-only (`run_readiness_checks_async`); sync compatibility wrappers are removed.
 - LLM readiness probe is cached in-process by TTL (`APP_READY_LLM_PROBE_CACHE_TTL_SECONDS`) to control token/latency overhead.
 - Deployment probe templates (Kubernetes + systemd process manager):
   - [docs/deployment_probes.md](/Users/lishehao/Desktop/Project/RPG_Demo/docs/deployment_probes.md)

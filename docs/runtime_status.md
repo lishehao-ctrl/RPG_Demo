@@ -9,6 +9,7 @@ This file maps `docs/architecture.md` sections to current implementation status.
   - worker task calls require `X-Internal-Worker-Token` sourced from `APP_INTERNAL_WORKER_TOKEN`
   - worker probes remain unversioned (`GET /health`, `GET /ready`)
   - legacy worker routes `/v2/llm/tasks/*` removed (hard cut, no compatibility alias)
+  - `LEGACY_V2_*` route constants removed from production route path module
 - Async data layer hard cut:
   - API/repository access uses `AsyncSession` via `rpg_backend/infrastructure/db/async_session.py`
   - worker quota reservation/reconcile/cleanup uses async repository path
@@ -22,6 +23,7 @@ This file maps `docs/architecture.md` sections to current implementation status.
 - Readiness shared-core refactor:
   - backend and worker readiness both reuse `rpg_backend/observability/readiness_core.py`
   - config validation, check payload shaping, and TTL probe cache semantics are single-source
+  - backend readiness module is async-only (no awaitable/sync compatibility helpers)
 - Auth and account baseline:
   - `POST /admin/auth/login` issues JWT access token from bootstrap admin account
   - all business/admin routes require Bearer auth; only `/health`, `/ready`, `/admin/auth/login` are anonymous

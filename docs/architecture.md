@@ -176,6 +176,7 @@ Path governance:
 - backend paths are centralized in `rpg_backend/api/route_paths.py`.
 - worker task paths are centralized in `rpg_backend/llm_worker/route_paths.py`.
 - router registration is centralized in `rpg_backend/api/router_registry.py`.
+- production route path module contains no `LEGACY_V2_*` compatibility constants.
 - runtime orchestration:
   - staged session-step use case lives in `rpg_backend/application/session_step/*`
   - runtime `session_step` namespace is removed (no compatibility import path)

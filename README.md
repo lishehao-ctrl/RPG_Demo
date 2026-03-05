@@ -21,11 +21,13 @@ Code is split by responsibilities:
 - `rpg_backend/generator`: deterministic story generator (`pipeline/candidate_executor/result_builder/errors` + `planner/builder/prompt_compiler`)
 - `rpg_backend/runtime`: Pass A routing + Pass B deterministic resolution + narration composition
 - `rpg_backend/llm`: worker transport abstraction (`WorkerProvider`)
-- `rpg_backend/storage`: SQLModel entities + repositories
+- `rpg_backend/storage`: SQLModel entities + migration guard (`engine/migrations/models`)
+- `rpg_backend/infrastructure/repositories`: async repository source of truth (`*_async.py`)
 - `rpg_backend/api`: REST API (`/stories|/sessions|/admin`) + route registry/paths (`router_registry.py`, `route_paths.py`)
 
 Internal import policy:
 - use explicit module imports (for example `rpg_backend.generator.pipeline`) instead of wrapper/facade paths.
+- do not import `rpg_backend.storage.repositories.*` (removed; no compatibility path).
 
 Route path policy:
 - backend business routes and probe paths must come from `rpg_backend.api.route_paths`.

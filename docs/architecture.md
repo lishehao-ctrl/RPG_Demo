@@ -179,6 +179,7 @@ Path governance:
 - runtime orchestration:
   - staged session-step use case lives in `rpg_backend/application/session_step/*`
   - async repositories live in `rpg_backend/infrastructure/repositories/*_async.py`
+  - legacy sync repositories in `rpg_backend/storage/repositories/*` are removed (no compatibility import path)
 
 Auth governance:
 - all business/admin routes require Bearer token.

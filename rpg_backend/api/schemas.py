@@ -99,7 +99,7 @@ class SessionRecognizedPayload(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
     route_source: Literal["button", "button_fallback", "llm"]
     llm_duration_ms: int | None = Field(default=None, ge=0)
-    llm_gateway_mode: Literal["local", "worker", "unknown"] | None = None
+    llm_gateway_mode: Literal["worker", "unknown"] | None = None
 
 
 class SessionResolutionPayload(BaseModel):
@@ -278,7 +278,6 @@ class LLMCallByStagePayload(BaseModel):
 
 
 class LLMCallByGatewayModePayload(BaseModel):
-    local: LLMCallGroupHealthPayload = Field(default_factory=LLMCallGroupHealthPayload)
     worker: LLMCallGroupHealthPayload = Field(default_factory=LLMCallGroupHealthPayload)
     unknown: LLMCallGroupHealthPayload = Field(default_factory=LLMCallGroupHealthPayload)
 

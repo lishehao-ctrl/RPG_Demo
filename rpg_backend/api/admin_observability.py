@@ -48,7 +48,6 @@ def _stable_stage_groups(raw: dict[str, dict]) -> LLMCallByStagePayload:
 
 def _stable_gateway_groups(raw: dict[str, dict]) -> LLMCallByGatewayModePayload:
     return LLMCallByGatewayModePayload(
-        local=LLMCallGroupHealthPayload.model_validate(raw.get("local") or _empty_llm_group().model_dump()),
         worker=LLMCallGroupHealthPayload.model_validate(raw.get("worker") or _empty_llm_group().model_dump()),
         unknown=LLMCallGroupHealthPayload.model_validate(raw.get("unknown") or _empty_llm_group().model_dump()),
     )
@@ -127,7 +126,7 @@ def get_http_health_endpoint(
 def get_llm_call_health_endpoint(
     window_seconds: int = Query(default=300, ge=60, le=3600),
     stage: Literal["route", "narration", "json"] | None = Query(default=None),
-    gateway_mode: Literal["local", "worker"] | None = Query(default=None),
+    gateway_mode: Literal["worker", "unknown"] | None = Query(default=None),
     db: Session = Depends(get_session),
 ) -> LLMCallHealthAggregateResponse:
     aggregated = aggregate_llm_call_health(

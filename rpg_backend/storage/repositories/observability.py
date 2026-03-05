@@ -354,13 +354,21 @@ def aggregate_llm_call_health(
 ) -> dict[str, Any]:
     now_value = now or utc_now()
     window_start = now_value - timedelta(seconds=window_seconds)
+    allowed_gateway_modes = {"worker", "unknown"}
 
     stmt = select(LLMCallEvent).where(LLMCallEvent.created_at >= window_start)
     if stage:
         stmt = stmt.where(LLMCallEvent.stage == _normalize_stage(stage))
     if gateway_mode:
-        stmt = stmt.where(LLMCallEvent.gateway_mode == str(gateway_mode).strip().lower())
-    events = list(db.exec(stmt).all())
+        normalized_gateway_mode = str(gateway_mode).strip().lower()
+        if normalized_gateway_mode not in allowed_gateway_modes:
+            events = []
+        else:
+            stmt = stmt.where(LLMCallEvent.gateway_mode == normalized_gateway_mode)
+            events = list(db.exec(stmt).all())
+    else:
+        stmt = stmt.where(LLMCallEvent.gateway_mode.in_(allowed_gateway_modes))
+        events = list(db.exec(stmt).all())
 
     total_calls = len(events)
     failed_calls = sum(1 for event in events if not event.success)

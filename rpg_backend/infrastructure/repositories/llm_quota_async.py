@@ -43,7 +43,7 @@ async def reserve_quota_window(
     tpm_limit_value = max(1, int(tpm_limit))
     token_value = max(1, int(estimated_tokens))
 
-    await db.execute(
+    await db.exec(
         text(
             """
             INSERT INTO llmquotawindow (model, window_epoch_minute, rpm_used, tpm_used, updated_at)
@@ -51,13 +51,13 @@ async def reserve_quota_window(
             ON CONFLICT (model, window_epoch_minute) DO NOTHING
             """
         ),
-        {
+        params={
             "model": model_value,
             "window_epoch_minute": minute_value,
             "updated_at": now_value,
         },
     )
-    update_result = await db.execute(
+    update_result = await db.exec(
         text(
             """
             UPDATE llmquotawindow
@@ -70,7 +70,7 @@ async def reserve_quota_window(
               AND tpm_used + :tokens <= :tpm_limit
             """
         ),
-        {
+        params={
             "model": model_value,
             "window_epoch_minute": minute_value,
             "tokens": token_value,
@@ -104,7 +104,7 @@ async def adjust_quota_tokens(
     model_value = str(model or "").strip() or "unknown"
     minute_value = int(window_epoch_minute)
     now_value = now or utc_now()
-    await db.execute(
+    await db.exec(
         text(
             """
             UPDATE llmquotawindow
@@ -117,7 +117,7 @@ async def adjust_quota_tokens(
               AND window_epoch_minute = :window_epoch_minute
             """
         ),
-        {
+        params={
             "delta_tokens": int(delta_tokens),
             "updated_at": now_value,
             "model": model_value,
@@ -132,10 +132,9 @@ async def cleanup_old_windows(
     *,
     min_window_epoch_minute: int,
 ) -> int:
-    delete_result = await db.execute(
+    delete_result = await db.exec(
         text("DELETE FROM llmquotawindow WHERE window_epoch_minute < :min_window_epoch_minute"),
-        {"min_window_epoch_minute": int(min_window_epoch_minute)},
+        params={"min_window_epoch_minute": int(min_window_epoch_minute)},
     )
     await db.commit()
     return int(delete_result.rowcount or 0)
-

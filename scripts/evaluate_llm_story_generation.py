@@ -473,22 +473,15 @@ def _summarize_transcript(report: dict[str, Any]) -> dict[str, Any]:
 
 def _run_precheck() -> dict[str, Any]:
     settings = get_settings()
-    gateway_mode = str(getattr(settings, "llm_gateway_mode", "local") or "local").strip().lower()
-    if gateway_mode == "worker":
-        base_url = (getattr(settings, "llm_worker_base_url", None) or "").strip()
-    else:
-        base_url = (settings.llm_openai_base_url or "").strip()
+    gateway_mode = "worker"
+    base_url = (getattr(settings, "llm_worker_base_url", None) or "").strip()
     parsed = urlparse(base_url)
     host = parsed.hostname or ""
     if not host:
         return {
             "status": "failed",
             "error_type": "misconfigured",
-            "error": (
-                "APP_LLM_WORKER_BASE_URL is missing or invalid"
-                if gateway_mode == "worker"
-                else "APP_LLM_OPENAI_BASE_URL is missing or invalid"
-            ),
+            "error": "APP_LLM_WORKER_BASE_URL is missing or invalid",
             "base_url": base_url,
             "host": host,
             "gateway_mode": gateway_mode,

@@ -127,9 +127,7 @@ Input → `MoveInvocation`
 **Low confidence policy:**
 - `openai`: if confidence < threshold, parse fails, or move is invalid, failfast this step with `503`.
 - for non-help text, router excludes `global.help_me_progress` from LLM candidate moves.
-- LLM transport can run in two gateway modes:
-  - `local`: backend calls OpenAI-compatible endpoint directly
-  - `worker`: backend calls internal LLM worker (`/internal/llm/tasks/*`), worker calls upstream OpenAI-compatible endpoint
+- backend LLM transport is worker-only: backend calls internal LLM worker (`/internal/llm/tasks/*`), worker calls upstream OpenAI-compatible endpoint.
 
 ### Pass B — Outcome Resolution (Deterministic)
 `MoveInvocation + scene + state` → choose an `Outcome`
@@ -226,7 +224,7 @@ Auth governance:
 - `GET /admin/observability/http-health` — HTTP request health (`5xx rate`, `p95`, `top_5xx_paths`) with `window_started_at/window_ended_at`
 - `GET /admin/observability/llm-call-health` — per-call LLM health (`failure_rate`, `p95`) with fixed groups:
   - `by_stage`: `route/narration/json/unknown`
-  - `by_gateway_mode`: `local/worker/unknown`
+  - `by_gateway_mode`: `local/worker/unknown` (new traffic should be `worker` or `unknown`)
 - `GET /admin/observability/readiness-health` — backend/worker readiness failures + streaks with `window_started_at/window_ended_at`
 
 ### One-click generation (author tooling)

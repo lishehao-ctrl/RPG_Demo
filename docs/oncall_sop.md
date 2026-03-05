@@ -34,7 +34,7 @@ Signal criteria:
 Immediate checks:
 1. Call `GET /ready` and inspect `checks.db`, `checks.llm_config`, `checks.llm_probe`.
 2. Confirm backend process health: `GET /health`.
-3. Compare with worker readiness when gateway mode is `worker`: `GET http://<worker>/ready`.
+3. Compare with worker readiness: `GET http://<worker>/ready`.
 
 Likely causes:
 - DB unavailable or locked.
@@ -72,7 +72,7 @@ Mitigations:
 - `APP_LLM_WORKER_NARRATION_MAX_INFLIGHT`
 - `APP_LLM_WORKER_JSON_MAX_INFLIGHT`
 2. Scale worker replicas temporarily.
-3. If allowed by incident policy, temporarily switch backend gateway mode to `local`.
+3. Tune worker queue/quota knobs (`APP_LLM_WORKER_QUEUE_*`, `APP_LLM_WORKER_DEFAULT_RPM/TPM`, model limits JSON).
 4. Roll back worker version/config if failures correlate with recent release.
 
 Exit criteria:
@@ -91,7 +91,7 @@ Immediate checks:
 - `...&stage=narration`
 3. Split by gateway mode:
 - `...&gateway_mode=worker`
-- `...&gateway_mode=local`
+- `...&gateway_mode=unknown` (for fallback/error classification)
 
 Likely causes:
 - Upstream model latency regression.
@@ -135,7 +135,7 @@ Exit criteria:
 
 1. Reduce worker inflight values.
 2. Increase worker replica count.
-3. Temporarily switch `APP_LLM_GATEWAY_MODE` only if incident policy allows.
+3. Tune worker queue and quota settings.
 4. Roll back latest version/config.
 
 ## Incident Closure Template

@@ -3,7 +3,7 @@
 This backend uses split probe semantics:
 - `GET /health`: process liveness only (lightweight, no dependency checks)
 - `GET /ready`: strict readiness (DB + LLM config + cached LLM `who are you` probe)
-- when `APP_LLM_GATEWAY_MODE=worker`, backend `/ready` checks worker readiness instead of probing upstream LLM directly.
+- backend `/ready` checks worker readiness (backend does not probe upstream LLM directly).
 - `/health` is excluded from 5xx alert-rate calculation by default.
 
 ## Kubernetes

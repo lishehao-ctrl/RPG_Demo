@@ -4,9 +4,8 @@ This file maps `docs/architecture.md` sections to current implementation status.
 
 ## Implemented
 - OpenAI strict runtime loop (Pass A + Pass B) with deterministic outcome resolution.
-- LLM gateway mode switch:
-  - `local` direct provider path
-  - `worker` mode via internal `rpg_backend.llm_worker` service (`POST /internal/llm/tasks/{route-intent|render-narration|json-object}`)
+- LLM worker-only runtime:
+  - backend always calls internal `rpg_backend.llm_worker` service (`POST /internal/llm/tasks/{route-intent|render-narration|json-object}`)
   - worker task calls require `X-Internal-Worker-Token` sourced from `APP_INTERNAL_WORKER_TOKEN`
   - worker probes remain unversioned (`GET /health`, `GET /ready`)
   - legacy worker routes `/v2/llm/tasks/*` removed (hard cut, no compatibility alias)
@@ -52,7 +51,7 @@ This file maps `docs/architecture.md` sections to current implementation status.
   - `GET /admin/observability/llm-call-health`
   - `GET /admin/observability/readiness-health`
   - all three responses include `window_started_at/window_ended_at` for fixed window boundaries
-  - `llm-call-health` group fields are stable (`by_stage`: route/narration/json/unknown, `by_gateway_mode`: local/worker/unknown)
+  - `llm-call-health` group fields are stable (`by_stage`: route/narration/json/unknown, `by_gateway_mode`: local/worker/unknown; new traffic should be worker/unknown only)
 - Alert loop closure:
   - `scripts/emit_runtime_alerts.py` emits severity-based webhook alerts for `http_5xx_rate_high`, `backend_ready_unhealthy`, `worker_failure_rate_high`, and `llm_call_p95_high`
   - cooldown dedupe persisted via `RuntimeAlertDispatch`

@@ -20,7 +20,7 @@ Code is split by responsibilities:
 - `rpg_backend/domain`: Story Pack DSL schema + linter
 - `rpg_backend/generator`: deterministic story generator (`pipeline/candidate_executor/result_builder/errors` + `planner/builder/prompt_compiler`)
 - `rpg_backend/runtime`: Pass A routing + Pass B deterministic resolution + narration composition
-- `rpg_backend/llm`: OpenAI provider abstraction (`OpenAIProvider`)
+- `rpg_backend/llm`: worker transport abstraction (`WorkerProvider`)
 - `rpg_backend/storage`: SQLModel entities + repositories
 - `rpg_backend/api`: REST API (`/stories|/sessions|/admin`) + route registry/paths (`router_registry.py`, `route_paths.py`)
 
@@ -90,13 +90,23 @@ Environment variables use `APP_` prefix.
 - `APP_LLM_OPENAI_GENERATOR_TEMPERATURE` default: `0.15`
 - `APP_LLM_OPENAI_GENERATOR_MAX_RETRIES` default: `3` (max 3)
 - `APP_GENERATOR_CANDIDATE_PARALLELISM` default: `1` (per-attempt candidate fanout during story generation)
-- `APP_LLM_GATEWAY_MODE` default: `local` (`local|worker`)
-- `APP_LLM_WORKER_BASE_URL` required when `APP_LLM_GATEWAY_MODE=worker`
+- `APP_LLM_WORKER_BASE_URL` required (backend only talks to worker)
 - `APP_LLM_WORKER_TIMEOUT_SECONDS` default: `20`
 - `APP_LLM_WORKER_CONNECT_TIMEOUT_SECONDS` default: `5`
 - `APP_LLM_WORKER_MAX_CONNECTIONS` default: `100`
 - `APP_LLM_WORKER_MAX_KEEPALIVE_CONNECTIONS` default: `20`
 - `APP_LLM_WORKER_HTTP2_ENABLED` default: `false`
+- `APP_LLM_WORKER_UPSTREAM_API_FORMAT` default: `chat_completions` (`chat_completions|responses`)
+- `APP_LLM_WORKER_MODEL_LIMITS_JSON` default: `{}` (per-model rpm/tpm bucket overrides)
+- `APP_LLM_WORKER_DEFAULT_RPM` default: `300`
+- `APP_LLM_WORKER_DEFAULT_TPM` default: `600000`
+- `APP_LLM_WORKER_QUEUE_MAX_SIZE` default: `1024`
+- `APP_LLM_WORKER_QUEUE_WAIT_TIMEOUT_SECONDS` default: `8`
+- `APP_LLM_WORKER_QUEUE_WEIGHTS_JSON` default: `{"route_intent":5,"render_narration":3,"json_object":2}`
+- `APP_LLM_WORKER_EXECUTOR_CONCURRENCY` default: `16`
+- `APP_LLM_WORKER_TOKEN_EST_ROUTE_OUTPUT` default: `96`
+- `APP_LLM_WORKER_TOKEN_EST_NARRATION_OUTPUT` default: `192`
+- `APP_LLM_WORKER_TOKEN_EST_JSON_OUTPUT` default: `256`
 - `APP_LLM_WORKER_ROUTE_MAX_INFLIGHT` default: `64`
 - `APP_LLM_WORKER_NARRATION_MAX_INFLIGHT` default: `64`
 - `APP_LLM_WORKER_JSON_MAX_INFLIGHT` default: `32`
@@ -161,14 +171,17 @@ OpenAI model resolution:
 - `route_model = APP_LLM_OPENAI_ROUTE_MODEL or APP_LLM_OPENAI_NARRATION_MODEL or APP_LLM_OPENAI_MODEL`
 - `narration_model = APP_LLM_OPENAI_NARRATION_MODEL or APP_LLM_OPENAI_ROUTE_MODEL or APP_LLM_OPENAI_MODEL`
 - `generator_model = APP_LLM_OPENAI_GENERATOR_MODEL or route_model`
-- if both effective models are empty, OpenAI provider initialization fails with `503` on session create/step.
-- OpenAI provider calls `POST /v1/chat/completions` (strict Chat Completions-only).
+- if both effective models are empty, worker provider initialization fails with `503` on session create/step.
+- backend never calls upstream LLM directly; worker handles upstream protocol (`chat_completions` or `responses`).
 
-OpenAI provider bootstrap:
+LLM worker bootstrap:
 
 ```bash
 cp .env.llm.example .env
 # then fill APP_LLM_OPENAI_BASE_URL / APP_LLM_OPENAI_API_KEY
+# and backend worker target:
+# APP_LLM_WORKER_BASE_URL=http://127.0.0.1:8100
+# APP_INTERNAL_WORKER_TOKEN=<shared-secret>
 # and at least one model path:
 # - single model: APP_LLM_OPENAI_MODEL
 # - route only: APP_LLM_OPENAI_ROUTE_MODEL
@@ -203,9 +216,8 @@ Readiness endpoint contract:
 - `/health` is a lightweight liveness probe and always returns `200 {"status":"ok"}` when process is up.
 - `/ready` is a strict readiness probe:
   - checks DB connectivity (`SELECT 1`)
-  - checks LLM config completeness
-  - `APP_LLM_GATEWAY_MODE=local`: runs a minimal OpenAI-compatible `who are you` probe (JSON mode)
-  - `APP_LLM_GATEWAY_MODE=worker`: probes worker `/ready` (which does upstream LLM probe)
+  - checks worker config completeness
+  - probes worker `/ready` (worker performs upstream probe with cache)
 - `/ready` returns:
   - `200` with `status=ready` when all checks pass
   - `503` with `status=not_ready` and detailed check diagnostics when any critical check fails
@@ -232,7 +244,7 @@ Readiness endpoint contract:
 
 LLM worker mode:
 - start worker: `uvicorn rpg_backend.llm_worker.main:app --host 0.0.0.0 --port 8100`
-- switch backend: set `APP_LLM_GATEWAY_MODE=worker` and `APP_LLM_WORKER_BASE_URL=http://127.0.0.1:8100`
+- backend target: set `APP_LLM_WORKER_BASE_URL=http://127.0.0.1:8100`
 - worker task API (hard cut): `POST /internal/llm/tasks/route-intent`, `POST /internal/llm/tasks/render-narration`, `POST /internal/llm/tasks/json-object`
 - worker task API requires header: `X-Internal-Worker-Token: ${APP_INTERNAL_WORKER_TOKEN}`
 - worker probes stay unversioned: `GET /health`, `GET /ready`
@@ -748,7 +760,7 @@ curl -sS "http://127.0.0.1:8000/admin/observability/llm-call-health?window_secon
 
 Optional query:
 - `stage=route|narration|json`
-- `gateway_mode=local|worker`
+- `gateway_mode=worker|unknown` (`local` exists only for historical buckets)
 
 Response includes:
 - `window_started_at`, `window_ended_at`

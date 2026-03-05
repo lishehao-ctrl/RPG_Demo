@@ -47,7 +47,7 @@ Prompt mode execution path:
 2. `GeneratorPipeline.run(...)`
 3. `GeneratorPipeline.compile_or_plan(...)`
 4. `PromptCompiler.compile(...)`
-5. `JsonGateway.call_json_object(...)` (gateway mode: `local` or `worker`)
+5. `JsonGateway.call_json_object(...)` (worker transport only)
 6. returns validated `StorySpec`, then planner/builder/linter continue
 
 ## 2) Compile Budget And Control Flow
@@ -163,11 +163,7 @@ Important:
 
 ## 7) Transport Layer (JsonGateway) Contract
 
-`PromptCompiler` does not call provider directly; it calls `JsonGateway`.
-
-Gateway modes:
-- `local`: direct OpenAI-compatible chat-completions call
-- `worker`: internal worker task call
+`PromptCompiler` does not call upstream directly; it calls `JsonGateway`, and gateway only talks to internal worker tasks.
 
 Shared behavior:
 - JSON-object mode body builder

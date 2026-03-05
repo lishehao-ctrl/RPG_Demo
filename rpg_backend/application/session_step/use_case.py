@@ -14,7 +14,7 @@ from rpg_backend.application.session_step.stages.idempotency import idempotency_
 from rpg_backend.application.session_step.stages.validate import validate_request
 from rpg_backend.llm.factory import get_llm_provider
 from rpg_backend.runtime.errors import RuntimeNarrationError, RuntimeRouteError
-from rpg_backend.runtime.session_step.llm_telemetry import llm_runtime_failure_detail
+from rpg_backend.application.session_step.llm_telemetry import llm_runtime_failure_detail
 
 
 async def process_step_request(

@@ -1,9 +1,15 @@
 from __future__ import annotations
 
 from rpg_backend.application.session_step.contracts import RuntimeExecutionContext, RuntimeExecutionSuccess, StepRequestContext
+from rpg_backend.application.session_step.event_logger import (
+    emit_step_failed_event,
+    emit_step_succeeded_event,
+)
+from rpg_backend.application.session_step.llm_telemetry import (
+    record_llm_failure_event,
+    record_llm_success_events,
+)
 from rpg_backend.runtime.errors import RuntimeNarrationError, RuntimeRouteError
-from rpg_backend.runtime.session_step.event_logger import emit_step_failed_event, emit_step_succeeded_event
-from rpg_backend.runtime.session_step.llm_telemetry import record_llm_failure_event, record_llm_success_events
 
 
 async def record_llm_call_events(

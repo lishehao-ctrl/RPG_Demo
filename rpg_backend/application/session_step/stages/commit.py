@@ -8,8 +8,14 @@ from rpg_backend.infrastructure.repositories.sessions_async import (
     commit_step_transition_if_turn_matches,
     get_session_action,
 )
-from rpg_backend.runtime.session_step.conflict import build_session_conflict_detail, session_conflict_code
-from rpg_backend.runtime.session_step.event_logger import emit_step_conflicted_event, emit_step_replayed_event
+from rpg_backend.application.session_step.conflict import (
+    build_session_conflict_detail,
+    session_conflict_code,
+)
+from rpg_backend.application.session_step.event_logger import (
+    emit_step_conflicted_event,
+    emit_step_replayed_event,
+)
 
 
 async def cas_commit_transition(

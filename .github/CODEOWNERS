@@ -1,0 +1,15 @@
+# Replace placeholder handles with your real GitHub users/teams.
+# `@lishehao` is kept as fallback owner until team handles are wired.
+
+* @lishehao
+
+# Backend-owned area
+rpg_backend/** @lishehao @backend-owner
+alembic/** @lishehao @backend-owner
+tests/** @lishehao @backend-owner
+
+# Frontend-owned area
+frontend/** @lishehao @frontend-owner
+
+# Shared contract artifacts (both sides must review)
+contracts/openapi/** @lishehao @backend-owner @frontend-owner

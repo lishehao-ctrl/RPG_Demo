@@ -12,14 +12,10 @@ import httpx
 from rpg_backend.config.settings import get_settings
 from rpg_backend.llm.base import RouteIntentResult
 from rpg_backend.llm.factory import resolve_openai_models
-from rpg_backend.llm.openai_compat import (
-    build_auth_headers,
-    build_json_mode_body,
-    extract_chat_content,
-    normalize_chat_completions_url,
-    parse_json_object,
-)
+from rpg_backend.llm.task_executor import TaskUsage
 from rpg_backend.llm.retry_policy import is_retriable_llm_error, retry_delay_seconds
+from rpg_backend.llm_worker.upstream.base import WorkerUpstreamClient
+from rpg_backend.llm_worker.upstream.factory import build_worker_upstream_client
 from rpg_backend.llm_worker.errors import WorkerTaskError
 from rpg_backend.llm_worker.schemas import (
     WorkerReadyCheckPayload,
@@ -47,9 +43,10 @@ class LLMWorkerService:
         self.route_model = route_model
         self.narration_model = narration_model
         self.generator_model = (settings.llm_openai_generator_model or "").strip() or route_model
-        self.chat_completions_url = normalize_chat_completions_url(self.base_url)
+        self.upstream_api_format = (getattr(settings, "llm_worker_upstream_api_format", None) or "chat_completions").strip()
 
         self._client: httpx.AsyncClient | None = None
+        self._upstream_client: WorkerUpstreamClient | None = None
         self._route_sem = asyncio.Semaphore(settings.llm_worker_route_max_inflight)
         self._narration_sem = asyncio.Semaphore(settings.llm_worker_narration_max_inflight)
         self._json_sem = asyncio.Semaphore(settings.llm_worker_json_max_inflight)
@@ -79,12 +76,19 @@ class LLMWorkerService:
             limits=limits,
             http2=bool(self.settings.llm_worker_http2_enabled),
         )
+        self._upstream_client = build_worker_upstream_client(
+            http_client=self._client,
+            api_format=self.upstream_api_format,
+            base_url=self.base_url,
+            api_key=self.api_key,
+        )
 
     async def shutdown(self) -> None:
         if self._client is None:
             return
         await self._client.aclose()
         self._client = None
+        self._upstream_client = None
 
     @staticmethod
     def _utc_now() -> datetime:
@@ -120,9 +124,11 @@ class LLMWorkerService:
             missing.append("APP_LLM_OPENAI_API_KEY")
         if not self.generator_model:
             missing.append("one of APP_LLM_OPENAI_GENERATOR_MODEL / APP_LLM_OPENAI_ROUTE_MODEL / APP_LLM_OPENAI_NARRATION_MODEL / APP_LLM_OPENAI_MODEL")
+        if self.upstream_api_format not in {"chat_completions", "responses"}:
+            missing.append("APP_LLM_WORKER_UPSTREAM_API_FORMAT(chat_completions|responses)")
         return missing
 
-    async def _call_chat_completions(
+    async def _call_upstream_json_object(
         self,
         *,
         model: str,
@@ -130,26 +136,18 @@ class LLMWorkerService:
         user_prompt: str,
         temperature: float,
         timeout_seconds: float,
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], TaskUsage]:
         if self._client is None:
             await self.startup()
-        assert self._client is not None
-
-        body = build_json_mode_body(
+        assert self._upstream_client is not None
+        result = await self._upstream_client.call_json_object(
             model=model,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             temperature=temperature,
+            timeout_seconds=timeout_seconds,
         )
-        headers = build_auth_headers(self.api_key)
-        response = await self._client.post(
-            self.chat_completions_url,
-            headers=headers,
-            json=body,
-            timeout=timeout_seconds,
-        )
-        response.raise_for_status()
-        return response.json()
+        return result.payload, result.usage
 
     @staticmethod
     def _to_worker_error(
@@ -216,14 +214,14 @@ class LLMWorkerService:
 
         for attempt in range(1, retries + 1):
             try:
-                raw_payload = await self._call_chat_completions(
+                payload, _usage = await self._call_upstream_json_object(
                     model=model,
                     system_prompt=system_prompt,
                     user_prompt=user_prompt,
                     temperature=temperature,
                     timeout_seconds=timeout_seconds,
                 )
-                return parse_json_object(extract_chat_content(raw_payload)), attempt
+                return payload, attempt
             except Exception as exc:  # noqa: BLE001
                 last_exc = exc
                 if not is_retriable_llm_error(exc):

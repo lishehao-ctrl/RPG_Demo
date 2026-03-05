@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import asyncio
-import inspect
 from datetime import datetime
 from typing import Any
 from urllib.parse import urlparse
@@ -79,7 +77,7 @@ def _resolved_probe_config() -> tuple[dict[str, Any], list[str]]:
     )
 
 
-async def check_db_async() -> dict[str, Any]:
+async def check_db() -> dict[str, Any]:
     started_at = _monotonic()
     checked_at = _utc_now()
     try:
@@ -100,10 +98,6 @@ async def check_db_async() -> dict[str, Any]:
         error_code=None,
         message=None,
     )
-
-
-async def check_db() -> dict[str, Any]:
-    return await check_db_async()
 
 
 def check_llm_config() -> dict[str, Any]:
@@ -136,15 +130,8 @@ def check_llm_config() -> dict[str, Any]:
     )
 
 
-async def reset_llm_probe_cache_async() -> None:
+async def reset_llm_probe_cache() -> None:
     await _probe_cache.reset()
-
-
-def reset_llm_probe_cache() -> None:
-    try:
-        asyncio.get_running_loop().create_task(reset_llm_probe_cache_async())
-    except RuntimeError:
-        asyncio.run(reset_llm_probe_cache_async())
 
 
 def _mark_cached_probe_result(payload: dict[str, Any]) -> dict[str, Any]:
@@ -154,13 +141,7 @@ def _mark_cached_probe_result(payload: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
-async def _await_if_needed(value: Any) -> Any:
-    if inspect.isawaitable(value):
-        return await value
-    return value
-
-
-async def check_llm_probe_async(*, refresh: bool = False) -> dict[str, Any]:
+async def check_llm_probe(*, refresh: bool = False) -> dict[str, Any]:
     settings = get_settings()
     checked_at = _utc_now()
     if not settings.ready_llm_probe_enabled:
@@ -199,7 +180,7 @@ async def check_llm_probe_async(*, refresh: bool = False) -> dict[str, Any]:
         started_at = _monotonic()
         try:
             worker_client = get_worker_client()
-            status_code, worker_payload = await _await_if_needed(worker_client.probe_ready(refresh=refresh))
+            status_code, worker_payload = await worker_client.probe_ready(refresh=refresh)
             if status_code >= 400:
                 error_message = str(
                     worker_payload.get("checks", {}).get("llm_probe", {}).get("error_code")
@@ -278,24 +259,12 @@ async def check_llm_probe_async(*, refresh: bool = False) -> dict[str, Any]:
     )
 
 
-async def check_llm_probe(*, refresh: bool = False) -> dict[str, Any]:
-    return await check_llm_probe_async(refresh=refresh)
-
-
-async def _resolve_check_result(value: Any) -> dict[str, Any]:
-    if inspect.isawaitable(value):
-        resolved = await value
-    else:
-        resolved = value
-    return dict(resolved)
-
-
 async def run_readiness_checks_async(*, refresh: bool = False) -> dict[str, Any]:
     checked_at = _utc_now()
-    db_check = await _resolve_check_result(check_db())
+    db_check = dict(await check_db())
     llm_config_check = check_llm_config()
     if llm_config_check["ok"]:
-        llm_probe_check = await _resolve_check_result(check_llm_probe(refresh=refresh))
+        llm_probe_check = dict(await check_llm_probe(refresh=refresh))
     else:
         llm_probe_check = _build_check_result(
             ok=False,
@@ -316,7 +285,3 @@ async def run_readiness_checks_async(*, refresh: bool = False) -> dict[str, Any]
             "llm_probe": llm_probe_check,
         },
     }
-
-
-def run_readiness_checks(*, refresh: bool = False) -> dict[str, Any]:
-    return asyncio.run(run_readiness_checks_async(refresh=refresh))

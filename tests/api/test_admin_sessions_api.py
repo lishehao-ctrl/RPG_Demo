@@ -321,7 +321,7 @@ def test_admin_llm_call_health_endpoint(client, monkeypatch) -> None:
 def test_admin_readiness_health_endpoint(client, monkeypatch) -> None:
     from rpg_backend.observability import readiness as readiness_obs
 
-    def _ok_check():
+    def _ok_sync_check():
         return {
             "ok": True,
             "latency_ms": 1,
@@ -331,7 +331,10 @@ def test_admin_readiness_health_endpoint(client, monkeypatch) -> None:
             "meta": {},
         }
 
-    def _failed_probe(*, refresh: bool = False):  # noqa: ARG001
+    async def _ok_async_check():
+        return _ok_sync_check()
+
+    async def _failed_probe(*, refresh: bool = False):  # noqa: ARG001
         return {
             "ok": False,
             "latency_ms": 2,
@@ -341,8 +344,8 @@ def test_admin_readiness_health_endpoint(client, monkeypatch) -> None:
             "meta": {"cached": False},
         }
 
-    monkeypatch.setattr(readiness_obs, "check_db", _ok_check)
-    monkeypatch.setattr(readiness_obs, "check_llm_config", _ok_check)
+    monkeypatch.setattr(readiness_obs, "check_db", _ok_async_check)
+    monkeypatch.setattr(readiness_obs, "check_llm_config", _ok_sync_check)
     monkeypatch.setattr(readiness_obs, "check_llm_probe", _failed_probe)
 
     first = client.get(READY_PATH)

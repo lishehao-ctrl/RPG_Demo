@@ -29,7 +29,7 @@ Code is split by responsibilities:
 Internal import policy:
 - use explicit module imports (for example `rpg_backend.generator.pipeline`) instead of wrapper/facade paths.
 - do not import `rpg_backend.storage.repositories.*` (removed; no compatibility path).
-- do not import `rpg_backend.runtime.session_step.orchestrator` or `rpg_backend.runtime.session_step.contracts` (removed; use `rpg_backend.application.session_step.*`).
+- do not import `rpg_backend.runtime.session_step.*` (removed; use `rpg_backend.application.session_step.*`).
 
 Route path policy:
 - backend business routes and probe paths must come from `rpg_backend.api.route_paths`.

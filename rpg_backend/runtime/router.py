@@ -20,7 +20,7 @@ def _is_explicit_help_intent(text: str) -> bool:
     return bool(_HELP_INTENT_RE.search(text or ""))
 
 
-def route_player_action(
+async def route_player_action(
     provider: LLMProvider,
     scene: Scene,
     move_map: dict[str, Move],
@@ -119,7 +119,7 @@ def route_player_action(
     route_started_at = time.perf_counter()
 
     try:
-        routed = provider.route_intent(scene_context, text)
+        routed = await provider.route_intent(scene_context, text)
     except Exception as exc:  # noqa: BLE001
         route_duration_ms = int((time.perf_counter() - route_started_at) * 1000)
         raise RuntimeRouteError(

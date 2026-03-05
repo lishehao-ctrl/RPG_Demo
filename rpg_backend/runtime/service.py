@@ -213,7 +213,7 @@ class RuntimeService:
             )
         return ui_moves
 
-    def process_step(
+    async def process_step(
         self,
         pack: StoryPack,
         current_scene_id: str,
@@ -231,7 +231,7 @@ class RuntimeService:
 
         scene = scene_map[current_scene_id]
         current_beat = pack.beats[beat_index] if 0 <= beat_index < len(pack.beats) else None
-        recognized = route_player_action(
+        recognized = await route_player_action(
             self.provider,
             scene,
             move_map,
@@ -274,7 +274,7 @@ class RuntimeService:
         beat_index = beat_index_by_id[next_scene.beat_id]
 
         stance_summary = self._build_stance_summary(stance_snapshot) if runtime_turn % 2 == 0 else None
-        narration_result = render_echo_commit_hook(
+        narration_result = await render_echo_commit_hook(
             self.provider,
             outcome.narration_slots,
             recognized["interpreted_intent"],

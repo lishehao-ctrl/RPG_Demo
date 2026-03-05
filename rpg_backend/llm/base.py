@@ -49,9 +49,9 @@ class LLMNarrationError(RuntimeError):
 
 class LLMProvider(ABC):
     @abstractmethod
-    def route_intent(self, scene_context: dict[str, Any], text: str) -> RouteIntentResult:
+    async def route_intent(self, scene_context: dict[str, Any], text: str) -> RouteIntentResult:
         raise NotImplementedError
 
     @abstractmethod
-    def render_narration(self, slots: dict[str, Any], style_guard: str) -> str:
+    async def render_narration(self, slots: dict[str, Any], style_guard: str) -> str:
         raise NotImplementedError

@@ -1,6 +1,4 @@
 from __future__ import annotations
-
-import asyncio
 import json
 import time
 from typing import Any, Callable
@@ -68,8 +66,7 @@ async def execute_runtime_step(
     working_beat_progress = json.loads(json.dumps(ctx.session.beat_progress_json))
     started_at = time.perf_counter()
 
-    result = await asyncio.to_thread(
-        execution_context.runtime.process_step,
+    result = await execution_context.runtime.process_step(
         pack,
         ctx.session.current_scene_id,
         ctx.session.beat_index,

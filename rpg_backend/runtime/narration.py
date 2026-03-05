@@ -27,7 +27,7 @@ def _echo_commit_hook_parts(
     return echo, commit, hook
 
 
-def render_echo_commit_hook(
+async def render_echo_commit_hook(
     provider: LLMProvider,
     slots: NarrationSlots,
     interpreted_intent: str,
@@ -56,7 +56,7 @@ def render_echo_commit_hook(
     gateway_mode = str(getattr(provider, "gateway_mode", "unknown") or "unknown").strip().lower()
     started_at = time.perf_counter()
     try:
-        rendered = provider.render_narration(prompt_slots, style_guard)
+        rendered = await provider.render_narration(prompt_slots, style_guard)
     except Exception as exc:  # noqa: BLE001
         duration_ms = int((time.perf_counter() - started_at) * 1000)
         raise RuntimeNarrationError(

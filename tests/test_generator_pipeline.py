@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import pytest
 
 from rpg_backend.domain.linter import LintReport
@@ -11,11 +12,13 @@ from rpg_backend.generator.prompt_compiler import PromptCompileError
 def test_pipeline_rejects_missing_seed_and_prompt() -> None:
     pipeline = GeneratorPipeline()
     with pytest.raises(GeneratorBuildError) as exc_info:
-        pipeline.run(
-            seed_text="   ",
-            prompt_text="   ",
-            target_minutes=10,
-            npc_count=4,
+        asyncio.run(
+            pipeline.run(
+                seed_text="   ",
+                prompt_text="   ",
+                target_minutes=10,
+                npc_count=4,
+            )
         )
 
     assert exc_info.value.error_code == "generator_input_invalid"
@@ -42,10 +45,12 @@ def test_pipeline_prompt_compile_failfast_does_not_use_seed_planner(monkeypatch)
 
     pipeline = GeneratorPipeline(seed_planner=_seed_planner)
     with pytest.raises(GeneratorBuildError) as exc_info:
-        pipeline.run(
-            prompt_text="compile from prompt",
-            target_minutes=10,
-            npc_count=4,
+        asyncio.run(
+            pipeline.run(
+                prompt_text="compile from prompt",
+                target_minutes=10,
+                npc_count=4,
+            )
         )
 
     assert exc_info.value.error_code == "prompt_compile_failed"
@@ -63,11 +68,13 @@ def test_pipeline_terminal_regenerate_failure_payload(monkeypatch) -> None:
 
     pipeline = GeneratorPipeline()
     with pytest.raises(GeneratorBuildError) as exc_info:
-        pipeline.run(
-            seed_text="always fail lint",
-            target_minutes=10,
-            npc_count=4,
-            variant_seed="regen-loop",
+        asyncio.run(
+            pipeline.run(
+                seed_text="always fail lint",
+                target_minutes=10,
+                npc_count=4,
+                variant_seed="regen-loop",
+            )
         )
 
     exc = exc_info.value

@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import asyncio
 import argparse
 import hashlib
+import inspect
 import json
 import re
 import socket
@@ -101,6 +103,12 @@ def _parse_bool(value: str | bool) -> bool:
 
 def _safe_mean(values: list[float]) -> float:
     return sum(values) / len(values) if values else 0.0
+
+
+def _resolve_maybe_await(value: Any) -> Any:
+    if inspect.isawaitable(value):
+        return asyncio.run(value)
+    return value
 
 
 def _to_score(value: Any) -> float:
@@ -500,13 +508,15 @@ def _run_precheck() -> dict[str, Any]:
         }
 
     try:
-        compiled = PromptCompiler().compile(
-            prompt_text="Precheck story prompt: produce a compact but playable city emergency setup.",
-            target_minutes=10,
-            npc_count=4,
-            style="neutral",
-            attempt_index=0,
-            attempt_seed="precheck",
+        compiled = _resolve_maybe_await(
+            PromptCompiler().compile(
+                prompt_text="Precheck story prompt: produce a compact but playable city emergency setup.",
+                target_minutes=10,
+                npc_count=4,
+                style="neutral",
+                attempt_index=0,
+                attempt_seed="precheck",
+            )
         )
         return {
             "status": "ok",
@@ -663,12 +673,14 @@ def _evaluate_case_run(
     pipeline_instance = pipeline or GeneratorPipeline()
 
     try:
-        generated = pipeline_instance.run(
-            prompt_text=case.prompt_text,
-            target_minutes=case.target_minutes,
-            npc_count=case.npc_count,
-            style=case.style,
-            variant_seed=run_seed,
+        generated = _resolve_maybe_await(
+            pipeline_instance.run(
+                prompt_text=case.prompt_text,
+                target_minutes=case.target_minutes,
+                npc_count=case.npc_count,
+                style=case.style,
+                variant_seed=run_seed,
+            )
         )
     except GeneratorBuildError as exc:
         error_code = exc.error_code or "generation_failed_after_regenerates"
@@ -832,15 +844,17 @@ def _evaluate_case_run(
         run_metrics = _aggregate_playthrough_metrics(run_play_reports)
         try:
             judge_instance = judge or StoryQualityJudge(model_override=judge_model)
-            decision = judge_instance.evaluate(
-                prompt_text=case.prompt_text,
-                expected_tone=case.expected_tone,
-                pack_summary=_build_pack_summary(generated.pack),
-                transcript_summary={
-                    "strategies": transcript_by_strategy,
-                    "aggregate": run_metrics,
-                },
-                metrics=run_metrics,
+            decision = _resolve_maybe_await(
+                judge_instance.evaluate(
+                    prompt_text=case.prompt_text,
+                    expected_tone=case.expected_tone,
+                    pack_summary=_build_pack_summary(generated.pack),
+                    transcript_summary={
+                        "strategies": transcript_by_strategy,
+                        "aggregate": run_metrics,
+                    },
+                    metrics=run_metrics,
+                )
             )
             judge_payload = decision.result.model_dump()
             fun_score = _compute_fun_score(judge_payload)

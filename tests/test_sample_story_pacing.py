@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -19,13 +20,15 @@ def test_runtime_simulation_reaches_terminal_within_expected_steps() -> None:
     ended = False
     while steps < 25:
         steps += 1
-        result = runtime.process_step(
-            pack,
-            current_scene_id=scene_id,
-            beat_index=beat_index,
-            state=state,
-            beat_progress=beat_progress,
-            action_input={"type": "text", "text": "forward"},
+        result = asyncio.run(
+            runtime.process_step(
+                pack,
+                current_scene_id=scene_id,
+                beat_index=beat_index,
+                state=state,
+                beat_progress=beat_progress,
+                action_input={"type": "text", "text": "forward"},
+            )
         )
         assert result["resolution"]["consequences_summary"] != "none"
 

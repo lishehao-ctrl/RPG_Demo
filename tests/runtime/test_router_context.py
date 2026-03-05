@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -14,7 +15,7 @@ class _CaptureProvider(LLMProvider):
     def __init__(self) -> None:
         self.contexts: list[dict] = []
 
-    def route_intent(self, scene_context, text):  # noqa: ANN001, ANN201
+    async def route_intent(self, scene_context, text):  # noqa: ANN001, ANN201
         self.contexts.append(scene_context)
         return RouteIntentResult(
             move_id=scene_context["moves"][0]["id"],
@@ -23,7 +24,7 @@ class _CaptureProvider(LLMProvider):
             interpreted_intent=(text or "").strip() or "fallback",
         )
 
-    def render_narration(self, slots, style_guard):  # noqa: ANN001, ANN201
+    async def render_narration(self, slots, style_guard):  # noqa: ANN001, ANN201
         return f"{slots['echo']} {slots['commit']} {slots['hook']}"
 
 
@@ -38,26 +39,28 @@ def test_route_context_includes_rich_snapshot_fields() -> None:
     move_map = {move.id: move for move in pack.moves}
     provider = _CaptureProvider()
 
-    _ = route_player_action(
-        provider,
-        scene,
-        move_map,
-        {"type": "text", "text": "trace the source and keep trust stable"},
-        state={
-            "events": ["b1.root_cause_locked", "redline_hit::Kael"],
-            "values": {
-                "last_move": "trace_anomaly",
-                "public_trust": -2,
-                "resource_stress": 1,
-                "coordination_noise": 3,
-                "time_spent": 2,
-                "runtime_turn": 5,
-                "cost_total": 4,
+    _ = asyncio.run(
+        route_player_action(
+            provider,
+            scene,
+            move_map,
+            {"type": "text", "text": "trace the source and keep trust stable"},
+            state={
+                "events": ["b1.root_cause_locked", "redline_hit::Kael"],
+                "values": {
+                    "last_move": "trace_anomaly",
+                    "public_trust": -2,
+                    "resource_stress": 1,
+                    "coordination_noise": 3,
+                    "time_spent": 2,
+                    "runtime_turn": 5,
+                    "cost_total": 4,
+                },
             },
-        },
-        beat_progress={scene.beat_id: 1},
-        beat=beat,
-        beat_index=0,
+            beat_progress={scene.beat_id: 1},
+            beat=beat,
+            beat_index=0,
+        )
     )
 
     assert provider.contexts
@@ -76,11 +79,13 @@ def test_route_context_excludes_global_help_for_non_help_text() -> None:
     move_map = {move.id: move for move in pack.moves}
     provider = _CaptureProvider()
 
-    _ = route_player_action(
-        provider,
-        scene,
-        move_map,
-        {"type": "text", "text": "stabilize corridor and reduce noise"},
+    _ = asyncio.run(
+        route_player_action(
+            provider,
+            scene,
+            move_map,
+            {"type": "text", "text": "stabilize corridor and reduce noise"},
+        )
     )
 
     context = provider.contexts[0]
@@ -94,11 +99,13 @@ def test_route_context_allows_global_help_for_help_text() -> None:
     move_map = {move.id: move for move in pack.moves}
     provider = _CaptureProvider()
 
-    _ = route_player_action(
-        provider,
-        scene,
-        move_map,
-        {"type": "text", "text": "help I am stuck what now"},
+    _ = asyncio.run(
+        route_player_action(
+            provider,
+            scene,
+            move_map,
+            {"type": "text", "text": "help I am stuck what now"},
+        )
     )
 
     context = provider.contexts[0]

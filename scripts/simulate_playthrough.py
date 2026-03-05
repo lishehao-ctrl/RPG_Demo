@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import asyncio
 import argparse
 import json
 import os
@@ -205,14 +206,16 @@ def simulate_pack_playthrough(
             text_input_steps += 1
 
         try:
-            result = runtime.process_step(
-                pack=pack,
-                current_scene_id=scene_id,
-                beat_index=beat_index,
-                state=state,
-                beat_progress=beat_progress,
-                action_input=action_input,
-                dev_mode=True,
+            result = asyncio.run(
+                runtime.process_step(
+                    pack=pack,
+                    current_scene_id=scene_id,
+                    beat_index=beat_index,
+                    state=state,
+                    beat_progress=beat_progress,
+                    action_input=action_input,
+                    dev_mode=True,
+                )
             )
         except Exception as exc:  # noqa: BLE001
             runtime_error = True

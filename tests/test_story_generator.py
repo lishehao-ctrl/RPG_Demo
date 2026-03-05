@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import pytest
 
 from rpg_backend.domain.constants import GLOBAL_MOVE_IDS
@@ -13,6 +14,14 @@ from rpg_backend.generator.spec_schema import StorySpec
 from rpg_backend.generator.versioning import GENERATOR_VERSION
 from rpg_backend.runtime.service import RuntimeService
 from tests.helpers.providers import DeterministicProvider
+
+
+def _run_pipeline(pipeline: GeneratorPipeline, **kwargs):  # noqa: ANN003, ANN201
+    return asyncio.run(pipeline.run(**kwargs))
+
+
+def _run_step(runtime: RuntimeService, *args, **kwargs):  # noqa: ANN002, ANN003, ANN201
+    return asyncio.run(runtime.process_step(*args, **kwargs))
 
 
 def _sample_story_spec() -> StorySpec:
@@ -91,7 +100,7 @@ def _sample_story_spec() -> StorySpec:
 
 
 def test_generate_pack_passes_linter() -> None:
-    result = GeneratorPipeline().run(
+    result = _run_pipeline(GeneratorPipeline(), 
         seed_text="A fractured city signal",
         target_minutes=10,
         npc_count=4,
@@ -145,7 +154,7 @@ def test_move_library_size_and_fail_forward_palette_coverage() -> None:
 
 
 def test_generate_pack_pacing_reaches_terminal_14_16() -> None:
-    generated = GeneratorPipeline().run(
+    generated = _run_pipeline(GeneratorPipeline(), 
         seed_text="Contain the reactor breach",
         target_minutes=10,
         npc_count=4,
@@ -158,7 +167,7 @@ def test_generate_pack_pacing_reaches_terminal_14_16() -> None:
     ended = False
     while steps < 30:
         steps += 1
-        result = runtime.process_step(
+        result = _run_step(runtime, 
             pack,
             current_scene_id=scene_id,
             beat_index=beat_index,
@@ -177,7 +186,7 @@ def test_generate_pack_pacing_reaches_terminal_14_16() -> None:
 
 
 def test_lint_first_pass_success_has_no_regenerate() -> None:
-    result = GeneratorPipeline().run(
+    result = _run_pipeline(GeneratorPipeline(), 
         seed_text="first pass should lint",
         target_minutes=10,
         npc_count=4,
@@ -203,7 +212,7 @@ def test_first_lint_fail_then_second_attempt_succeeds(monkeypatch) -> None:
 
     monkeypatch.setattr(candidate_module, "lint_story_pack", _lint_once_then_pass)
 
-    result = GeneratorPipeline().run(
+    result = _run_pipeline(GeneratorPipeline(), 
         seed_text="force second attempt",
         target_minutes=10,
         npc_count=4,
@@ -225,7 +234,7 @@ def test_all_regenerates_fail_returns_last_lint_report(monkeypatch) -> None:
         lambda _: LintReport(errors=["always bad"], warnings=["forced warning"]),
     )
     with pytest.raises(GeneratorBuildError) as exc_info:
-        GeneratorPipeline().run(
+        _run_pipeline(GeneratorPipeline(), 
             seed_text="always fail lint",
             target_minutes=10,
             npc_count=4,
@@ -246,7 +255,7 @@ def test_prompt_mode_lint_fail_recompiles_each_attempt_with_derived_seed(monkeyp
     sample_spec = _sample_story_spec()
     seen: list[tuple[int, str | None]] = []
 
-    def _fake_compile(*args, **kwargs) -> PromptCompileResult:
+    async def _fake_compile(*args, **kwargs) -> PromptCompileResult:
         seen.append((kwargs.get("attempt_index"), kwargs.get("attempt_seed")))
         attempt_index = int(kwargs.get("attempt_index") or 0)
         return PromptCompileResult(
@@ -265,7 +274,7 @@ def test_prompt_mode_lint_fail_recompiles_each_attempt_with_derived_seed(monkeyp
     )
 
     with pytest.raises(GeneratorBuildError) as exc_info:
-        GeneratorPipeline().run(
+        _run_pipeline(GeneratorPipeline(), 
             prompt_text="force prompt regenerate",
             target_minutes=10,
             npc_count=4,
@@ -289,7 +298,7 @@ def test_same_seed_10_generations_quality_target() -> None:
     palette_ids: set[str] = set()
 
     for _ in range(10):
-        generated = pipeline.run(
+        generated = _run_pipeline(pipeline, 
             seed_text="same-seed-quality-check",
             target_minutes=10,
             npc_count=4,
@@ -310,7 +319,7 @@ def test_same_seed_10_generations_quality_target() -> None:
         step_count = 0
         while step_count < 30:
             step_count += 1
-            result = runtime.process_step(
+            result = _run_step(runtime, 
                 pack,
                 current_scene_id=scene_id,
                 beat_index=beat_index,
@@ -343,8 +352,8 @@ def test_pack_hash_stability_for_same_seed_variant() -> None:
         "variant_seed": "stable-42",
         "palette_policy": "random",
     }
-    first = pipeline.run(**kwargs)
-    second = pipeline.run(**kwargs)
+    first = _run_pipeline(pipeline, **kwargs)
+    second = _run_pipeline(pipeline, **kwargs)
     assert first.pack_hash == second.pack_hash
     assert first.pack == second.pack
     assert first.generator_version == second.generator_version == GENERATOR_VERSION
@@ -353,14 +362,14 @@ def test_pack_hash_stability_for_same_seed_variant() -> None:
 
 def test_palette_policy_fixed_vs_balanced_changes_distribution() -> None:
     pipeline = GeneratorPipeline()
-    fixed = pipeline.run(
+    fixed = _run_pipeline(pipeline, 
         seed_text="palette policy compare",
         target_minutes=10,
         npc_count=4,
         variant_seed="policy-seed",
         palette_policy="fixed",
     )
-    balanced = pipeline.run(
+    balanced = _run_pipeline(pipeline, 
         seed_text="palette policy compare",
         target_minutes=10,
         npc_count=4,
@@ -386,18 +395,21 @@ def test_palette_policy_fixed_vs_balanced_changes_distribution() -> None:
 
 def test_prompt_mode_generates_lint_ok_pack(monkeypatch) -> None:
     sample_spec = _sample_story_spec()
-    monkeypatch.setattr(
-        "rpg_backend.generator.pipeline.PromptCompiler.compile",
-        lambda *args, **kwargs: PromptCompileResult(
+    async def _compile_ok(*args, **kwargs) -> PromptCompileResult:  # noqa: ANN002, ANN003
+        return PromptCompileResult(
             spec=sample_spec,
             spec_hash="abc123" * 10 + "abcd",
             model="test-generator-model",
             attempts=1,
             notes=["prompt compiler mocked"],
-        ),
+        )
+
+    monkeypatch.setattr(
+        "rpg_backend.generator.pipeline.PromptCompiler.compile",
+        _compile_ok,
     )
 
-    result = GeneratorPipeline().run(
+    result = _run_pipeline(GeneratorPipeline(), 
         prompt_text="Generate a tense reactor incident story",
         target_minutes=10,
         npc_count=4,
@@ -411,18 +423,21 @@ def test_prompt_mode_generates_lint_ok_pack(monkeypatch) -> None:
 
 def test_prompt_mode_pacing_reaches_terminal_14_16(monkeypatch) -> None:
     sample_spec = _sample_story_spec()
-    monkeypatch.setattr(
-        "rpg_backend.generator.pipeline.PromptCompiler.compile",
-        lambda *args, **kwargs: PromptCompileResult(
+    async def _compile_ok(*args, **kwargs) -> PromptCompileResult:  # noqa: ANN002, ANN003
+        return PromptCompileResult(
             spec=sample_spec,
             spec_hash="def456" * 10 + "def4",
             model="test-generator-model",
             attempts=1,
             notes=["prompt compiler mocked"],
-        ),
+        )
+
+    monkeypatch.setattr(
+        "rpg_backend.generator.pipeline.PromptCompiler.compile",
+        _compile_ok,
     )
 
-    generated = GeneratorPipeline().run(
+    generated = _run_pipeline(GeneratorPipeline(), 
         prompt_text="Generate a techno-thriller with hard tradeoffs",
         target_minutes=10,
         npc_count=4,
@@ -435,7 +450,7 @@ def test_prompt_mode_pacing_reaches_terminal_14_16(monkeypatch) -> None:
     ended = False
     while steps < 30:
         steps += 1
-        result = runtime.process_step(
+        result = _run_step(runtime, 
             pack,
             current_scene_id=scene_id,
             beat_index=beat_index,
@@ -454,19 +469,20 @@ def test_prompt_mode_pacing_reaches_terminal_14_16(monkeypatch) -> None:
 
 
 def test_prompt_compile_failure_returns_generator_error(monkeypatch) -> None:
+    async def _compile_failed(*args, **kwargs):  # noqa: ANN002, ANN003, ANN201
+        raise PromptCompileError(
+            error_code="prompt_compile_failed",
+            errors=["upstream timeout"],
+            notes=["prompt compiler failed after retries"],
+        )
+
     monkeypatch.setattr(
         "rpg_backend.generator.pipeline.PromptCompiler.compile",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            PromptCompileError(
-                error_code="prompt_compile_failed",
-                errors=["upstream timeout"],
-                notes=["prompt compiler failed after retries"],
-            )
-        ),
+        _compile_failed,
     )
 
     try:
-        GeneratorPipeline().run(
+        _run_pipeline(GeneratorPipeline(), 
             prompt_text="Create a story from this prompt",
             target_minutes=10,
             npc_count=4,
@@ -479,15 +495,16 @@ def test_prompt_compile_failure_returns_generator_error(monkeypatch) -> None:
 
 
 def test_prompt_compile_failure_does_not_fallback_to_seed_planner(monkeypatch) -> None:
+    async def _compile_failed(*args, **kwargs):  # noqa: ANN002, ANN003, ANN201
+        raise PromptCompileError(
+            error_code="prompt_compile_failed",
+            errors=["upstream timeout"],
+            notes=["prompt compiler failed after retries"],
+        )
+
     monkeypatch.setattr(
         "rpg_backend.generator.pipeline.PromptCompiler.compile",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            PromptCompileError(
-                error_code="prompt_compile_failed",
-                errors=["upstream timeout"],
-                notes=["prompt compiler failed after retries"],
-            )
-        ),
+        _compile_failed,
     )
     monkeypatch.setattr(
         "rpg_backend.generator.pipeline.plan_beats",
@@ -497,7 +514,7 @@ def test_prompt_compile_failure_does_not_fallback_to_seed_planner(monkeypatch) -
     )
 
     with pytest.raises(GeneratorBuildError) as exc_info:
-        GeneratorPipeline().run(
+        _run_pipeline(GeneratorPipeline(), 
             prompt_text="Create a story from this prompt",
             target_minutes=10,
             npc_count=4,
@@ -506,19 +523,20 @@ def test_prompt_compile_failure_does_not_fallback_to_seed_planner(monkeypatch) -
 
 
 def test_prompt_spec_invalid_returns_generator_error(monkeypatch) -> None:
+    async def _compile_invalid(*args, **kwargs):  # noqa: ANN002, ANN003, ANN201
+        raise PromptCompileError(
+            error_code="prompt_spec_invalid",
+            errors=["beats must contain 3-5 items"],
+            notes=["prompt compiler schema validation failed"],
+        )
+
     monkeypatch.setattr(
         "rpg_backend.generator.pipeline.PromptCompiler.compile",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            PromptCompileError(
-                error_code="prompt_spec_invalid",
-                errors=["beats must contain 3-5 items"],
-                notes=["prompt compiler schema validation failed"],
-            )
-        ),
+        _compile_invalid,
     )
 
     try:
-        GeneratorPipeline().run(
+        _run_pipeline(GeneratorPipeline(), 
             prompt_text="A very short malformed prompt",
             target_minutes=10,
             npc_count=4,
@@ -534,15 +552,18 @@ def test_candidate_parallelism_can_select_non_primary_candidate(monkeypatch) -> 
     import rpg_backend.generator.candidate_executor as candidate_module
 
     sample_spec = _sample_story_spec()
-    monkeypatch.setattr(
-        "rpg_backend.generator.pipeline.PromptCompiler.compile",
-        lambda *args, **kwargs: PromptCompileResult(
+    async def _compile_ok(*args, **kwargs) -> PromptCompileResult:  # noqa: ANN002, ANN003
+        return PromptCompileResult(
             spec=sample_spec,
             spec_hash="c" * 64,
             model="test-generator-model",
             attempts=1,
             notes=["prompt compiler mocked"],
-        ),
+        )
+
+    monkeypatch.setattr(
+        "rpg_backend.generator.pipeline.PromptCompiler.compile",
+        _compile_ok,
     )
 
     original_build_candidate = candidate_module.build_candidate
@@ -565,7 +586,7 @@ def test_candidate_parallelism_can_select_non_primary_candidate(monkeypatch) -> 
         _fake_build_candidate,
     )
 
-    result = GeneratorPipeline().run(
+    result = _run_pipeline(GeneratorPipeline(), 
         prompt_text="Generate in candidate parallel mode",
         target_minutes=10,
         npc_count=4,

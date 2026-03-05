@@ -112,11 +112,11 @@ def test_precheck_calls_route_only_not_narration(monkeypatch) -> None:
             self.route_called = 0
             self.narration_called = 0
 
-        def route_intent(self, scene_context, text):  # noqa: ANN001, ANN201
+        async def route_intent(self, scene_context, text):  # noqa: ANN001, ANN201
             self.route_called += 1
             return SimpleNamespace(move_id="global.help_me_progress", confidence=0.9)
 
-        def render_narration(self, slots, style_guard):  # noqa: ANN001, ANN201
+        async def render_narration(self, slots, style_guard):  # noqa: ANN001, ANN201
             self.narration_called += 1
             raise AssertionError("render_narration should not be called by precheck")
 

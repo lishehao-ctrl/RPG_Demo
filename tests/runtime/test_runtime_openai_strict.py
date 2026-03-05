@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -43,12 +44,16 @@ def _set_present_npc_conflict_tags(pack: StoryPack, scene_id: str, tags: list[st
             profile.conflict_tags = list(tags)
 
 
+def _run_step(runtime: RuntimeService, *args, **kwargs):  # noqa: ANN002, ANN003, ANN201
+    return asyncio.run(runtime.process_step(*args, **kwargs))
+
+
 def test_fail_forward_for_always_fail_forward_move() -> None:
     pack = _load_pack()
     runtime = RuntimeService(DeterministicProvider())
     scene_id, beat_index, state, beat_progress = runtime.initialize_session_state(pack)
 
-    result = runtime.process_step(
+    result = _run_step(runtime, 
         pack,
         current_scene_id=scene_id,
         beat_index=beat_index,
@@ -68,7 +73,7 @@ def test_empty_text_can_progress_when_route_returns_confident_move() -> None:
     runtime = RuntimeService(DeterministicProvider())
     scene_id, beat_index, state, beat_progress = runtime.initialize_session_state(pack)
 
-    result = runtime.process_step(
+    result = _run_step(runtime, 
         pack,
         current_scene_id=scene_id,
         beat_index=beat_index,
@@ -88,7 +93,7 @@ def test_route_failure_raises_runtime_route_error() -> None:
     scene_id, beat_index, state, beat_progress = runtime.initialize_session_state(pack)
 
     with pytest.raises(RuntimeRouteError) as exc_info:
-        runtime.process_step(
+        _run_step(runtime, 
             pack,
             current_scene_id=scene_id,
             beat_index=beat_index,
@@ -107,7 +112,7 @@ def test_low_confidence_raises_runtime_route_error() -> None:
     scene_id, beat_index, state, beat_progress = runtime.initialize_session_state(pack)
 
     with pytest.raises(RuntimeRouteError) as exc_info:
-        runtime.process_step(
+        _run_step(runtime, 
             pack,
             current_scene_id=scene_id,
             beat_index=beat_index,
@@ -126,7 +131,7 @@ def test_narration_failure_raises_runtime_narration_error() -> None:
     scene_id, beat_index, state, beat_progress = runtime.initialize_session_state(pack)
 
     with pytest.raises(RuntimeNarrationError) as exc_info:
-        runtime.process_step(
+        _run_step(runtime, 
             pack,
             current_scene_id=scene_id,
             beat_index=beat_index,
@@ -145,7 +150,7 @@ def test_invalid_move_raises_runtime_route_error() -> None:
     scene_id, beat_index, state, beat_progress = runtime.initialize_session_state(pack)
 
     with pytest.raises(RuntimeRouteError) as exc_info:
-        runtime.process_step(
+        _run_step(runtime, 
             pack,
             current_scene_id=scene_id,
             beat_index=beat_index,
@@ -164,7 +169,7 @@ def test_non_help_text_disallows_global_help_route() -> None:
     scene_id, beat_index, state, beat_progress = runtime.initialize_session_state(pack)
 
     with pytest.raises(RuntimeRouteError) as exc_info:
-        runtime.process_step(
+        _run_step(runtime, 
             pack,
             current_scene_id=scene_id,
             beat_index=beat_index,
@@ -182,7 +187,7 @@ def test_explicit_help_text_allows_global_help_route() -> None:
     runtime = RuntimeService(AlwaysGlobalHelpProvider())
     scene_id, beat_index, state, beat_progress = runtime.initialize_session_state(pack)
 
-    result = runtime.process_step(
+    result = _run_step(runtime, 
         pack,
         current_scene_id=scene_id,
         beat_index=beat_index,
@@ -213,7 +218,7 @@ def test_pressure_recoil_and_stance_summary_visible_in_late_beats() -> None:
                 chosen_move_id = move_id
                 break
 
-        result = runtime.process_step(
+        result = _run_step(runtime, 
             pack,
             current_scene_id=scene_id,
             beat_index=beat_index,
@@ -245,7 +250,7 @@ def test_style_conflict_uses_anti_noise_tag() -> None:
 
     _set_present_npc_conflict_tags(pack, scene_id, ["anti_noise"])
     move_id = _move_id_for_style(pack, scene_id, "fast_dirty")
-    result = runtime.process_step(
+    result = _run_step(runtime, 
         pack,
         current_scene_id=scene_id,
         beat_index=beat_index,
@@ -261,7 +266,7 @@ def test_style_conflict_uses_anti_noise_tag() -> None:
     scene_id, beat_index, state, beat_progress = runtime.initialize_session_state(pack)
     _set_present_npc_conflict_tags(pack, scene_id, ["anti_noise"])
     move_id = _move_id_for_style(pack, scene_id, "steady_slow")
-    result = runtime.process_step(
+    result = _run_step(runtime, 
         pack,
         current_scene_id=scene_id,
         beat_index=beat_index,
@@ -279,7 +284,7 @@ def test_style_conflict_uses_anti_speed_tag() -> None:
     scene_id, beat_index, state, beat_progress = runtime.initialize_session_state(pack)
     _set_present_npc_conflict_tags(pack, scene_id, ["anti_speed"])
     move_id = _move_id_for_style(pack, scene_id, "steady_slow")
-    result = runtime.process_step(
+    result = _run_step(runtime, 
         pack,
         current_scene_id=scene_id,
         beat_index=beat_index,
@@ -297,7 +302,7 @@ def test_style_conflict_uses_anti_resource_burn_tag() -> None:
     scene_id, beat_index, state, beat_progress = runtime.initialize_session_state(pack)
     _set_present_npc_conflict_tags(pack, scene_id, ["anti_resource_burn"])
     move_id = _move_id_for_style(pack, scene_id, "political_safe_resource_heavy")
-    result = runtime.process_step(
+    result = _run_step(runtime, 
         pack,
         current_scene_id=scene_id,
         beat_index=beat_index,

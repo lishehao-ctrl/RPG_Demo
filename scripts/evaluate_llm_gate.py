@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import asyncio
 import argparse
 import json
 import socket
@@ -95,26 +96,28 @@ def _run_openai_precheck() -> dict[str, Any]:
 
     try:
         provider = get_llm_provider()
-        routed = provider.route_intent(
-            scene_context={
-                "moves": [
-                    {
-                        "id": "global.help_me_progress",
-                        "label": "Help me progress",
-                        "intents": ["progress", "help"],
-                        "synonyms": ["advance"],
-                    },
-                    {
-                        "id": "global.clarify",
-                        "label": "Clarify intent",
-                        "intents": ["clarify"],
-                        "synonyms": ["explain"],
-                    },
-                ],
-                "fallback_move": "global.help_me_progress",
-                "scene_seed": "precheck scene",
-            },
-            text="help me progress",
+        routed = asyncio.run(
+            provider.route_intent(
+                scene_context={
+                    "moves": [
+                        {
+                            "id": "global.help_me_progress",
+                            "label": "Help me progress",
+                            "intents": ["progress", "help"],
+                            "synonyms": ["advance"],
+                        },
+                        {
+                            "id": "global.clarify",
+                            "label": "Clarify intent",
+                            "intents": ["clarify"],
+                            "synonyms": ["explain"],
+                        },
+                    ],
+                    "fallback_move": "global.help_me_progress",
+                    "scene_seed": "precheck scene",
+                },
+                text="help me progress",
+            )
         )
         return {
             "status": "ok",

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import pytest
 
 from rpg_backend.eval.story_quality_judge import StoryQualityJudge, StoryQualityJudgeError
@@ -58,7 +59,7 @@ def test_judge_does_not_retry_on_401(monkeypatch) -> None:
     call_count = 0
 
     class _FailingGateway:
-        def call_json_object(self, **_kwargs):  # noqa: ANN003, ANN201
+        async def call_json_object(self, **_kwargs):  # noqa: ANN003, ANN201
             nonlocal call_count
             call_count += 1
             raise JsonGatewayError(
@@ -72,12 +73,14 @@ def test_judge_does_not_retry_on_401(monkeypatch) -> None:
     judge._json_gateway = _FailingGateway()
 
     with pytest.raises(StoryQualityJudgeError) as exc_info:
-        judge.evaluate(
-            prompt_text="prompt",
-            expected_tone="tense",
-            pack_summary={"scenes": 14},
-            transcript_summary={"steps": 14},
-            metrics={"completion_rate": 1.0},
+        asyncio.run(
+            judge.evaluate(
+                prompt_text="prompt",
+                expected_tone="tense",
+                pack_summary={"scenes": 14},
+                transcript_summary={"steps": 14},
+                metrics={"completion_rate": 1.0},
+            )
         )
 
     assert exc_info.value.error_type == "judge_failed"
@@ -90,7 +93,7 @@ def test_judge_respects_gateway_attempts_on_success(monkeypatch) -> None:
     call_count = 0
 
     class _FlakyGateway:
-        def call_json_object(self, **_kwargs):  # noqa: ANN003, ANN201
+        async def call_json_object(self, **_kwargs):  # noqa: ANN003, ANN201
             nonlocal call_count
             call_count += 1
             return JsonGatewayResult(
@@ -101,12 +104,14 @@ def test_judge_respects_gateway_attempts_on_success(monkeypatch) -> None:
 
     judge._json_gateway = _FlakyGateway()
 
-    decision = judge.evaluate(
-        prompt_text="prompt",
-        expected_tone="tense",
-        pack_summary={"scenes": 14},
-        transcript_summary={"steps": 14},
-        metrics={"completion_rate": 1.0},
+    decision = asyncio.run(
+        judge.evaluate(
+            prompt_text="prompt",
+            expected_tone="tense",
+            pack_summary={"scenes": 14},
+            transcript_summary={"steps": 14},
+            metrics={"completion_rate": 1.0},
+        )
     )
 
     assert decision.attempts == 3
@@ -118,7 +123,7 @@ def test_judge_returns_failed_when_gateway_raises_runtime_error(monkeypatch) -> 
     judge = _new_judge_for_retry_tests(max_retries=3)
 
     class _RuntimeFailingGateway:
-        def call_json_object(self, **_kwargs):  # noqa: ANN003, ANN201
+        async def call_json_object(self, **_kwargs):  # noqa: ANN003, ANN201
             nonlocal call_count
             call_count += 1
             raise RuntimeError("upstream exploded")
@@ -127,12 +132,14 @@ def test_judge_returns_failed_when_gateway_raises_runtime_error(monkeypatch) -> 
     judge._json_gateway = _RuntimeFailingGateway()
 
     with pytest.raises(StoryQualityJudgeError) as exc_info:
-        judge.evaluate(
-            prompt_text="prompt",
-            expected_tone="tense",
-            pack_summary={"scenes": 14},
-            transcript_summary={"steps": 14},
-            metrics={"completion_rate": 1.0},
+        asyncio.run(
+            judge.evaluate(
+                prompt_text="prompt",
+                expected_tone="tense",
+                pack_summary={"scenes": 14},
+                transcript_summary={"steps": 14},
+                metrics={"completion_rate": 1.0},
+            )
         )
 
     assert exc_info.value.error_type == "judge_failed"

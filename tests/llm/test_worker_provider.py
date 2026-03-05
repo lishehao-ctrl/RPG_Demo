@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -22,10 +23,10 @@ class _FakeWorkerClient:
         }
         self.narration_payload = {"narration_text": "Narration text."}
 
-    def route_intent(self, **_kwargs):  # noqa: ANN003, ANN201
+    async def route_intent(self, **_kwargs):  # noqa: ANN003, ANN201
         return dict(self.route_payload)
 
-    def render_narration(self, **_kwargs):  # noqa: ANN003, ANN201
+    async def render_narration(self, **_kwargs):  # noqa: ANN003, ANN201
         return dict(self.narration_payload)
 
 
@@ -41,14 +42,14 @@ def test_worker_provider_route_success() -> None:
         narration_temperature=0.4,
     )
 
-    routed = provider.route_intent({"moves": []}, "scan the relay")
+    routed = asyncio.run(provider.route_intent({"moves": []}, "scan the relay"))
     assert routed.move_id == "scan_signal"
     assert routed.confidence == 0.9
 
 
 def test_worker_provider_route_failure_maps_to_llmrouteerror() -> None:
     class _FailingClient(_FakeWorkerClient):
-        def route_intent(self, **_kwargs):  # noqa: ANN003, ANN201
+        async def route_intent(self, **_kwargs):  # noqa: ANN003, ANN201
             raise WorkerClientError(
                 error_code="llm_worker_unreachable",
                 message="connection refused",
@@ -67,12 +68,12 @@ def test_worker_provider_route_failure_maps_to_llmrouteerror() -> None:
     )
 
     with pytest.raises(LLMRouteError):
-        provider.route_intent({"moves": []}, "scan the relay")
+        asyncio.run(provider.route_intent({"moves": []}, "scan the relay"))
 
 
 def test_worker_provider_narration_blank_raises() -> None:
     class _BlankNarrationClient(_FakeWorkerClient):
-        def render_narration(self, **_kwargs):  # noqa: ANN003, ANN201
+        async def render_narration(self, **_kwargs):  # noqa: ANN003, ANN201
             return {"narration_text": ""}
 
     provider = WorkerProvider(
@@ -87,7 +88,7 @@ def test_worker_provider_narration_blank_raises() -> None:
     )
 
     with pytest.raises(LLMNarrationError):
-        provider.render_narration({"echo": "x"}, "neutral")
+        asyncio.run(provider.render_narration({"echo": "x"}, "neutral"))
 
 
 def test_factory_returns_worker_provider(monkeypatch) -> None:

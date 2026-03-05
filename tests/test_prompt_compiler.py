@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 
 import pytest
@@ -181,18 +182,18 @@ def test_two_stage_compile_success_within_three_calls(monkeypatch) -> None:
     queued = [_outline_payload(), _spec_payload(premise="A compact premise that fits all schema limits.")]
     captured_prompts: list[dict[str, object]] = []
 
-    def _fake_call(self, *, system_prompt: str, payload: dict[str, object]):  # noqa: ANN001, ANN201
+    async def _fake_call(self, *, system_prompt: str, payload: dict[str, object]):  # noqa: ANN001, ANN201
         del system_prompt
         captured_prompts.append(dict(payload))
         return queued.pop(0)
 
     monkeypatch.setattr(prompt_module.PromptCompiler, "_call_json_object", _fake_call)
-    compiled = PromptCompiler().compile(
+    compiled = asyncio.run(PromptCompiler().compile(
         prompt_text="Generate a concise emergency scenario",
         target_minutes=10,
         npc_count=4,
         style="neutral",
-    )
+    ))
 
     assert compiled.attempts == 2
     assert captured_prompts[0]["task"] == "compile_story_outline"
@@ -212,18 +213,18 @@ def test_two_stage_compile_stage2_validation_feedback_then_success(monkeypatch) 
     ]
     captured_prompts: list[dict[str, object]] = []
 
-    def _fake_call(self, *, system_prompt: str, payload: dict[str, object]):  # noqa: ANN001, ANN201
+    async def _fake_call(self, *, system_prompt: str, payload: dict[str, object]):  # noqa: ANN001, ANN201
         del system_prompt
         captured_prompts.append(dict(payload))
         return queued.pop(0)
 
     monkeypatch.setattr(prompt_module.PromptCompiler, "_call_json_object", _fake_call)
-    compiled = PromptCompiler().compile(
+    compiled = asyncio.run(PromptCompiler().compile(
         prompt_text="Generate a concise emergency scenario",
         target_minutes=10,
         npc_count=4,
         style="neutral",
-    )
+    ))
 
     assert compiled.attempts == 3
     assert captured_prompts[2]["task"] == "compile_story_spec_from_outline"
@@ -241,7 +242,7 @@ def test_two_stage_compile_outline_invalid_raises_prompt_outline_invalid(monkeyp
     invalid_outline["beats"][1]["title"] = invalid_outline["beats"][0]["title"]
     calls = {"count": 0}
 
-    def _always_invalid_outline(self, *, system_prompt: str, payload: dict[str, object]):  # noqa: ANN001, ANN201
+    async def _always_invalid_outline(self, *, system_prompt: str, payload: dict[str, object]):  # noqa: ANN001, ANN201
         del system_prompt, payload
         calls["count"] += 1
         return invalid_outline
@@ -249,11 +250,11 @@ def test_two_stage_compile_outline_invalid_raises_prompt_outline_invalid(monkeyp
     monkeypatch.setattr(prompt_module.PromptCompiler, "_call_json_object", _always_invalid_outline)
 
     with pytest.raises(PromptCompileError) as exc_info:
-        PromptCompiler().compile(
+        asyncio.run(PromptCompiler().compile(
             prompt_text="Generate a concise emergency scenario",
             target_minutes=10,
             npc_count=4,
-        )
+        ))
 
     assert exc_info.value.error_code == "prompt_outline_invalid"
     assert calls["count"] == 1
@@ -270,7 +271,7 @@ def test_compile_never_truncates_premise_locally(monkeypatch) -> None:
     ]
     calls = {"count": 0}
 
-    def _always_invalid_spec(self, *, system_prompt: str, payload: dict[str, object]):  # noqa: ANN001, ANN201
+    async def _always_invalid_spec(self, *, system_prompt: str, payload: dict[str, object]):  # noqa: ANN001, ANN201
         del system_prompt, payload
         calls["count"] += 1
         return queued.pop(0)
@@ -278,11 +279,11 @@ def test_compile_never_truncates_premise_locally(monkeypatch) -> None:
     monkeypatch.setattr(prompt_module.PromptCompiler, "_call_json_object", _always_invalid_spec)
 
     with pytest.raises(PromptCompileError) as exc_info:
-        PromptCompiler().compile(
+        asyncio.run(PromptCompiler().compile(
             prompt_text="Generate strict StorySpec without truncation",
             target_minutes=10,
             npc_count=4,
-        )
+        ))
 
     assert exc_info.value.error_code == "prompt_spec_invalid"
     assert calls["count"] == 3
@@ -315,18 +316,18 @@ def test_outline_payload_contains_style_targets(monkeypatch) -> None:
     queued = [_outline_payload(), _spec_payload(premise="A compact premise that fits all schema limits.")]
     captured_prompts: list[dict[str, object]] = []
 
-    def _fake_call(self, *, system_prompt: str, payload: dict[str, object]):  # noqa: ANN001, ANN201
+    async def _fake_call(self, *, system_prompt: str, payload: dict[str, object]):  # noqa: ANN001, ANN201
         del system_prompt
         captured_prompts.append(dict(payload))
         return queued.pop(0)
 
     monkeypatch.setattr(prompt_module.PromptCompiler, "_call_json_object", _fake_call)
-    _ = PromptCompiler().compile(
+    _ = asyncio.run(PromptCompiler().compile(
         prompt_text="Generate a concise emergency scenario",
         target_minutes=10,
         npc_count=4,
         style="neutral",
-    )
+    ))
 
     assert captured_prompts[0]["task"] == "compile_story_outline"
     style_targets = captured_prompts[0]["style_targets"]
@@ -353,18 +354,18 @@ def test_system_prompts_use_sectioned_contract_structure(monkeypatch) -> None:
     captured_system_prompts: list[str] = []
     captured_payloads: list[dict[str, object]] = []
 
-    def _fake_call(self, *, system_prompt: str, payload: dict[str, object]):  # noqa: ANN001, ANN201
+    async def _fake_call(self, *, system_prompt: str, payload: dict[str, object]):  # noqa: ANN001, ANN201
         captured_system_prompts.append(system_prompt)
         captured_payloads.append(dict(payload))
         return queued.pop(0)
 
     monkeypatch.setattr(prompt_module.PromptCompiler, "_call_json_object", _fake_call)
-    _ = PromptCompiler().compile(
+    _ = asyncio.run(PromptCompiler().compile(
         prompt_text="Generate a concise emergency scenario",
         target_minutes=10,
         npc_count=4,
         style="neutral",
-    )
+    ))
 
     outline_prompt = captured_system_prompts[0]
     spec_prompt = captured_system_prompts[1]
@@ -390,18 +391,18 @@ def test_outline_invalid_error_notes_include_outline_feedback(monkeypatch) -> No
     invalid_outline = _outline_payload()
     invalid_outline["premise_core"] = "x" * 300
 
-    def _always_invalid_outline(self, *, system_prompt: str, payload: dict[str, object]):  # noqa: ANN001, ANN201
+    async def _always_invalid_outline(self, *, system_prompt: str, payload: dict[str, object]):  # noqa: ANN001, ANN201
         del system_prompt, payload
         return invalid_outline
 
     monkeypatch.setattr(prompt_module.PromptCompiler, "_call_json_object", _always_invalid_outline)
 
     with pytest.raises(PromptCompileError) as exc_info:
-        PromptCompiler().compile(
+        asyncio.run(PromptCompiler().compile(
             prompt_text="Generate a concise emergency scenario",
             target_minutes=10,
             npc_count=4,
-        )
+        ))
 
     assert exc_info.value.error_code == "prompt_outline_invalid"
     assert any(note.startswith("outline_feedback:") for note in exc_info.value.notes)

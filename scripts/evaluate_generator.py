@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import asyncio
 import argparse
 import hashlib
 import json
@@ -56,13 +57,15 @@ def evaluate_generator(
 
     for run_idx in range(1, runs + 1):
         run_variant_seed = f"{variant_seed}:{run_idx}" if variant_seed else None
-        generated = pipeline.run(
-            seed_text=seed_text,
-            target_minutes=target_minutes,
-            npc_count=npc_count,
-            style=None,
-            variant_seed=run_variant_seed,
-            palette_policy=palette_policy,
+        generated = asyncio.run(
+            pipeline.run(
+                seed_text=seed_text,
+                target_minutes=target_minutes,
+                npc_count=npc_count,
+                style=None,
+                variant_seed=run_variant_seed,
+                palette_policy=palette_policy,
+            )
         )
         pack = generated.pack
         pack_hash = generated.pack_hash

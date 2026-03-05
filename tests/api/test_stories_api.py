@@ -244,7 +244,7 @@ def test_generate_story_unrepairable_returns_422(client, monkeypatch) -> None:
     from rpg_backend.api import stories as stories_api
     from rpg_backend.domain.linter import LintReport
 
-    def _always_fail(*args, **kwargs):
+    async def _always_fail(*args, **kwargs):
         raise GeneratorBuildError(
             LintReport(errors=["forced failure"], warnings=[]),
             generation_attempts=4,
@@ -280,15 +280,18 @@ def test_generate_story_unrepairable_returns_422(client, monkeypatch) -> None:
 
 def test_generate_story_prompt_mode_success_without_publish(client, monkeypatch) -> None:
     sample_spec = _sample_story_spec()
-    monkeypatch.setattr(
-        "rpg_backend.generator.pipeline.PromptCompiler.compile",
-        lambda *args, **kwargs: PromptCompileResult(
+    async def _compile(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        return PromptCompileResult(
             spec=sample_spec,
             spec_hash="a" * 64,
             model="test-generator-model",
             attempts=1,
             notes=["prompt compiler mocked"],
-        ),
+        )
+
+    monkeypatch.setattr(
+        "rpg_backend.generator.pipeline.PromptCompiler.compile",
+        _compile,
     )
 
     response = client.post(
@@ -314,15 +317,18 @@ def test_generate_story_prompt_mode_success_without_publish(client, monkeypatch)
 
 def test_generate_story_prompt_mode_success_with_publish(client, monkeypatch) -> None:
     sample_spec = _sample_story_spec()
-    monkeypatch.setattr(
-        "rpg_backend.generator.pipeline.PromptCompiler.compile",
-        lambda *args, **kwargs: PromptCompileResult(
+    async def _compile(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        return PromptCompileResult(
             spec=sample_spec,
             spec_hash="b" * 64,
             model="test-generator-model",
             attempts=1,
             notes=["prompt compiler mocked"],
-        ),
+        )
+
+    monkeypatch.setattr(
+        "rpg_backend.generator.pipeline.PromptCompiler.compile",
+        _compile,
     )
 
     response = client.post(
@@ -358,15 +364,16 @@ def test_generate_story_rejects_empty_prompt_and_seed(client) -> None:
 
 
 def test_generate_story_prompt_compile_failure_422(client, monkeypatch) -> None:
+    async def _compile_raise(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        raise PromptCompileError(
+            error_code="prompt_compile_failed",
+            errors=["upstream timeout"],
+            notes=["prompt compiler failed after retries"],
+        )
+
     monkeypatch.setattr(
         "rpg_backend.generator.pipeline.PromptCompiler.compile",
-        lambda *args, **kwargs: (_ for _ in ()).throw(
-            PromptCompileError(
-                error_code="prompt_compile_failed",
-                errors=["upstream timeout"],
-                notes=["prompt compiler failed after retries"],
-            )
-        ),
+        _compile_raise,
     )
     response = client.post(
         stories_generate_path(),
@@ -391,7 +398,7 @@ def test_generate_story_forwards_candidate_parallelism(client, monkeypatch) -> N
     captured: dict[str, object] = {}
     sample_pack = _sample_pack()
 
-    def _fake_generate_pack(self, **kwargs):  # noqa: ANN003, ANN201
+    async def _fake_generate_pack(self, **kwargs):  # noqa: ANN003, ANN202
         captured.update(kwargs)
         return SimpleNamespace(
             pack=sample_pack,

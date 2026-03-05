@@ -47,9 +47,6 @@ class Settings(BaseSettings):
     llm_worker_max_connections: int = Field(default=100, ge=1, le=2000)
     llm_worker_max_keepalive_connections: int = Field(default=20, ge=0, le=500)
     llm_worker_http2_enabled: bool = False
-    llm_worker_route_max_inflight: int = Field(default=64, ge=1, le=5000)
-    llm_worker_narration_max_inflight: int = Field(default=64, ge=1, le=5000)
-    llm_worker_json_max_inflight: int = Field(default=32, ge=1, le=5000)
     obs_log_level: str = "INFO"
     obs_request_id_header: str = "X-Request-ID"
     obs_redact_input_text: bool = True

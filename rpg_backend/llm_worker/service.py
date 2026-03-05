@@ -54,9 +54,6 @@ class LLMWorkerService:
 
         self._client: httpx.AsyncClient | None = None
         self._upstream_client: WorkerUpstreamClient | None = None
-        self._route_sem = asyncio.Semaphore(settings.llm_worker_route_max_inflight)
-        self._narration_sem = asyncio.Semaphore(settings.llm_worker_narration_max_inflight)
-        self._json_sem = asyncio.Semaphore(settings.llm_worker_json_max_inflight)
 
         self._probe_cache_lock = asyncio.Lock()
         self._probe_cache_key = ""
@@ -161,7 +158,6 @@ class LLMWorkerService:
     async def _execute_task(
         self,
         *,
-        semaphore: asyncio.Semaphore,
         spec: TaskSpec,
         model: str,
         temperature: float,
@@ -170,17 +166,16 @@ class LLMWorkerService:
         error_code_prefix: str,
     ) -> TaskExecutionResult:
         try:
-            async with semaphore:
-                return await execute_json_task(
-                    caller=self,
-                    model=model,
-                    system_prompt=spec.system_prompt,
-                    user_payload=spec.user_payload,
-                    temperature=temperature,
-                    max_retries=max_retries,
-                    timeout_seconds=timeout_seconds,
-                    error_code_prefix=error_code_prefix,
-                )
+            return await execute_json_task(
+                caller=self,
+                model=model,
+                system_prompt=spec.system_prompt,
+                user_payload=spec.user_payload,
+                temperature=temperature,
+                max_retries=max_retries,
+                timeout_seconds=timeout_seconds,
+                error_code_prefix=error_code_prefix,
+            )
         except TaskExecutorError as exc:
             raise WorkerTaskError(
                 error_code=exc.error_code,
@@ -199,7 +194,6 @@ class LLMWorkerService:
         timeout_seconds = float(payload.timeout_seconds or self.settings.llm_openai_timeout_seconds)
         spec = build_route_intent_task(scene_context=payload.scene_context, text=payload.text)
         execution = await self._execute_task(
-            semaphore=self._route_sem,
             spec=spec,
             model=payload.model,
             temperature=float(payload.temperature),
@@ -242,7 +236,6 @@ class LLMWorkerService:
         timeout_seconds = float(payload.timeout_seconds or self.settings.llm_openai_timeout_seconds)
         spec = build_render_narration_task(slots=payload.slots, style_guard=payload.style_guard)
         execution = await self._execute_task(
-            semaphore=self._narration_sem,
             spec=spec,
             model=payload.model,
             temperature=float(payload.temperature),
@@ -286,7 +279,6 @@ class LLMWorkerService:
             user_payload=payload.user_prompt,
         )
         execution = await self._execute_task(
-            semaphore=self._json_sem,
             spec=spec,
             model=payload.model,
             temperature=float(payload.temperature),
@@ -321,7 +313,6 @@ class LLMWorkerService:
 
         try:
             execution = await self._execute_task(
-                semaphore=self._json_sem,
                 spec=build_readiness_probe_task(),
                 model=probe_model,
                 temperature=0.0,

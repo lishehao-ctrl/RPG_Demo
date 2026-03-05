@@ -6,10 +6,9 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _SCAN_ROOTS = ("rpg_backend", "tests", "scripts")
 _FORBIDDEN_IMPORTS = (
-    "from rpg_backend.runtime.session_step.orchestrator import",
-    "import rpg_backend.runtime.session_step.orchestrator",
-    "from rpg_backend.runtime.session_step.contracts import",
-    "import rpg_backend.runtime.session_step.contracts",
+    "from rpg_backend.runtime.session_step.",
+    "from rpg_backend.runtime.session_step import",
+    "import rpg_backend.runtime.session_step",
 )
 _ALLOWLIST = {"tests/test_no_runtime_session_step_facade_imports.py"}
 
@@ -35,6 +34,6 @@ def test_no_runtime_session_step_facade_imports() -> None:
             violations.append(relative)
 
     assert not violations, (
-        "runtime.session_step facade/contracts imports are forbidden:\n"
+        "runtime.session_step imports are forbidden:\n"
         + "\n".join(violations)
     )

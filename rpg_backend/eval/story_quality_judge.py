@@ -85,7 +85,7 @@ class StoryQualityJudge:
                 notes=["judge response does not match StoryQualityJudgeResult schema"],
             ) from exc
 
-    def evaluate(
+    async def evaluate(
         self,
         *,
         prompt_text: str,
@@ -123,7 +123,7 @@ class StoryQualityJudge:
         )
 
         try:
-            gateway_result = self._json_gateway.call_json_object(
+            gateway_result = await self._json_gateway.call_json_object(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 model=self.model,

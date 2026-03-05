@@ -1,5 +1,3 @@
-import asyncio
-
 from fastapi import APIRouter, Depends, Query, Request
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -76,8 +74,7 @@ async def generate_story_endpoint(
     request_id = getattr(request.state, "request_id", None) or get_request_id()
     pipeline = GeneratorPipeline()
     try:
-        result = await asyncio.to_thread(
-            pipeline.run,
+        result = await pipeline.run(
             seed_text=payload.seed_text,
             prompt_text=payload.prompt_text,
             target_minutes=payload.target_minutes,

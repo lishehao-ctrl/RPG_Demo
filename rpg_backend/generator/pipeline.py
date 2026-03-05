@@ -148,7 +148,7 @@ class GeneratorPipeline:
             effective_candidate_parallelism=effective_candidate_parallelism,
         )
 
-    def compile_or_plan(
+    async def compile_or_plan(
         self,
         *,
         generation_context: GenerationContext,
@@ -166,7 +166,7 @@ class GeneratorPipeline:
             )
             return PlannedAttempt(plan=plan, spec_hash=None, spec_summary=None, compile_notes=[])
 
-        compiled = self.prompt_compiler_factory().compile(
+        compiled = await self.prompt_compiler_factory().compile(
             prompt_text=generation_context.normalized_prompt,
             target_minutes=target_minutes,
             npc_count=npc_count,
@@ -187,7 +187,7 @@ class GeneratorPipeline:
             compile_notes=list(compiled.notes),
         )
 
-    def run(
+    async def run(
         self,
         *,
         seed_text: str | None = None,
@@ -241,7 +241,7 @@ class GeneratorPipeline:
             )
 
             try:
-                planned_attempt = self.compile_or_plan(
+                planned_attempt = await self.compile_or_plan(
                     generation_context=generation_context,
                     target_minutes=target_minutes,
                     npc_count=npc_count,

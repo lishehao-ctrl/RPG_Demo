@@ -134,7 +134,7 @@ class PromptCompiler:
                 ordered_keys.append(key)
         return "\n".join(f"- `{key}`: {catalog[key]}" for key in ordered_keys)
 
-    def _call_json_object(self, *, system_prompt: str, payload: dict[str, Any]) -> dict[str, Any]:
+    async def _call_json_object(self, *, system_prompt: str, payload: dict[str, Any]) -> dict[str, Any]:
         if self._json_gateway is None:
             try:
                 worker_client = get_worker_client()
@@ -149,7 +149,7 @@ class PromptCompiler:
 
         user_prompt = json.dumps(payload, ensure_ascii=False)
         try:
-            result = self._json_gateway.call_json_object(
+            result = await self._json_gateway.call_json_object(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 model=self.model,
@@ -161,7 +161,7 @@ class PromptCompiler:
             raise RuntimeError(f"{exc.error_code}: {exc.message}") from exc
         return result.payload
 
-    def compile(
+    async def compile(
         self,
         *,
         prompt_text: str,
@@ -268,7 +268,7 @@ class PromptCompiler:
         }
 
         try:
-            outline_obj = self._call_json_object(system_prompt=outline_prompt, payload=outline_payload)
+            outline_obj = await self._call_json_object(system_prompt=outline_prompt, payload=outline_payload)
             outline = StorySpecOutline.model_validate(outline_obj)
         except ValidationError as exc:
             feedback = self._build_validation_feedback(exc)
@@ -338,7 +338,7 @@ class PromptCompiler:
                     "Previous full spec failed validation. Regenerate the complete JSON and fix all violations."
                 )
             try:
-                spec_obj = self._call_json_object(system_prompt=spec_prompt, payload=per_call_payload)
+                spec_obj = await self._call_json_object(system_prompt=spec_prompt, payload=per_call_payload)
                 spec = StorySpec.model_validate(spec_obj)
                 spec_hash = compute_payload_hash(spec.model_dump())
                 return PromptCompileResult(

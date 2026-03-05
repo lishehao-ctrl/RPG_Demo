@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import inspect
 import json
 from datetime import UTC, datetime
 from typing import Any
@@ -23,12 +22,6 @@ from rpg_backend.storage.engine import init_db
 GLOBAL_ALERT_MIN_FAILED_TOTAL = 3
 BUCKET_MIN_COUNT_FOR_SHARE = 2
 SNAPSHOT_SERVICE = ObservabilitySnapshotService()
-
-
-async def _resolve(value):
-    if inspect.isawaitable(value):
-        return await value
-    return value
 
 
 def _bucket_key(error_code: str, stage: str, model: str) -> str:
@@ -106,17 +99,15 @@ async def _build_snapshot_async(
     limit: int,
 ) -> dict[str, Any]:
     settings = get_settings()
-    runtime_agg = await _resolve(aggregate_runtime_error_buckets(db, window_seconds=window_seconds, limit=limit))
-    http_agg = await _resolve(
-        aggregate_http_health(
-            db,
-            window_seconds=window_seconds,
-            service="backend",
-            exclude_paths=["/health"],
-        )
+    runtime_agg = await aggregate_runtime_error_buckets(db, window_seconds=window_seconds, limit=limit)
+    http_agg = await aggregate_http_health(
+        db,
+        window_seconds=window_seconds,
+        service="backend",
+        exclude_paths=["/health"],
     )
-    llm_agg = await _resolve(aggregate_llm_call_health(db, window_seconds=window_seconds))
-    readiness_agg = await _resolve(aggregate_readiness_health(db, window_seconds=window_seconds))
+    llm_agg = await aggregate_llm_call_health(db, window_seconds=window_seconds)
+    readiness_agg = await aggregate_readiness_health(db, window_seconds=window_seconds)
 
     triggered_buckets: list[dict[str, Any]] = []
     for bucket in runtime_agg["buckets"]:
@@ -320,8 +311,10 @@ async def _dispatch_alerts_async(
     pending_keys: list[str] = []
     suppressed_keys: list[str] = []
     for key in candidate_keys:
-        in_cooldown = await _resolve(
-            has_recent_alert_dispatch(db, bucket_key=key, cooldown_seconds=settings.obs_alert_cooldown_seconds)
+        in_cooldown = await has_recent_alert_dispatch(
+            db,
+            bucket_key=key,
+            cooldown_seconds=settings.obs_alert_cooldown_seconds,
         )
         if in_cooldown:
             suppressed_keys.append(key)
@@ -379,15 +372,13 @@ async def _dispatch_alerts_async(
         await asyncio.to_thread(_send_webhook, webhook_url, send_payload)
     except Exception as exc:  # noqa: BLE001
         for key in pending_keys:
-            await _resolve(
-                save_alert_dispatch(
-                    db,
-                    bucket_key=key,
-                    window_started_at=datetime.fromisoformat(snapshot["window_started_at"]),
-                    window_ended_at=datetime.fromisoformat(snapshot["window_ended_at"]),
-                    status="failed",
-                    payload_json={"error": str(exc), "payload": send_payload},
-                )
+            await save_alert_dispatch(
+                db,
+                bucket_key=key,
+                window_started_at=datetime.fromisoformat(snapshot["window_started_at"]),
+                window_ended_at=datetime.fromisoformat(snapshot["window_ended_at"]),
+                status="failed",
+                payload_json={"error": str(exc), "payload": send_payload},
             )
         return {
             "status": "send_failed",
@@ -401,15 +392,13 @@ async def _dispatch_alerts_async(
         }
 
     for key in pending_keys:
-        await _resolve(
-            save_alert_dispatch(
-                db,
-                bucket_key=key,
-                window_started_at=datetime.fromisoformat(snapshot["window_started_at"]),
-                window_ended_at=datetime.fromisoformat(snapshot["window_ended_at"]),
-                status="sent",
-                payload_json=send_payload,
-            )
+        await save_alert_dispatch(
+            db,
+            bucket_key=key,
+            window_started_at=datetime.fromisoformat(snapshot["window_started_at"]),
+            window_ended_at=datetime.fromisoformat(snapshot["window_ended_at"]),
+            status="sent",
+            payload_json=send_payload,
         )
     return {
         "status": "sent",

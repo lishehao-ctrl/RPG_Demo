@@ -4,7 +4,6 @@ from __future__ import annotations
 import asyncio
 import argparse
 import hashlib
-import inspect
 import json
 import re
 import socket
@@ -103,12 +102,6 @@ def _parse_bool(value: str | bool) -> bool:
 
 def _safe_mean(values: list[float]) -> float:
     return sum(values) / len(values) if values else 0.0
-
-
-def _resolve_maybe_await(value: Any) -> Any:
-    if inspect.isawaitable(value):
-        return asyncio.run(value)
-    return value
 
 
 def _to_score(value: Any) -> float:
@@ -508,7 +501,7 @@ def _run_precheck() -> dict[str, Any]:
         }
 
     try:
-        compiled = _resolve_maybe_await(
+        compiled = asyncio.run(
             PromptCompiler().compile(
                 prompt_text="Precheck story prompt: produce a compact but playable city emergency setup.",
                 target_minutes=10,
@@ -673,7 +666,7 @@ def _evaluate_case_run(
     pipeline_instance = pipeline or GeneratorPipeline()
 
     try:
-        generated = _resolve_maybe_await(
+        generated = asyncio.run(
             pipeline_instance.run(
                 prompt_text=case.prompt_text,
                 target_minutes=case.target_minutes,
@@ -844,7 +837,7 @@ def _evaluate_case_run(
         run_metrics = _aggregate_playthrough_metrics(run_play_reports)
         try:
             judge_instance = judge or StoryQualityJudge(model_override=judge_model)
-            decision = _resolve_maybe_await(
+            decision = asyncio.run(
                 judge_instance.evaluate(
                     prompt_text=case.prompt_text,
                     expected_tone=case.expected_tone,

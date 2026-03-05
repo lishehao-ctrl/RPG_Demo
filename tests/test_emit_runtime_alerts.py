@@ -69,6 +69,12 @@ def _sample_snapshot() -> dict:
 
 def test_dispatch_alerts_dry_run_skips_webhook_and_dispatch_write(monkeypatch) -> None:
     snapshot = _sample_snapshot()
+    async def _has_recent_alert_dispatch(*_args, **_kwargs):  # noqa: ANN202
+        return False
+
+    async def _save_alert_dispatch(*_args, **_kwargs):  # noqa: ANN202
+        raise AssertionError("dispatch must not be saved in dry-run")
+
     monkeypatch.setattr(
         alerts,
         "get_settings",
@@ -77,17 +83,13 @@ def test_dispatch_alerts_dry_run_skips_webhook_and_dispatch_write(monkeypatch) -
             obs_alert_webhook_url="https://hooks.example/obs",
         ),
     )
-    monkeypatch.setattr(alerts, "has_recent_alert_dispatch", lambda *args, **kwargs: False)
+    monkeypatch.setattr(alerts, "has_recent_alert_dispatch", _has_recent_alert_dispatch)
     monkeypatch.setattr(
         alerts,
         "_send_webhook",
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("webhook must not be called in dry-run")),
     )
-    monkeypatch.setattr(
-        alerts,
-        "save_alert_dispatch",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("dispatch must not be saved in dry-run")),
-    )
+    monkeypatch.setattr(alerts, "save_alert_dispatch", _save_alert_dispatch)
 
     result = alerts._dispatch_alerts(
         db=object(),
@@ -104,6 +106,11 @@ def test_dispatch_alerts_sends_webhook_and_writes_dispatch(monkeypatch) -> None:
     snapshot = _sample_snapshot()
     sent_payloads: list[dict] = []
     dispatch_rows: list[tuple[str, str]] = []
+    async def _has_recent_alert_dispatch(*_args, **_kwargs):  # noqa: ANN202
+        return False
+
+    async def _save_alert_dispatch(*_args, **kwargs):  # noqa: ANN202
+        dispatch_rows.append((kwargs["bucket_key"], kwargs["status"]))
 
     monkeypatch.setattr(
         alerts,
@@ -113,13 +120,9 @@ def test_dispatch_alerts_sends_webhook_and_writes_dispatch(monkeypatch) -> None:
             obs_alert_webhook_url="https://hooks.example/obs",
         ),
     )
-    monkeypatch.setattr(alerts, "has_recent_alert_dispatch", lambda *args, **kwargs: False)
+    monkeypatch.setattr(alerts, "has_recent_alert_dispatch", _has_recent_alert_dispatch)
     monkeypatch.setattr(alerts, "_send_webhook", lambda _url, payload: sent_payloads.append(payload))
-    monkeypatch.setattr(
-        alerts,
-        "save_alert_dispatch",
-        lambda *_args, **kwargs: dispatch_rows.append((kwargs["bucket_key"], kwargs["status"])),
-    )
+    monkeypatch.setattr(alerts, "save_alert_dispatch", _save_alert_dispatch)
 
     result = alerts._dispatch_alerts(
         db=object(),
@@ -136,6 +139,9 @@ def test_dispatch_alerts_sends_webhook_and_writes_dispatch(monkeypatch) -> None:
 
 def test_dispatch_alerts_respects_cooldown(monkeypatch) -> None:
     snapshot = _sample_snapshot()
+    async def _has_recent_alert_dispatch(*_args, **_kwargs):  # noqa: ANN202
+        return True
+
     monkeypatch.setattr(
         alerts,
         "get_settings",
@@ -144,7 +150,7 @@ def test_dispatch_alerts_respects_cooldown(monkeypatch) -> None:
             obs_alert_webhook_url="https://hooks.example/obs",
         ),
     )
-    monkeypatch.setattr(alerts, "has_recent_alert_dispatch", lambda *args, **kwargs: True)
+    monkeypatch.setattr(alerts, "has_recent_alert_dispatch", _has_recent_alert_dispatch)
     monkeypatch.setattr(
         alerts,
         "_send_webhook",
@@ -176,11 +182,8 @@ def test_build_snapshot_emits_all_new_signals(monkeypatch) -> None:
         obs_alert_llm_call_p95_ms=3000,
         obs_alert_llm_call_min_count=30,
     )
-    monkeypatch.setattr(alerts, "get_settings", lambda: settings)
-    monkeypatch.setattr(
-        alerts,
-        "aggregate_runtime_error_buckets",
-        lambda *_args, **_kwargs: {
+    async def _aggregate_runtime_error_buckets(*_args, **_kwargs):  # noqa: ANN202
+        return {
             "window_seconds": 300,
             "window_started_at": alerts.datetime(2026, 3, 1, 23, 55, tzinfo=alerts.UTC),
             "window_ended_at": alerts.datetime(2026, 3, 2, 0, 0, tzinfo=alerts.UTC),
@@ -199,23 +202,19 @@ def test_build_snapshot_emits_all_new_signals(monkeypatch) -> None:
                     sample_request_ids=["r1"],
                 )
             ],
-        },
-    )
-    monkeypatch.setattr(
-        alerts,
-        "aggregate_http_health",
-        lambda *_args, **_kwargs: {
+        }
+
+    async def _aggregate_http_health(*_args, **_kwargs):  # noqa: ANN202
+        return {
             "total_requests": 100,
             "failed_5xx": 9,
             "error_rate": 0.09,
             "p95_ms": 1200,
             "top_5xx_paths": [{"path": session_step_path("x"), "failed_count": 6, "sample_request_ids": ["r1"]}],
-        },
-    )
-    monkeypatch.setattr(
-        alerts,
-        "aggregate_llm_call_health",
-        lambda *_args, **_kwargs: {
+        }
+
+    async def _aggregate_llm_call_health(*_args, **_kwargs):  # noqa: ANN202
+        return {
             "total_calls": 120,
             "failed_calls": 10,
             "failure_rate": 0.0833,
@@ -228,12 +227,10 @@ def test_build_snapshot_emits_all_new_signals(monkeypatch) -> None:
                 "worker": {"total_calls": 80, "failed_calls": 6, "failure_rate": 0.075, "p95_ms": 3500},
                 "unknown": {"total_calls": 40, "failed_calls": 4, "failure_rate": 0.1, "p95_ms": 3300},
             },
-        },
-    )
-    monkeypatch.setattr(
-        alerts,
-        "aggregate_readiness_health",
-        lambda *_args, **_kwargs: {
+        }
+
+    async def _aggregate_readiness_health(*_args, **_kwargs):  # noqa: ANN202
+        return {
             "backend_ready_fail_count": 4,
             "worker_ready_fail_count": 1,
             "backend_fail_streak": 3,
@@ -246,8 +243,13 @@ def test_build_snapshot_emits_all_new_signals(monkeypatch) -> None:
                     "created_at": "2026-03-02T00:00:00+00:00",
                 }
             ],
-        },
-    )
+        }
+
+    monkeypatch.setattr(alerts, "get_settings", lambda: settings)
+    monkeypatch.setattr(alerts, "aggregate_runtime_error_buckets", _aggregate_runtime_error_buckets)
+    monkeypatch.setattr(alerts, "aggregate_http_health", _aggregate_http_health)
+    monkeypatch.setattr(alerts, "aggregate_llm_call_health", _aggregate_llm_call_health)
+    monkeypatch.setattr(alerts, "aggregate_readiness_health", _aggregate_readiness_health)
 
     snapshot = alerts._build_snapshot(db=object(), window_seconds=300, limit=20)
     assert snapshot["global_triggered"] is True
@@ -283,6 +285,11 @@ def test_dispatch_alerts_persists_signal_dispatch_keys(monkeypatch) -> None:
 
     sent_payloads: list[dict] = []
     dispatch_rows: list[tuple[str, str]] = []
+    async def _has_recent_alert_dispatch(*_args, **_kwargs):  # noqa: ANN202
+        return False
+
+    async def _save_alert_dispatch(*_args, **kwargs):  # noqa: ANN202
+        dispatch_rows.append((kwargs["bucket_key"], kwargs["status"]))
 
     monkeypatch.setattr(
         alerts,
@@ -292,13 +299,9 @@ def test_dispatch_alerts_persists_signal_dispatch_keys(monkeypatch) -> None:
             obs_alert_webhook_url="https://hooks.example/obs",
         ),
     )
-    monkeypatch.setattr(alerts, "has_recent_alert_dispatch", lambda *args, **kwargs: False)
+    monkeypatch.setattr(alerts, "has_recent_alert_dispatch", _has_recent_alert_dispatch)
     monkeypatch.setattr(alerts, "_send_webhook", lambda _url, payload: sent_payloads.append(payload))
-    monkeypatch.setattr(
-        alerts,
-        "save_alert_dispatch",
-        lambda *_args, **kwargs: dispatch_rows.append((kwargs["bucket_key"], kwargs["status"])),
-    )
+    monkeypatch.setattr(alerts, "save_alert_dispatch", _save_alert_dispatch)
 
     result = alerts._dispatch_alerts(
         db=object(),

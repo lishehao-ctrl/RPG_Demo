@@ -297,10 +297,3 @@ async def close_worker_client_cache() -> None:
     _worker_client_base_url = None
     if client is not None:
         await client.aclose()
-
-
-def reset_worker_client_cache() -> None:
-    try:
-        asyncio.get_running_loop().create_task(close_worker_client_cache())
-    except RuntimeError:
-        asyncio.run(close_worker_client_cache())

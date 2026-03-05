@@ -159,7 +159,7 @@ def test_eval_report_shape_with_mocks(tmp_path, monkeypatch) -> None:
     )
 
     class _FakeGeneratorPipeline:
-        def run(self, **kwargs):  # noqa: ANN003, ANN201
+        async def run(self, **kwargs):  # noqa: ANN003, ANN201
             return SimpleNamespace(
                 pack=sample_pack,
                 pack_hash="a" * 64,
@@ -176,7 +176,7 @@ def test_eval_report_shape_with_mocks(tmp_path, monkeypatch) -> None:
         def __init__(self, *, model_override=None) -> None:
             self.model = model_override or "judge-model"
 
-        def evaluate(self, **_kwargs):  # noqa: ANN003, ANN201
+        async def evaluate(self, **_kwargs):  # noqa: ANN003, ANN201
             return SimpleNamespace(
                 result=StoryQualityJudgeResult.model_validate(
                     {
@@ -321,7 +321,7 @@ def test_eval_parallel_max_workers_path(tmp_path, monkeypatch) -> None:
     )
 
     class _FakeGeneratorPipeline:
-        def run(self, **kwargs):  # noqa: ANN003, ANN201
+        async def run(self, **kwargs):  # noqa: ANN003, ANN201
             variant_seed = kwargs.get("variant_seed") or "seed"
             pack_hash = f"{hash(variant_seed) & 0xFFFFFFFF:064x}"
             return SimpleNamespace(
@@ -340,7 +340,7 @@ def test_eval_parallel_max_workers_path(tmp_path, monkeypatch) -> None:
         def __init__(self, *, model_override=None) -> None:
             self.model = model_override or "judge-model"
 
-        def evaluate(self, **_kwargs):  # noqa: ANN003, ANN201
+        async def evaluate(self, **_kwargs):  # noqa: ANN003, ANN201
             return SimpleNamespace(
                 result=StoryQualityJudgeResult.model_validate(
                     {
@@ -446,7 +446,7 @@ def test_eval_collects_generation_failure_breakdown_and_prompt_fields(tmp_path, 
         def __init__(self) -> None:
             self.calls = 0
 
-        def run(self, **kwargs):  # noqa: ANN003, ANN201
+        async def run(self, **kwargs):  # noqa: ANN003, ANN201
             self.calls += 1
             if self.calls == 1:
                 raise GeneratorBuildError(
@@ -480,7 +480,7 @@ def test_eval_collects_generation_failure_breakdown_and_prompt_fields(tmp_path, 
         def __init__(self, *, model_override=None) -> None:
             self.model = model_override or "judge-model"
 
-        def evaluate(self, **_kwargs):  # noqa: ANN003, ANN201
+        async def evaluate(self, **_kwargs):  # noqa: ANN003, ANN201
             return SimpleNamespace(
                 result=StoryQualityJudgeResult.model_validate(
                     {

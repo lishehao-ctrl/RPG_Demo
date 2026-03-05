@@ -29,9 +29,9 @@ class WorkerProvider(LLMProvider):
         self.route_temperature = route_temperature
         self.narration_temperature = narration_temperature
 
-    def route_intent(self, scene_context: dict[str, Any], text: str) -> RouteIntentResult:
+    async def route_intent(self, scene_context: dict[str, Any], text: str) -> RouteIntentResult:
         try:
-            payload = self.worker_client.route_intent(
+            payload = await self.worker_client.route_intent(
                 scene_context=scene_context,
                 text=text,
                 model=self.route_model,
@@ -71,9 +71,9 @@ class WorkerProvider(LLMProvider):
         routed.move_id = routed.move_id.strip()
         return routed
 
-    def render_narration(self, slots: dict[str, Any], style_guard: str) -> str:
+    async def render_narration(self, slots: dict[str, Any], style_guard: str) -> str:
         try:
-            payload = self.worker_client.render_narration(
+            payload = await self.worker_client.render_narration(
                 slots=slots,
                 style_guard=style_guard,
                 model=self.narration_model,

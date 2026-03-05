@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import threading
+import asyncio
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
@@ -69,10 +69,10 @@ class WorkerClient:
             write=timeout_seconds,
             pool=timeout_seconds,
         )
-        self._client = httpx.Client(timeout=timeout, limits=limits, http2=bool(http2_enabled))
+        self._client = httpx.AsyncClient(timeout=timeout, limits=limits, http2=bool(http2_enabled))
 
-    def close(self) -> None:
-        self._client.close()
+    async def aclose(self) -> None:
+        await self._client.aclose()
 
     def _url(self, path: str) -> str:
         return f"{self.base_url}{path}"
@@ -98,7 +98,7 @@ class WorkerClient:
             int(payload["attempts"]) if payload.get("attempts") is not None else None,
         )
 
-    def _post_json(
+    async def _post_json(
         self,
         *,
         path: str,
@@ -107,7 +107,12 @@ class WorkerClient:
     ) -> dict[str, Any]:
         headers = {"X-Internal-Worker-Token": self.internal_token}
         try:
-            response = self._client.post(self._url(path), json=payload, timeout=timeout_seconds, headers=headers)
+            response = await self._client.post(
+                self._url(path),
+                json=payload,
+                timeout=timeout_seconds,
+                headers=headers,
+            )
         except httpx.TimeoutException as exc:
             raise WorkerClientError(
                 error_code="llm_worker_timeout",
@@ -147,7 +152,7 @@ class WorkerClient:
             )
         return data
 
-    def route_intent(
+    async def route_intent(
         self,
         *,
         scene_context: dict[str, Any],
@@ -157,7 +162,7 @@ class WorkerClient:
         max_retries: int,
         timeout_seconds: float,
     ) -> dict[str, Any]:
-        return self._post_json(
+        return await self._post_json(
             path=WORKER_ROUTE_INTENT_TASK_PATH,
             payload={
                 "scene_context": scene_context,
@@ -170,7 +175,7 @@ class WorkerClient:
             timeout_seconds=timeout_seconds,
         )
 
-    def render_narration(
+    async def render_narration(
         self,
         *,
         slots: dict[str, Any],
@@ -180,7 +185,7 @@ class WorkerClient:
         max_retries: int,
         timeout_seconds: float,
     ) -> dict[str, Any]:
-        return self._post_json(
+        return await self._post_json(
             path=WORKER_RENDER_NARRATION_TASK_PATH,
             payload={
                 "slots": slots,
@@ -193,7 +198,7 @@ class WorkerClient:
             timeout_seconds=timeout_seconds,
         )
 
-    def json_object(
+    async def json_object(
         self,
         *,
         system_prompt: str,
@@ -203,7 +208,7 @@ class WorkerClient:
         max_retries: int,
         timeout_seconds: float,
     ) -> dict[str, Any]:
-        response = self._post_json(
+        response = await self._post_json(
             path=WORKER_JSON_OBJECT_TASK_PATH,
             payload={
                 "system_prompt": system_prompt,
@@ -224,9 +229,12 @@ class WorkerClient:
             )
         return response
 
-    def probe_ready(self, *, refresh: bool = False) -> tuple[int, dict[str, Any]]:
+    async def probe_ready(self, *, refresh: bool = False) -> tuple[int, dict[str, Any]]:
         try:
-            response = self._client.get(self._url(WORKER_READY_PATH), params={"refresh": str(bool(refresh)).lower()})
+            response = await self._client.get(
+                self._url(WORKER_READY_PATH),
+                params={"refresh": str(bool(refresh)).lower()},
+            )
         except httpx.TimeoutException as exc:
             raise WorkerClientError(
                 error_code="llm_worker_timeout",
@@ -254,7 +262,6 @@ class WorkerClient:
         return response.status_code, data
 
 
-_client_lock = threading.Lock()
 _worker_client: WorkerClient | None = None
 _worker_client_base_url: str | None = None
 
@@ -263,28 +270,37 @@ def get_worker_client() -> WorkerClient:
     global _worker_client, _worker_client_base_url
     settings = get_settings()
     base_url = (settings.llm_worker_base_url or "").strip().rstrip("/")
+    if _worker_client is None or _worker_client_base_url != base_url:
+        old_client = _worker_client
+        _worker_client = WorkerClient(
+            base_url=base_url,
+            timeout_seconds=float(settings.llm_worker_timeout_seconds),
+            connect_timeout_seconds=float(settings.llm_worker_connect_timeout_seconds),
+            max_connections=int(settings.llm_worker_max_connections),
+            max_keepalive_connections=int(settings.llm_worker_max_keepalive_connections),
+            http2_enabled=bool(settings.llm_worker_http2_enabled),
+            internal_token=settings.internal_worker_token or "",
+        )
+        _worker_client_base_url = base_url
+        if old_client is not None:
+            try:
+                asyncio.get_running_loop().create_task(old_client.aclose())
+            except RuntimeError:
+                asyncio.run(old_client.aclose())
+    return _worker_client
 
-    with _client_lock:
-        if _worker_client is None or _worker_client_base_url != base_url:
-            if _worker_client is not None:
-                _worker_client.close()
-            _worker_client = WorkerClient(
-                base_url=base_url,
-                timeout_seconds=float(settings.llm_worker_timeout_seconds),
-                connect_timeout_seconds=float(settings.llm_worker_connect_timeout_seconds),
-                max_connections=int(settings.llm_worker_max_connections),
-                max_keepalive_connections=int(settings.llm_worker_max_keepalive_connections),
-                http2_enabled=bool(settings.llm_worker_http2_enabled),
-                internal_token=settings.internal_worker_token or "",
-            )
-            _worker_client_base_url = base_url
-        return _worker_client
+
+async def close_worker_client_cache() -> None:
+    global _worker_client, _worker_client_base_url
+    client = _worker_client
+    _worker_client = None
+    _worker_client_base_url = None
+    if client is not None:
+        await client.aclose()
 
 
 def reset_worker_client_cache() -> None:
-    global _worker_client, _worker_client_base_url
-    with _client_lock:
-        if _worker_client is not None:
-            _worker_client.close()
-        _worker_client = None
-        _worker_client_base_url = None
+    try:
+        asyncio.get_running_loop().create_task(close_worker_client_cache())
+    except RuntimeError:
+        asyncio.run(close_worker_client_cache())

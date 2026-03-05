@@ -43,7 +43,7 @@ class JsonGateway:
         self.default_timeout_seconds = float(default_timeout_seconds)
         self.worker_client = worker_client or get_worker_client()
 
-    def call_json_object(
+    async def call_json_object(
         self,
         *,
         system_prompt: str,
@@ -56,7 +56,7 @@ class JsonGateway:
         effective_timeout = float(timeout_seconds or self.default_timeout_seconds)
         started_at = time.perf_counter()
         try:
-            response = self.worker_client.json_object(
+            response = await self.worker_client.json_object(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 model=model,

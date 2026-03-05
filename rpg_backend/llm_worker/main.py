@@ -10,6 +10,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from rpg_backend.api.errors import ApiError, register_error_handlers
 from rpg_backend.config.settings import get_settings
+from rpg_backend.llm.worker_client import close_worker_client_cache
 from rpg_backend.llm_worker.dispatcher import WorkerDispatcher, WorkerQueueConfig
 from rpg_backend.llm_worker.errors import WorkerTaskError
 from rpg_backend.llm_worker.route_paths import (
@@ -102,6 +103,7 @@ async def lifespan(_: FastAPI):
         await dispatcher.stop()
         dispatcher = None
     await task_service.shutdown()
+    await close_worker_client_cache()
 
 
 app = FastAPI(title="RPG LLM Worker", lifespan=lifespan)

@@ -27,26 +27,75 @@ export type FriendlyErrorViewModel = {
   };
 };
 
+type ValidationErrorEntry = {
+  loc?: unknown;
+  msg?: unknown;
+};
+
+function formatValidationLabel(loc: string[]): string | null {
+  if (loc.length === 0) {
+    return null;
+  }
+
+  const joined = loc.join('.');
+  const exactLabels: Record<string, string> = {
+    title: '标题',
+    description: '描述',
+    style_guard: '风格约束',
+    input_hint: '输入提示',
+  };
+  if (exactLabels[joined]) {
+    return exactLabels[joined];
+  }
+
+  if (loc[0] === 'beats' && loc.at(-1) === 'title') {
+    return 'Beat 标题';
+  }
+  if (loc[0] === 'scenes' && loc.at(-1) === 'scene_seed') {
+    return 'Scene seed';
+  }
+  if (loc[0] === 'npc_profiles' && loc.at(-1) === 'red_line') {
+    return 'NPC red line';
+  }
+
+  return null;
+}
+
+function humanizeValidationMessage(entry: ValidationErrorEntry): string | null {
+  const message = typeof entry.msg === 'string' ? entry.msg.trim() : '';
+  const rawLoc = Array.isArray(entry.loc) ? entry.loc.map((part) => String(part)) : [];
+  const label = formatValidationLabel(rawLoc);
+
+  if (label && message === 'String should have at least 1 character') {
+    return `${label} 不能为空`;
+  }
+  if (label && message === 'Field required') {
+    return `${label} 是必填项`;
+  }
+  if (label && message) {
+    return `${label}：${message}`;
+  }
+  if (message && rawLoc.length > 0) {
+    return `${rawLoc.join(' -> ')}: ${message}`;
+  }
+  if (message) {
+    return message;
+  }
+  return null;
+}
+
 function firstValidationMessage(details: Record<string, unknown>): string | null {
   const rawErrors = details.errors;
   if (!Array.isArray(rawErrors) || rawErrors.length === 0) {
     return null;
   }
+
   const first = rawErrors[0];
   if (typeof first === 'string' && first.trim()) {
     return first.trim();
   }
   if (first && typeof first === 'object') {
-    const message = typeof (first as { msg?: unknown }).msg === 'string' ? (first as { msg: string }).msg : '';
-    const location = Array.isArray((first as { loc?: unknown }).loc)
-      ? (first as { loc: unknown[] }).loc.map((part) => String(part)).join(' -> ')
-      : '';
-    if (message && location) {
-      return `${location}: ${message}`;
-    }
-    if (message) {
-      return message;
-    }
+    return humanizeValidationMessage(first as ValidationErrorEntry);
   }
   return null;
 }

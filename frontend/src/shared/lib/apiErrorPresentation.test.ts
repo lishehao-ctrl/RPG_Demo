@@ -39,7 +39,23 @@ describe('formatApiError', () => {
     expect(result.message).toContain('不在最新草稿');
   });
 
-  it('extracts validation details for save failures', () => {
+  it('translates npc validation errors into ui language', () => {
+    const error = makeApiError(
+      {
+        code: 'validation_error',
+        message: 'draft patch invalid',
+        details: {
+          errors: [{ loc: ['npc_profiles', 0, 'red_line'], msg: 'String should have at least 1 character' }],
+        },
+      },
+      422,
+    );
+    const result = formatApiError(error, 'author-draft-save');
+    expect(result.title).toBe('输入内容暂时不符合要求');
+    expect(result.message).toBe('NPC red line 不能为空');
+  });
+
+  it('falls back to loc path when no friendly mapping exists', () => {
     const error = makeApiError(
       {
         code: 'validation_error',
@@ -51,7 +67,6 @@ describe('formatApiError', () => {
       422,
     );
     const result = formatApiError(error, 'author-draft-save');
-    expect(result.title).toBe('输入内容暂时不符合要求');
     expect(result.message).toContain('changes -> 0 -> value');
   });
 

@@ -5,16 +5,12 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from rpg_backend.api.contracts.stories import (
-    OpeningGuidancePayload,
-    StoryDraftGetResponse,
-    StoryDraftPatchChange,
-)
 from rpg_backend.application.story_draft.errors import (
     DraftPatchTargetNotFoundError,
     DraftPatchUnsupportedError,
     DraftValidationError,
 )
+from rpg_backend.application.story_draft.models import DraftPatchChange, OpeningGuidanceView, StoryDraftView
 from rpg_backend.domain.opening_guidance import build_opening_guidance_for_pack
 from rpg_backend.domain.pack_schema import StoryPack
 
@@ -33,14 +29,21 @@ def normalize_draft_pack(pack_json: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
-def resolve_opening_guidance(pack: StoryPack) -> OpeningGuidancePayload:
+def resolve_opening_guidance(pack: StoryPack) -> OpeningGuidanceView:
     guidance = pack.opening_guidance or build_opening_guidance_for_pack(pack)
-    return OpeningGuidancePayload.model_validate(guidance.model_dump(mode="json"))
+    prompts = list(guidance.starter_prompts)
+    while len(prompts) < 3:
+        prompts.append("")
+    return OpeningGuidanceView(
+        intro_text=guidance.intro_text,
+        goal_hint=guidance.goal_hint,
+        starter_prompts=(prompts[0], prompts[1], prompts[2]),
+    )
 
 
-def build_story_draft_response(*, story: Any, latest_version: Any | None) -> StoryDraftGetResponse:
+def build_story_draft_view(*, story: Any, latest_version: Any | None) -> StoryDraftView:
     draft_pack = normalize_draft_pack(story.draft_pack_json)
-    return StoryDraftGetResponse(
+    return StoryDraftView(
         story_id=story.id,
         title=story.title,
         created_at=story.created_at,
@@ -57,7 +60,7 @@ def _find_target_entry(*, entries: list[dict[str, Any]], target_id: str, target_
     raise DraftPatchTargetNotFoundError(target_type=target_type, target_id=target_id)
 
 
-def _apply_change(*, pack_json: dict[str, Any], story_title: str, change: StoryDraftPatchChange) -> tuple[dict[str, Any], str]:
+def _apply_change(*, pack_json: dict[str, Any], story_title: str, change: DraftPatchChange) -> tuple[dict[str, Any], str]:
     updated_pack = deepcopy(pack_json)
     updated_title = story_title
 
@@ -103,7 +106,7 @@ def apply_story_draft_changes(
     *,
     pack_json: dict[str, Any],
     story_title: str,
-    changes: list[StoryDraftPatchChange],
+    changes: list[DraftPatchChange],
 ) -> tuple[dict[str, Any], str]:
     updated_pack = deepcopy(pack_json)
     updated_title = story_title

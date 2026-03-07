@@ -8,6 +8,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from rpg_backend.config.settings import get_settings
 from rpg_backend.infrastructure.db.async_engine import async_engine
+from rpg_backend.infrastructure.db.transaction import transactional
 from rpg_backend.infrastructure.repositories.llm_quota_async import (
     adjust_quota_tokens,
     cleanup_old_windows,
@@ -91,15 +92,16 @@ class QuotaService:
         limits = self.model_limit(model)
         window_minute = current_window_epoch_minute(now=now)
         async with AsyncSession(async_engine, expire_on_commit=False) as db:
-            reservation = await reserve_quota_window(
-                db,
-                model=model,
-                window_epoch_minute=window_minute,
-                rpm_limit=limits.rpm,
-                tpm_limit=limits.tpm,
-                estimated_tokens=max(1, int(estimated_tokens)),
-                now=now,
-            )
+            async with transactional(db):
+                reservation = await reserve_quota_window(
+                    db,
+                    model=model,
+                    window_epoch_minute=window_minute,
+                    rpm_limit=limits.rpm,
+                    tpm_limit=limits.tpm,
+                    estimated_tokens=max(1, int(estimated_tokens)),
+                    now=now,
+                )
         if reservation.allowed:
             return QuotaReservation(
                 allowed=True,
@@ -130,16 +132,17 @@ class QuotaService:
         if delta == 0:
             return
         async with AsyncSession(async_engine, expire_on_commit=False) as db:
-            await adjust_quota_tokens(
-                db,
-                model=model,
-                window_epoch_minute=window_epoch_minute,
-                delta_tokens=delta,
-            )
+            async with transactional(db):
+                await adjust_quota_tokens(
+                    db,
+                    model=model,
+                    window_epoch_minute=window_epoch_minute,
+                    delta_tokens=delta,
+                )
 
     async def cleanup_async(self, *, keep_last_minutes: int = 120, now: datetime | None = None) -> int:
         current_minute = current_window_epoch_minute(now=now)
         threshold = current_minute - max(1, int(keep_last_minutes))
         async with AsyncSession(async_engine, expire_on_commit=False) as db:
-            return await cleanup_old_windows(db, min_window_epoch_minute=threshold)
-
+            async with transactional(db):
+                return await cleanup_old_windows(db, min_window_epoch_minute=threshold)

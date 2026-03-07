@@ -181,6 +181,9 @@ Path governance:
 - frontend generated SDK artifact is `frontend/src/shared/api/generated/backend-sdk.ts` (generated, not hand-edited).
 - runtime orchestration:
   - staged session-step use case lives in `rpg_backend/application/session_step/*`
+  - application layer owns orchestration, read-model assembly, and transaction boundaries
+  - runtime layer is a pure execution engine and may only depend on `domain` + `llm.base` + sibling runtime modules
+  - infrastructure repositories are adapter primitives only and may not commit/rollback on behalf of callers
   - runtime `session_step` namespace is removed (no compatibility import path)
   - LLM route/narration pipeline is async end-to-end (`LLMProvider` -> `WorkerClient` -> runtime stages)
   - async repositories live in `rpg_backend/infrastructure/repositories/*_async.py`

@@ -7,6 +7,7 @@ from rpg_backend.api.contracts.stories import (
     StoryCreateRequest,
     StoryCreateResponse,
     StoryDraftGetResponse,
+    StoryDraftPatchChange,
     StoryDraftPatchRequest,
     StoryGenerateRequest,
     StoryGenerateResponse,
@@ -15,30 +16,23 @@ from rpg_backend.api.contracts.stories import (
     StoryListResponse,
     StoryPublishResponse,
 )
-from rpg_backend.api.errors import ApiError
+from rpg_backend.api.error_mapping import api_error_from_application_error
 from rpg_backend.api.route_paths import API_STORIES_PREFIX
-from rpg_backend.application.story_draft import (
-    DraftPatchTargetNotFoundError,
-    DraftPatchUnsupportedError,
-    DraftValidationError,
-    apply_story_draft_changes,
-    build_story_draft_response,
+from rpg_backend.application.errors import ApplicationError
+from rpg_backend.application.story_authoring.models import CreateStoryCommand, GenerateStoryCommand
+from rpg_backend.application.story_authoring.service import (
+    create_story_draft,
+    generate_story,
+    get_story_draft_view,
+    get_story_version_view,
+    list_story_summaries,
+    patch_story_draft_view,
+    publish_story,
 )
-from rpg_backend.domain.linter import lint_story_pack
-from rpg_backend.generator.errors import GeneratorBuildError
+from rpg_backend.application.story_draft import DraftPatchChange
 from rpg_backend.generator.pipeline import GeneratorPipeline
 from rpg_backend.infrastructure.db.async_session import get_async_session
-from rpg_backend.infrastructure.repositories.stories_async import (
-    create_story,
-    get_latest_story_version,
-    get_story,
-    get_story_version,
-    list_stories,
-    publish_story_version,
-    update_story_draft,
-)
 from rpg_backend.observability.context import get_request_id
-from rpg_backend.observability.logging import log_event
 from rpg_backend.security.deps import require_current_user
 
 router = APIRouter(
@@ -48,13 +42,28 @@ router = APIRouter(
 )
 
 
+def _patch_change_from_contract(change: StoryDraftPatchChange) -> DraftPatchChange:
+    return DraftPatchChange(
+        target_type=change.target_type,
+        field=change.field,
+        target_id=change.target_id,
+        value=change.value,
+    )
+
+
 @router.post("", response_model=StoryCreateResponse)
 async def create_story_endpoint(
     payload: StoryCreateRequest,
     db: AsyncSession = Depends(get_async_session),
 ) -> StoryCreateResponse:
-    story = await create_story(db, title=payload.title, pack_json=payload.pack_json)
-    return StoryCreateResponse(story_id=story.id, status="draft", created_at=story.created_at)
+    try:
+        view = await create_story_draft(
+            db=db,
+            command=CreateStoryCommand(title=payload.title, pack_json=payload.pack_json),
+        )
+    except ApplicationError as exc:
+        raise api_error_from_application_error(exc) from exc
+    return StoryCreateResponse(story_id=view.story_id, status=view.status, created_at=view.created_at)
 
 
 @router.get("", response_model=StoryListResponse)
@@ -62,21 +71,20 @@ async def list_stories_endpoint(
     limit: int = Query(default=100, ge=1, le=500),
     db: AsyncSession = Depends(get_async_session),
 ) -> StoryListResponse:
-    stories = await list_stories(db, limit=limit)
-    items: list[StoryListItem] = []
-    for story in stories:
-        latest_version = await get_latest_story_version(db, story.id)
-        items.append(
+    items = await list_story_summaries(db=db, limit=limit)
+    return StoryListResponse(
+        stories=[
             StoryListItem(
-                story_id=story.id,
-                title=story.title,
-                created_at=story.created_at,
-                has_draft=bool(story.draft_pack_json),
-                latest_published_version=latest_version.version if latest_version else None,
-                latest_published_at=latest_version.created_at if latest_version else None,
+                story_id=item.story_id,
+                title=item.title,
+                created_at=item.created_at,
+                has_draft=item.has_draft,
+                latest_published_version=item.latest_published_version,
+                latest_published_at=item.latest_published_at,
             )
-        )
-    return StoryListResponse(stories=items)
+            for item in items
+        ]
+    )
 
 
 @router.get("/{story_id}/draft", response_model=StoryDraftGetResponse)
@@ -84,12 +92,18 @@ async def get_story_draft_endpoint(
     story_id: str,
     db: AsyncSession = Depends(get_async_session),
 ) -> StoryDraftGetResponse:
-    story = await get_story(db, story_id)
-    if story is None:
-        raise ApiError(status_code=404, code="not_found", message="story not found", retryable=False)
-
-    latest_version = await get_latest_story_version(db, story_id)
-    return build_story_draft_response(story=story, latest_version=latest_version)
+    try:
+        view = await get_story_draft_view(db=db, story_id=story_id)
+    except ApplicationError as exc:
+        raise api_error_from_application_error(exc) from exc
+    return StoryDraftGetResponse(
+        story_id=view.story_id,
+        title=view.title,
+        created_at=view.created_at,
+        draft_pack=view.draft_pack,
+        latest_published_version=view.latest_published_version,
+        latest_published_at=view.latest_published_at,
+    )
 
 
 @router.patch("/{story_id}/draft", response_model=StoryDraftGetResponse)
@@ -98,49 +112,22 @@ async def patch_story_draft_endpoint(
     payload: StoryDraftPatchRequest,
     db: AsyncSession = Depends(get_async_session),
 ) -> StoryDraftGetResponse:
-    story = await get_story(db, story_id)
-    if story is None:
-        raise ApiError(status_code=404, code="not_found", message="story not found", retryable=False)
-
     try:
-        updated_pack, updated_title = apply_story_draft_changes(
-            pack_json=story.draft_pack_json,
-            story_title=story.title,
-            changes=payload.changes,
+        view = await patch_story_draft_view(
+            db=db,
+            story_id=story_id,
+            changes=[_patch_change_from_contract(change) for change in payload.changes],
         )
-    except DraftPatchTargetNotFoundError as exc:
-        raise ApiError(
-            status_code=404,
-            code="draft_target_not_found",
-            message=f"{exc.target_type} not found",
-            retryable=False,
-            details={"target_id": exc.target_id, "target_type": exc.target_type},
-        ) from exc
-    except DraftValidationError as exc:
-        raise ApiError(
-            status_code=422,
-            code="validation_error",
-            message="draft patch invalid",
-            retryable=False,
-            details={"errors": exc.errors},
-        ) from exc
-    except DraftPatchUnsupportedError as exc:
-        raise ApiError(
-            status_code=422,
-            code="validation_error",
-            message="unsupported draft patch",
-            retryable=False,
-            details={"target_type": exc.target_type, "field": exc.field},
-        ) from exc
-
-    story = await update_story_draft(
-        db,
-        story,
-        title=updated_title,
-        draft_pack_json=updated_pack,
+    except ApplicationError as exc:
+        raise api_error_from_application_error(exc) from exc
+    return StoryDraftGetResponse(
+        story_id=view.story_id,
+        title=view.title,
+        created_at=view.created_at,
+        draft_pack=view.draft_pack,
+        latest_published_version=view.latest_published_version,
+        latest_published_at=view.latest_published_at,
     )
-    latest_version = await get_latest_story_version(db, story_id)
-    return build_story_draft_response(story=story, latest_version=latest_version)
 
 
 @router.post("/{story_id}/publish", response_model=StoryPublishResponse)
@@ -148,22 +135,11 @@ async def publish_story_endpoint(
     story_id: str,
     db: AsyncSession = Depends(get_async_session),
 ) -> StoryPublishResponse:
-    story = await get_story(db, story_id)
-    if story is None:
-        raise ApiError(status_code=404, code="not_found", message="story not found", retryable=False)
-
-    report = lint_story_pack(story.draft_pack_json)
-    if not report.ok:
-        raise ApiError(
-            status_code=422,
-            code="validation_error",
-            message="story lint failed",
-            retryable=False,
-            details={"errors": report.errors, "warnings": report.warnings},
-        )
-
-    version = await publish_story_version(db, story)
-    return StoryPublishResponse(story_id=story_id, version=version.version, published_at=version.created_at)
+    try:
+        view = await publish_story(db=db, story_id=story_id)
+    except ApplicationError as exc:
+        raise api_error_from_application_error(exc) from exc
+    return StoryPublishResponse(story_id=view.story_id, version=view.version, published_at=view.published_at)
 
 
 @router.post("/generate", response_model=StoryGenerateResponse)
@@ -173,109 +149,35 @@ async def generate_story_endpoint(
     db: AsyncSession = Depends(get_async_session),
 ) -> StoryGenerateResponse:
     request_id = getattr(request.state, "request_id", None) or get_request_id()
-    pipeline = GeneratorPipeline()
-    try:
-        result = await pipeline.run(
-            seed_text=payload.seed_text,
-            prompt_text=payload.prompt_text,
-            target_minutes=payload.target_minutes,
-            npc_count=payload.npc_count,
-            style=payload.style,
-            variant_seed=payload.variant_seed,
-            candidate_parallelism=payload.candidate_parallelism,
-            generator_version=payload.generator_version,
-            palette_policy=payload.palette_policy,
-        )
-    except GeneratorBuildError as exc:
-        log_event(
-            "story_generate_failed",
-            level="ERROR",
-            request_id=request_id,
-            error_code=exc.error_code or "generation_failed_after_regenerates",
-            generation_attempts=exc.generation_attempts,
-            regenerate_count=exc.regenerate_count,
-            generator_version=exc.generator_version,
-            variant_seed=exc.variant_seed,
-            palette_policy=exc.palette_policy,
-            lint_errors_count=len(exc.lint_report.errors),
-            lint_warnings_count=len(exc.lint_report.warnings),
-            has_prompt=bool((payload.prompt_text or "").strip()),
-            has_seed=bool((payload.seed_text or "").strip()),
-            prompt_text_len=len(payload.prompt_text or ""),
-            seed_text_len=len(payload.seed_text or ""),
-            candidate_parallelism=payload.candidate_parallelism,
-        )
-        raise ApiError(
-            status_code=422,
-            code=exc.error_code or "generation_failed",
-            message="story generation failed",
-            retryable=False,
-            details={
-                "errors": exc.lint_report.errors,
-                "warnings": exc.lint_report.warnings,
-                "generation_attempts": exc.generation_attempts,
-                "regenerate_count": exc.regenerate_count,
-                "generator_version": exc.generator_version,
-                "variant_seed": exc.variant_seed,
-                "palette_policy": exc.palette_policy,
-                "candidate_parallelism": exc.candidate_parallelism,
-                "attempt_history": exc.attempt_history,
-                "notes": exc.notes,
-            },
-        ) from exc
-
-    fallback_title_source = (payload.seed_text or payload.prompt_text or "generated story").strip()
-    title = result.pack.get("title") or f"Generated: {fallback_title_source[:48]}"
-    story = await create_story(db, title=title, pack_json=result.pack)
-    version: int | None = None
-    if payload.publish:
-        published = await publish_story_version(db, story)
-        version = published.version
-
-    response = StoryGenerateResponse(
-        status="ok",
-        story_id=story.id,
-        version=version,
-        pack=result.pack,
-        pack_hash=result.pack_hash,
-        generation={
-            "mode": result.generation_mode,
-            "generator_version": result.generator_version,
-            "variant_seed": result.variant_seed,
-            "palette_policy": result.palette_policy,
-            "attempts": result.generation_attempts,
-            "regenerate_count": result.regenerate_count,
-            "candidate_parallelism": result.candidate_parallelism,
-            "compile": {
-                "spec_hash": result.spec_hash,
-                "spec_summary": result.spec_summary,
-            },
-            "lint": {"errors": result.lint_report.errors, "warnings": result.lint_report.warnings},
-            "attempt_history": result.attempt_history,
-        },
-    )
-    log_event(
-        "story_generate_succeeded",
-        level="INFO",
-        request_id=request_id,
-        story_id=story.id,
-        version=version,
-        generation_mode=result.generation_mode,
-        pack_hash=result.pack_hash,
-        generator_version=result.generator_version,
-        variant_seed=result.variant_seed,
-        palette_policy=result.palette_policy,
-        generation_attempts=result.generation_attempts,
-        regenerate_count=result.regenerate_count,
-        lint_errors_count=len(result.lint_report.errors),
-        lint_warnings_count=len(result.lint_report.warnings),
-        has_prompt=bool((payload.prompt_text or "").strip()),
-        has_seed=bool((payload.seed_text or "").strip()),
-        prompt_text_len=len(payload.prompt_text or ""),
-        seed_text_len=len(payload.seed_text or ""),
+    command = GenerateStoryCommand(
+        seed_text=payload.seed_text,
+        prompt_text=payload.prompt_text,
+        target_minutes=payload.target_minutes,
+        npc_count=payload.npc_count,
+        style=payload.style,
+        variant_seed=payload.variant_seed,
         candidate_parallelism=payload.candidate_parallelism,
+        generator_version=payload.generator_version,
+        palette_policy=payload.palette_policy,
+        publish=payload.publish,
     )
-    return response
+    try:
+        view = await generate_story(
+            db=db,
+            command=command,
+            request_id=request_id,
+            pipeline_factory=GeneratorPipeline,
+        )
+    except ApplicationError as exc:
+        raise api_error_from_application_error(exc) from exc
+    return StoryGenerateResponse(
+        status=view.status,
+        story_id=view.story_id,
+        version=view.version,
+        pack=view.pack,
+        pack_hash=view.pack_hash,
+        generation=view.generation,
+    )
 
 
 @router.get("/{story_id}", response_model=StoryGetResponse)
@@ -284,12 +186,8 @@ async def get_story_endpoint(
     version: int | None = Query(default=None, ge=1),
     db: AsyncSession = Depends(get_async_session),
 ) -> StoryGetResponse:
-    story = await get_story(db, story_id)
-    if story is None:
-        raise ApiError(status_code=404, code="not_found", message="story not found", retryable=False)
-
-    resolved = await get_story_version(db, story_id, version) if version else await get_latest_story_version(db, story_id)
-    if resolved is None:
-        raise ApiError(status_code=404, code="not_found", message="published version not found", retryable=False)
-
-    return StoryGetResponse(story_id=story_id, version=resolved.version, pack=resolved.pack_json)
+    try:
+        view = await get_story_version_view(db=db, story_id=story_id, version=version)
+    except ApplicationError as exc:
+        raise api_error_from_application_error(exc) from exc
+    return StoryGetResponse(story_id=view.story_id, version=view.version, pack=view.pack)

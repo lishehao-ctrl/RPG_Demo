@@ -79,7 +79,6 @@ async def reserve_quota_window(
             "tpm_limit": tpm_limit_value,
         },
     )
-    await db.commit()
 
     return QuotaReservationResult(
         allowed=bool(update_result.rowcount and int(update_result.rowcount) == 1),
@@ -124,7 +123,6 @@ async def adjust_quota_tokens(
             "window_epoch_minute": minute_value,
         },
     )
-    await db.commit()
 
 
 async def cleanup_old_windows(
@@ -136,5 +134,4 @@ async def cleanup_old_windows(
         text("DELETE FROM llmquotawindow WHERE window_epoch_minute < :min_window_epoch_minute"),
         params={"min_window_epoch_minute": int(min_window_epoch_minute)},
     )
-    await db.commit()
     return int(delete_result.rowcount or 0)

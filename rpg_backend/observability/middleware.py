@@ -13,6 +13,7 @@ from starlette.types import ASGIApp
 
 from rpg_backend.config.settings import get_settings
 from rpg_backend.infrastructure.db.async_engine import async_engine
+from rpg_backend.infrastructure.db.transaction import transactional
 from rpg_backend.infrastructure.repositories.observability_async import save_http_request_event
 from rpg_backend.observability.context import reset_request_id, set_request_id
 from rpg_backend.observability.logging import log_event
@@ -45,15 +46,16 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
     ) -> None:
         try:
             async with AsyncSession(async_engine, expire_on_commit=False) as db:
-                await save_http_request_event(
-                    db,
-                    service=service,
-                    method=method,
-                    path=path,
-                    status_code=status_code,
-                    duration_ms=duration_ms,
-                    request_id=request_id,
-                )
+                async with transactional(db):
+                    await save_http_request_event(
+                        db,
+                        service=service,
+                        method=method,
+                        path=path,
+                        status_code=status_code,
+                        duration_ms=duration_ms,
+                        request_id=request_id,
+                    )
         except Exception:  # noqa: BLE001
             # Never fail a live request because observability persistence failed.
             return

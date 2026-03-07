@@ -3,11 +3,12 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Query
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from rpg_backend.api.errors import ApiError
-from rpg_backend.api.route_paths import API_ADMIN_USERS_PREFIX
 from rpg_backend.api.contracts.admin import AdminUserListResponse, AdminUserPublic
+from rpg_backend.api.error_mapping import api_error_from_application_error
+from rpg_backend.api.route_paths import API_ADMIN_USERS_PREFIX
+from rpg_backend.application.admin_console.service import get_admin_user_view, list_admin_user_views
+from rpg_backend.application.errors import ApplicationError
 from rpg_backend.infrastructure.db.async_session import get_async_session
-from rpg_backend.infrastructure.repositories.admin_users_async import get_admin_user_by_id, list_admin_users
 from rpg_backend.security.deps import require_admin
 
 router = APIRouter(
@@ -22,14 +23,14 @@ async def list_admin_users_endpoint(
     limit: int = Query(default=100, ge=1, le=500),
     db: AsyncSession = Depends(get_async_session),
 ) -> AdminUserListResponse:
-    users = await list_admin_users(db, limit=limit)
+    users = await list_admin_user_views(db=db, limit=limit)
     return AdminUserListResponse(
         items=[
             AdminUserPublic(
                 id=user.id,
                 email=user.email,
                 role=user.role,
-                is_active=bool(user.is_active),
+                is_active=user.is_active,
                 created_at=user.created_at,
                 updated_at=user.updated_at,
                 last_login_at=user.last_login_at,
@@ -44,14 +45,15 @@ async def get_admin_user_endpoint(
     user_id: str,
     db: AsyncSession = Depends(get_async_session),
 ) -> AdminUserPublic:
-    user = await get_admin_user_by_id(db, user_id)
-    if user is None:
-        raise ApiError(status_code=404, code="not_found", message="user not found", retryable=False)
+    try:
+        user = await get_admin_user_view(db=db, user_id=user_id)
+    except ApplicationError as exc:
+        raise api_error_from_application_error(exc) from exc
     return AdminUserPublic(
         id=user.id,
         email=user.email,
         role=user.role,
-        is_active=bool(user.is_active),
+        is_active=user.is_active,
         created_at=user.created_at,
         updated_at=user.updated_at,
         last_login_at=user.last_login_at,

@@ -10,9 +10,15 @@ from typing import Any
 import httpx
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from rpg_backend.application.observability.snapshot_service import ObservabilitySnapshotService
+from rpg_backend.application.admin_console.observability_queries import (
+    query_http_health,
+    query_llm_health,
+    query_readiness_health,
+    query_runtime_errors,
+)
 from rpg_backend.config.settings import get_settings
 from rpg_backend.infrastructure.db.async_engine import async_engine
+from rpg_backend.infrastructure.db.transaction import transactional
 from rpg_backend.infrastructure.repositories.observability_async import (
     has_recent_alert_dispatch,
     save_alert_dispatch,
@@ -21,8 +27,6 @@ from rpg_backend.storage.engine import init_db
 
 GLOBAL_ALERT_MIN_FAILED_TOTAL = 3
 BUCKET_MIN_COUNT_FOR_SHARE = 2
-SNAPSHOT_SERVICE = ObservabilitySnapshotService()
-
 
 def _bucket_key(error_code: str, stage: str, model: str) -> str:
     return f"{error_code}|{stage}|{model}"
@@ -66,7 +70,7 @@ def _build_signal(
 
 
 async def aggregate_runtime_error_buckets(db: AsyncSession, *, window_seconds: int, limit: int) -> dict[str, Any]:
-    return await SNAPSHOT_SERVICE.aggregate_runtime_errors(db, window_seconds=window_seconds, limit=limit)
+    return await query_runtime_errors(db, window_seconds=window_seconds, limit=limit)
 
 
 async def aggregate_http_health(
@@ -76,7 +80,7 @@ async def aggregate_http_health(
     service: str,
     exclude_paths: list[str] | None = None,
 ) -> dict[str, Any]:
-    return await SNAPSHOT_SERVICE.aggregate_http_health(
+    return await query_http_health(
         db,
         window_seconds=window_seconds,
         service=service,
@@ -85,11 +89,11 @@ async def aggregate_http_health(
 
 
 async def aggregate_llm_call_health(db: AsyncSession, *, window_seconds: int) -> dict[str, Any]:
-    return await SNAPSHOT_SERVICE.aggregate_llm_health(db, window_seconds=window_seconds)
+    return await query_llm_health(db, window_seconds=window_seconds)
 
 
 async def aggregate_readiness_health(db: AsyncSession, *, window_seconds: int) -> dict[str, Any]:
-    return await SNAPSHOT_SERVICE.aggregate_readiness_health(db, window_seconds=window_seconds)
+    return await query_readiness_health(db, window_seconds=window_seconds)
 
 
 async def _build_snapshot_async(
@@ -372,14 +376,15 @@ async def _dispatch_alerts_async(
         await asyncio.to_thread(_send_webhook, webhook_url, send_payload)
     except Exception as exc:  # noqa: BLE001
         for key in pending_keys:
-            await save_alert_dispatch(
-                db,
-                bucket_key=key,
-                window_started_at=datetime.fromisoformat(snapshot["window_started_at"]),
-                window_ended_at=datetime.fromisoformat(snapshot["window_ended_at"]),
-                status="failed",
-                payload_json={"error": str(exc), "payload": send_payload},
-            )
+            async with transactional(db):
+                await save_alert_dispatch(
+                    db,
+                    bucket_key=key,
+                    window_started_at=datetime.fromisoformat(snapshot["window_started_at"]),
+                    window_ended_at=datetime.fromisoformat(snapshot["window_ended_at"]),
+                    status="failed",
+                    payload_json={"error": str(exc), "payload": send_payload},
+                )
         return {
             "status": "send_failed",
             "sent": False,
@@ -392,14 +397,15 @@ async def _dispatch_alerts_async(
         }
 
     for key in pending_keys:
-        await save_alert_dispatch(
-            db,
-            bucket_key=key,
-            window_started_at=datetime.fromisoformat(snapshot["window_started_at"]),
-            window_ended_at=datetime.fromisoformat(snapshot["window_ended_at"]),
-            status="sent",
-            payload_json=send_payload,
-        )
+        async with transactional(db):
+            await save_alert_dispatch(
+                db,
+                bucket_key=key,
+                window_started_at=datetime.fromisoformat(snapshot["window_started_at"]),
+                window_ended_at=datetime.fromisoformat(snapshot["window_ended_at"]),
+                status="sent",
+                payload_json=send_payload,
+            )
     return {
         "status": "sent",
         "sent": True,

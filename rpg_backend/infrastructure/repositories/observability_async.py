@@ -82,8 +82,7 @@ async def save_http_request_event(
         created_at=created_at or utc_now(),
     )
     db.add(event)
-    await db.commit()
-    await db.refresh(event)
+    await db.flush()
     return event
 
 
@@ -114,8 +113,7 @@ async def save_llm_call_event(
         created_at=created_at or utc_now(),
     )
     db.add(event)
-    await db.commit()
-    await db.refresh(event)
+    await db.flush()
     return event
 
 
@@ -138,8 +136,7 @@ async def save_readiness_probe_event(
         created_at=created_at or utc_now(),
     )
     db.add(event)
-    await db.commit()
-    await db.refresh(event)
+    await db.flush()
     return event
 
 
@@ -502,7 +499,6 @@ async def save_alert_dispatch(
         payload_json=payload_json,
     )
     db.add(dispatch)
-    await db.commit()
-    await db.refresh(dispatch)
+    await db.flush()
     return dispatch
 

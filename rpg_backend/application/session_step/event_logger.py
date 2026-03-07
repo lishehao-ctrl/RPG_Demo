@@ -4,6 +4,7 @@ from typing import Any
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from rpg_backend.infrastructure.db.transaction import transactional
 from rpg_backend.infrastructure.repositories.runtime_events_async import save_runtime_event
 from rpg_backend.observability.logging import log_event
 from rpg_backend.runtime.errors import RuntimeNarrationError, RuntimeRouteError
@@ -25,23 +26,24 @@ async def emit_step_started_event(
     narration_model: str | None,
     input_log_fields: dict[str, Any],
 ) -> None:
-    await save_runtime_event(
-        db,
-        session_id=session_id,
-        turn_index=turn_index_expected,
-        event_type="step_started",
-        payload_json={
-            "client_action_id": client_action_id,
-            "turn_index_expected": turn_index_expected,
-            "input": normalized_input,
-            "scene_id_before": scene_id_before,
-            "beat_index_before": beat_index_before,
-            "provider": provider_name,
-            "request_id": request_id,
-            "route_model": route_model,
-            "narration_model": narration_model,
-        },
-    )
+    async with transactional(db):
+        await save_runtime_event(
+            db,
+            session_id=session_id,
+            turn_index=turn_index_expected,
+            event_type="step_started",
+            payload_json={
+                "client_action_id": client_action_id,
+                "turn_index_expected": turn_index_expected,
+                "input": normalized_input,
+                "scene_id_before": scene_id_before,
+                "beat_index_before": beat_index_before,
+                "provider": provider_name,
+                "request_id": request_id,
+                "route_model": route_model,
+                "narration_model": narration_model,
+            },
+        )
     log_event(
         "session_step_started",
         level="INFO",
@@ -70,18 +72,19 @@ async def emit_step_replayed_event(
     request_id: str,
     note: str,
 ) -> None:
-    await save_runtime_event(
-        db,
-        session_id=session_id,
-        turn_index=turn_index,
-        event_type="step_replayed",
-        payload_json={
-            "client_action_id": client_action_id,
-            "session_action_id": session_action_id,
-            "note": note,
-            "request_id": request_id,
-        },
-    )
+    async with transactional(db):
+        await save_runtime_event(
+            db,
+            session_id=session_id,
+            turn_index=turn_index,
+            event_type="step_replayed",
+            payload_json={
+                "client_action_id": client_action_id,
+                "session_action_id": session_action_id,
+                "note": note,
+                "request_id": request_id,
+            },
+        )
     log_event(
         "session_step_replayed",
         level="INFO",
@@ -107,21 +110,22 @@ async def emit_step_conflicted_event(
     input_log_fields: dict[str, Any],
     error_code: str,
 ) -> None:
-    await save_runtime_event(
-        db,
-        session_id=session_id,
-        turn_index=turn_index_expected,
-        event_type="step_conflicted",
-        payload_json={
-            "client_action_id": client_action_id,
-            "expected_turn_index": turn_index_expected,
-            "actual_turn_index": actual_turn_index,
-            "scene_id_before": scene_id_before,
-            "beat_index_before": beat_index_before,
-            "request_id": request_id,
-            "note": "optimistic_write_conflict",
-        },
-    )
+    async with transactional(db):
+        await save_runtime_event(
+            db,
+            session_id=session_id,
+            turn_index=turn_index_expected,
+            event_type="step_conflicted",
+            payload_json={
+                "client_action_id": client_action_id,
+                "expected_turn_index": turn_index_expected,
+                "actual_turn_index": actual_turn_index,
+                "scene_id_before": scene_id_before,
+                "beat_index_before": beat_index_before,
+                "request_id": request_id,
+                "note": "optimistic_write_conflict",
+            },
+        )
     log_event(
         "session_step_conflicted",
         level="WARN",
@@ -157,29 +161,30 @@ async def emit_step_failed_event(
     exc: RuntimeRouteError | RuntimeNarrationError,
     input_log_fields: dict[str, Any],
 ) -> None:
-    await save_runtime_event(
-        db,
-        session_id=session_id,
-        turn_index=turn_index_expected,
-        event_type="step_failed",
-        payload_json={
-            "client_action_id": client_action_id,
-            "turn_index_expected": turn_index_expected,
-            "scene_id_before": scene_id_before,
-            "beat_index_before": beat_index_before,
-            "error_code": exc.error_code,
-            "stage": exc.stage,
-            "message": exc.message,
-            "provider": exc.provider,
-            "request_id": request_id,
-            "route_model": route_model,
-            "narration_model": narration_model,
-            "duration_ms": duration_ms,
-            "provider_error_code": exc.provider_error_code,
-            "llm_duration_ms": llm_duration_ms,
-            "llm_gateway_mode": llm_gateway_mode,
-        },
-    )
+    async with transactional(db):
+        await save_runtime_event(
+            db,
+            session_id=session_id,
+            turn_index=turn_index_expected,
+            event_type="step_failed",
+            payload_json={
+                "client_action_id": client_action_id,
+                "turn_index_expected": turn_index_expected,
+                "scene_id_before": scene_id_before,
+                "beat_index_before": beat_index_before,
+                "error_code": exc.error_code,
+                "stage": exc.stage,
+                "message": exc.message,
+                "provider": exc.provider,
+                "request_id": request_id,
+                "route_model": route_model,
+                "narration_model": narration_model,
+                "duration_ms": duration_ms,
+                "provider_error_code": exc.provider_error_code,
+                "llm_duration_ms": llm_duration_ms,
+                "llm_gateway_mode": llm_gateway_mode,
+            },
+        )
     log_event(
         "session_step_failed",
         level="ERROR",
@@ -225,32 +230,33 @@ async def emit_step_succeeded_event(
     provider_name: str,
     input_log_fields: dict[str, Any],
 ) -> None:
-    await save_runtime_event(
-        db,
-        session_id=session_id,
-        turn_index=turn_index_applied,
-        event_type="step_succeeded",
-        payload_json={
-            "client_action_id": client_action_id,
-            "turn_index": turn_index_applied,
-            "scene_id_before": scene_id_before,
-            "scene_id_after": result["scene_id"],
-            "beat_index_before": beat_index_before,
-            "beat_index_after": result["beat_index"],
-            "ended": bool(result["ended"]),
-            "recognized": result["recognized"],
-            "resolution": result["resolution"],
-            "narration_text": result["narration_text"],
-            "request_id": request_id,
-            "route_model": route_model,
-            "narration_model": narration_model,
-            "duration_ms": duration_ms,
-            "route_llm_duration_ms": route_llm_duration_ms,
-            "narration_llm_duration_ms": narration_llm_duration_ms,
-            "route_llm_gateway_mode": route_llm_gateway_mode,
-            "narration_llm_gateway_mode": narration_llm_gateway_mode,
-        },
-    )
+    async with transactional(db):
+        await save_runtime_event(
+            db,
+            session_id=session_id,
+            turn_index=turn_index_applied,
+            event_type="step_succeeded",
+            payload_json={
+                "client_action_id": client_action_id,
+                "turn_index": turn_index_applied,
+                "scene_id_before": scene_id_before,
+                "scene_id_after": result["scene_id"],
+                "beat_index_before": beat_index_before,
+                "beat_index_after": result["beat_index"],
+                "ended": bool(result["ended"]),
+                "recognized": result["recognized"],
+                "resolution": result["resolution"],
+                "narration_text": result["narration_text"],
+                "request_id": request_id,
+                "route_model": route_model,
+                "narration_model": narration_model,
+                "duration_ms": duration_ms,
+                "route_llm_duration_ms": route_llm_duration_ms,
+                "narration_llm_duration_ms": narration_llm_duration_ms,
+                "route_llm_gateway_mode": route_llm_gateway_mode,
+                "narration_llm_gateway_mode": narration_llm_gateway_mode,
+            },
+        )
     log_event(
         "session_step_succeeded",
         level="INFO",

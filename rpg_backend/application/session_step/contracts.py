@@ -5,17 +5,16 @@ from typing import Any
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from rpg_backend.api.contracts.sessions import SessionStepRequest
+from rpg_backend.application.play_sessions.models import SessionSnapshot, SessionStepCommand
 from rpg_backend.runtime.service import RuntimeService
-from rpg_backend.storage.models.entities import Session as SessionRecord
 
 
 @dataclass(frozen=True)
 class StepRequestContext:
     db: AsyncSession
     request_id: str
-    session: SessionRecord
-    payload: SessionStepRequest
+    session: SessionSnapshot
+    command: SessionStepCommand
     normalized_input: dict[str, Any]
     turn_index_expected: int
     scene_id_before: str

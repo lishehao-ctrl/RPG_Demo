@@ -13,15 +13,12 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def normalize_email(email: str) -> str:
+def normalize_email(email: str | None) -> str:
     return (email or "").strip().lower()
 
 
 async def get_admin_user_by_email(db: AsyncSession, email: str) -> AdminUser | None:
-    normalized = normalize_email(email)
-    if not normalized:
-        return None
-    stmt = select(AdminUser).where(AdminUser.email == normalized)
+    stmt = select(AdminUser).where(AdminUser.email == normalize_email(email))
     return (await db.exec(stmt)).first()
 
 
@@ -38,8 +35,7 @@ async def update_admin_user_last_login(db: AsyncSession, user: AdminUser) -> Adm
     user.last_login_at = utc_now()
     user.updated_at = utc_now()
     db.add(user)
-    await db.commit()
-    await db.refresh(user)
+    await db.flush()
     return user
 
 
@@ -62,8 +58,7 @@ async def upsert_bootstrap_admin(
         existing.is_active = True
         existing.updated_at = now
         db.add(existing)
-        await db.commit()
-        await db.refresh(existing)
+        await db.flush()
         return existing
 
     created = AdminUser(
@@ -77,21 +72,7 @@ async def upsert_bootstrap_admin(
     )
     db.add(created)
     try:
-        await db.commit()
+        await db.flush()
     except IntegrityError:
-        await db.rollback()
-        existing_after_conflict = await get_admin_user_by_email(db, normalized)
-        if existing_after_conflict is None:
-            raise
-        existing_after_conflict.password_hash = password_hash
-        existing_after_conflict.role = "admin"
-        existing_after_conflict.is_active = True
-        existing_after_conflict.updated_at = utc_now()
-        db.add(existing_after_conflict)
-        await db.commit()
-        await db.refresh(existing_after_conflict)
-        return existing_after_conflict
-
-    await db.refresh(created)
+        raise
     return created
-

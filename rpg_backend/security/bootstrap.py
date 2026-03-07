@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from sqlalchemy.exc import IntegrityError
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from rpg_backend.config.settings import Settings, get_settings
 from rpg_backend.infrastructure.db.async_engine import async_engine
+from rpg_backend.infrastructure.db.transaction import transactional
 from rpg_backend.infrastructure.repositories.admin_users_async import get_admin_user_by_email, upsert_bootstrap_admin
 from rpg_backend.security.passwords import hash_password, verify_password
 from rpg_backend.storage.models import AdminUser
@@ -102,4 +104,13 @@ async def ensure_bootstrap_admin(settings: Settings | None = None) -> AdminUser:
             target_hash = existing.password_hash
         else:
             target_hash = hash_password(password)
-        return await upsert_bootstrap_admin(db, email=email, password_hash=target_hash)
+        try:
+            async with transactional(db):
+                return await upsert_bootstrap_admin(db, email=email, password_hash=target_hash)
+        except IntegrityError:
+            await db.rollback()
+            existing_after_conflict = await get_admin_user_by_email(db, email)
+            if existing_after_conflict is None:
+                raise
+            async with transactional(db):
+                return await upsert_bootstrap_admin(db, email=email, password_hash=target_hash)

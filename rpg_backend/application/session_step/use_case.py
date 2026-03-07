@@ -5,8 +5,9 @@ from typing import Any, Callable
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from rpg_backend.api.errors import ApiError
-from rpg_backend.api.contracts.sessions import SessionStepRequest, SessionStepResponse
+from rpg_backend.application.play_sessions.errors import RuntimeStepFailedError
+from rpg_backend.application.play_sessions.models import SessionStepCommand, SessionStepResult
+from rpg_backend.application.session_step.llm_telemetry import llm_runtime_failure_detail
 from rpg_backend.application.session_step.stages.commit import cas_commit_transition, resolve_conflict_or_replay
 from rpg_backend.application.session_step.stages.emit import emit_success_or_failure_events, record_llm_call_events
 from rpg_backend.application.session_step.stages.execute import build_execution_context, execute_runtime_step
@@ -14,21 +15,20 @@ from rpg_backend.application.session_step.stages.idempotency import idempotency_
 from rpg_backend.application.session_step.stages.validate import validate_request
 from rpg_backend.llm.factory import get_llm_provider
 from rpg_backend.runtime.errors import RuntimeNarrationError, RuntimeRouteError
-from rpg_backend.application.session_step.llm_telemetry import llm_runtime_failure_detail
 
 
-async def process_step_request(
+async def process_step_command(
     *,
     db: AsyncSession,
     session_id: str,
-    payload: SessionStepRequest,
+    command: SessionStepCommand,
     request_id: str,
     provider_factory: Callable[[], Any] = get_llm_provider,
-) -> SessionStepResponse:
+) -> SessionStepResult:
     ctx = await validate_request(
         db=db,
         session_id=session_id,
-        payload=payload,
+        command=command,
         request_id=request_id,
     )
 
@@ -60,9 +60,8 @@ async def process_step_request(
             llm_gateway_mode=llm_gateway_mode,
         )
         detail = llm_runtime_failure_detail(exc)
-        raise ApiError(
-            status_code=503,
-            code=str(detail.get("error_code") or "service_unavailable"),
+        raise RuntimeStepFailedError(
+            error_code=str(detail.get("error_code") or "service_unavailable"),
             message=str(detail.get("message") or "runtime step failed"),
             retryable=bool(detail.get("retryable", True)),
             details={
@@ -80,25 +79,19 @@ async def process_step_request(
         )
     )
 
-    result = execution_success.result
-    response_payload = {
-        "session_id": ctx.session.id,
-        "version": ctx.session.version,
-        "scene_id": result["scene_id"],
-        "narration_text": result["narration_text"],
-        "recognized": result["recognized"],
-        "resolution": result["resolution"],
-        "ui": result["ui"],
-    }
-    if ctx.payload.dev_mode and isinstance(result.get("debug"), dict):
-        response_payload["debug"] = result["debug"]
+    result = SessionStepResult.from_runtime_payload(
+        session_id=ctx.session.id,
+        version=ctx.session.version,
+        payload=execution_success.result,
+        include_debug=ctx.command.dev_mode,
+    )
 
     commit_result = await cas_commit_transition(
         ctx,
         execution_success=execution_success,
+        result=result,
         working_state=working_state,
         working_beat_progress=working_beat_progress,
-        response_payload=response_payload,
     )
 
     if not commit_result.applied:
@@ -116,4 +109,4 @@ async def process_step_request(
         turn_index_applied=turn_index_applied,
     )
 
-    return SessionStepResponse.model_validate(response_payload)
+    return result

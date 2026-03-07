@@ -22,8 +22,9 @@ Code is split by responsibilities:
 - `rpg_backend/runtime`: Pass A routing + Pass B deterministic resolution + narration composition
 - `rpg_backend/llm`: worker transport abstraction (`WorkerProvider`)
 - `rpg_backend/storage`: SQLModel entities + migration guard (`engine/migrations/models`)
-- `rpg_backend/infrastructure/repositories`: async repository source of truth (`*_async.py`)
+- `rpg_backend/infrastructure/repositories`: persistence adapters only (`*_async.py`); they no longer own commit/rollback
 - `rpg_backend/api`: REST API (`/stories|/sessions|/admin`) + route registry/paths (`router_registry.py`, `route_paths.py`)
+- `rpg_backend/application`: orchestration + transaction ownership (`story_authoring`, `play_sessions`, `session_step`, `admin_console`, `readiness`)
 - `rpg_backend/observability/readiness_core.py`: shared readiness core used by backend + worker (payload builder/config validator/async TTL probe cache)
 
 Internal import policy:

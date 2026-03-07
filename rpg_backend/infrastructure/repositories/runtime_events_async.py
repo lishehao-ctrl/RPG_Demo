@@ -23,8 +23,7 @@ async def save_runtime_event(
         payload_json=payload_json,
     )
     db.add(event)
-    await db.commit()
-    await db.refresh(event)
+    await db.flush()
     return event
 
 
@@ -48,4 +47,3 @@ async def list_runtime_events(
         stmt = stmt.order_by(asc(RuntimeEvent.created_at))
     stmt = stmt.limit(limit)
     return list((await db.exec(stmt)).all())
-

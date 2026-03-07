@@ -9,8 +9,7 @@ from rpg_backend.storage.models import Story, StoryVersion
 async def create_story(db: AsyncSession, *, title: str, pack_json: dict) -> Story:
     story = Story(title=title, draft_pack_json=pack_json)
     db.add(story)
-    await db.commit()
-    await db.refresh(story)
+    await db.flush()
     return story
 
 
@@ -24,8 +23,7 @@ async def update_story_draft(
     story.title = title
     story.draft_pack_json = draft_pack_json
     db.add(story)
-    await db.commit()
-    await db.refresh(story)
+    await db.flush()
     return story
 
 
@@ -60,6 +58,5 @@ async def publish_story_version(db: AsyncSession, story: Story) -> StoryVersion:
 
     version = StoryVersion(story_id=story.id, version=next_version, status="published", pack_json=story.draft_pack_json)
     db.add(version)
-    await db.commit()
-    await db.refresh(version)
+    await db.flush()
     return version

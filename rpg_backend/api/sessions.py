@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
-
 from fastapi import APIRouter, Depends, Query, Request
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -11,25 +9,25 @@ from rpg_backend.api.contracts.sessions import (
     SessionGetResponse,
     SessionHistoryResponse,
     SessionHistoryTurn,
+    SessionRecognizedPayload,
+    SessionResolutionPayload,
     SessionStepRequest,
     SessionStepResponse,
+    SessionUiPayload,
 )
-from rpg_backend.api.errors import ApiError
+from rpg_backend.api.error_mapping import api_error_from_application_error
 from rpg_backend.api.route_paths import API_SESSIONS_PREFIX
-from rpg_backend.application.session_step.use_case import process_step_request
-from rpg_backend.application.story_draft import resolve_opening_guidance
-from rpg_backend.domain.pack_schema import StoryPack
-from rpg_backend.infrastructure.db.async_session import get_async_session
-from rpg_backend.infrastructure.repositories.sessions_async import (
-    create_session,
-    get_session as get_session_record,
-    list_session_actions,
+from rpg_backend.application.errors import ApplicationError
+from rpg_backend.application.play_sessions.models import SessionStepCommand
+from rpg_backend.application.play_sessions.service import (
+    create_play_session,
+    get_play_session,
+    get_play_session_history,
 )
-from rpg_backend.infrastructure.repositories.stories_async import get_story, get_story_version
-from rpg_backend.llm.base import LLMProviderConfigError
+from rpg_backend.application.session_step.use_case import process_step_command
+from rpg_backend.infrastructure.db.async_session import get_async_session
 from rpg_backend.llm.factory import get_llm_provider
 from rpg_backend.observability.context import get_request_id
-from rpg_backend.runtime.service import RuntimeService
 from rpg_backend.security.deps import require_current_user
 
 router = APIRouter(
@@ -39,38 +37,27 @@ router = APIRouter(
 )
 
 
-def _state_summary(state: dict) -> dict[str, int]:
-    values = state.get("values", {})
-    return {
-        "events": len(state.get("events", [])),
-        "inventory": len(state.get("inventory", [])),
-        "cost_total": int(values.get("cost_total", 0)),
-    }
+def _step_command_from_request(payload: SessionStepRequest) -> SessionStepCommand:
+    input_payload = payload.input
+    return SessionStepCommand(
+        client_action_id=payload.client_action_id,
+        input_type=input_payload.type if input_payload is not None else None,
+        move_id=input_payload.move_id if input_payload is not None else None,
+        text=input_payload.text if input_payload is not None else None,
+        dev_mode=bool(payload.dev_mode),
+    )
 
 
-def _build_runtime_or_503() -> RuntimeService:
-    try:
-        provider = get_llm_provider()
-    except LLMProviderConfigError as exc:
-        raise ApiError(
-            status_code=503,
-            code="service_unavailable",
-            message=f"llm provider misconfigured: {exc}",
-            retryable=False,
-        ) from exc
-    return RuntimeService(provider)
-
-
-def _normalize_history_item(index: int, payload: dict[str, Any], *, ended: bool) -> SessionHistoryTurn:
-    step = SessionStepResponse.model_validate(payload)
-    return SessionHistoryTurn(
-        turn_index=index,
-        scene_id=step.scene_id,
-        narration_text=step.narration_text,
-        recognized=step.recognized,
-        resolution=step.resolution,
-        ui=step.ui,
-        ended=ended,
+def _step_response_from_result(result) -> SessionStepResponse:
+    return SessionStepResponse(
+        session_id=result.session_id,
+        version=result.version,
+        scene_id=result.scene_id,
+        narration_text=result.narration_text,
+        recognized=SessionRecognizedPayload.model_validate(result.recognized.to_payload()),
+        resolution=SessionResolutionPayload.model_validate(result.resolution.to_payload()),
+        ui=SessionUiPayload.model_validate(result.ui.to_payload()),
+        debug=result.debug,
     )
 
 
@@ -79,35 +66,23 @@ async def create_session_endpoint(
     payload: SessionCreateRequest,
     db: AsyncSession = Depends(get_async_session),
 ) -> SessionCreateResponse:
-    story = await get_story(db, payload.story_id)
-    if story is None:
-        raise ApiError(status_code=404, code="not_found", message="story not found", retryable=False)
-
-    story_version = await get_story_version(db, payload.story_id, payload.version)
-    if story_version is None:
-        raise ApiError(status_code=404, code="not_found", message="story version not found", retryable=False)
-
-    pack = StoryPack.model_validate(story_version.pack_json)
-    runtime = _build_runtime_or_503()
-    scene_id, beat_index, state, beat_progress = runtime.initialize_session_state(pack)
-
-    session = await create_session(
-        db,
-        story_id=payload.story_id,
-        version=payload.version,
-        current_scene_id=scene_id,
-        beat_index=beat_index,
-        state_json=state,
-        beat_progress_json=beat_progress,
-    )
+    try:
+        view = await create_play_session(
+            db=db,
+            story_id=payload.story_id,
+            version=payload.version,
+            provider_factory=get_llm_provider,
+        )
+    except ApplicationError as exc:
+        raise api_error_from_application_error(exc) from exc
 
     return SessionCreateResponse(
-        session_id=session.id,
-        story_id=payload.story_id,
-        version=payload.version,
-        scene_id=scene_id,
-        state_summary=_state_summary(state),
-        opening_guidance=resolve_opening_guidance(pack),
+        session_id=view.session_id,
+        story_id=view.story_id,
+        version=view.version,
+        scene_id=view.scene_id,
+        state_summary=view.state_summary,
+        opening_guidance=view.opening_guidance.to_payload(),
     )
 
 
@@ -117,23 +92,19 @@ async def get_session_endpoint(
     dev_mode: bool = Query(default=False),
     db: AsyncSession = Depends(get_async_session),
 ) -> SessionGetResponse:
-    session = await get_session_record(db, session_id)
-    if session is None:
-        raise ApiError(status_code=404, code="not_found", message="session not found", retryable=False)
-
-    story_version = await get_story_version(db, session.story_id, session.version)
-    if story_version is None:
-        raise ApiError(status_code=404, code="not_found", message="story version not found", retryable=False)
-    pack = StoryPack.model_validate(story_version.pack_json)
+    try:
+        view = await get_play_session(db=db, session_id=session_id, dev_mode=dev_mode)
+    except ApplicationError as exc:
+        raise api_error_from_application_error(exc) from exc
 
     return SessionGetResponse(
-        session_id=session.id,
-        scene_id=session.current_scene_id,
-        beat_progress=session.beat_progress_json,
-        ended=session.ended,
-        state_summary=_state_summary(session.state_json),
-        opening_guidance=resolve_opening_guidance(pack),
-        state=session.state_json if dev_mode else None,
+        session_id=view.session_id,
+        scene_id=view.scene_id,
+        beat_progress=view.beat_progress,
+        ended=view.ended,
+        state_summary=view.state_summary,
+        opening_guidance=view.opening_guidance.to_payload(),
+        state=view.state,
     )
 
 
@@ -142,16 +113,26 @@ async def get_session_history_endpoint(
     session_id: str,
     db: AsyncSession = Depends(get_async_session),
 ) -> SessionHistoryResponse:
-    session = await get_session_record(db, session_id)
-    if session is None:
-        raise ApiError(status_code=404, code="not_found", message="session not found", retryable=False)
+    try:
+        view = await get_play_session_history(db=db, session_id=session_id)
+    except ApplicationError as exc:
+        raise api_error_from_application_error(exc) from exc
 
-    actions = await list_session_actions(db, session_id)
-    history = [
-        _normalize_history_item(index + 1, action.response_json, ended=bool(session.ended and index == len(actions) - 1))
-        for index, action in enumerate(actions)
-    ]
-    return SessionHistoryResponse(session_id=session.id, history=history)
+    return SessionHistoryResponse(
+        session_id=view.session_id,
+        history=[
+            SessionHistoryTurn(
+                turn_index=item.turn_index,
+                scene_id=item.scene_id,
+                narration_text=item.narration_text,
+                recognized=SessionRecognizedPayload.model_validate(item.recognized.to_payload()),
+                resolution=SessionResolutionPayload.model_validate(item.resolution.to_payload()),
+                ui=SessionUiPayload.model_validate(item.ui.to_payload()),
+                ended=item.ended,
+            )
+            for item in view.history
+        ],
+    )
 
 
 @router.post("/{session_id}/step", response_model=SessionStepResponse, response_model_exclude_none=True)
@@ -162,10 +143,15 @@ async def step_session_endpoint(
     db: AsyncSession = Depends(get_async_session),
 ) -> SessionStepResponse:
     request_id = getattr(request.state, "request_id", None) or get_request_id()
-    return await process_step_request(
-        db=db,
-        session_id=session_id,
-        payload=payload,
-        request_id=request_id,
-        provider_factory=get_llm_provider,
-    )
+    command = _step_command_from_request(payload)
+    try:
+        result = await process_step_command(
+            db=db,
+            session_id=session_id,
+            command=command,
+            request_id=request_id,
+            provider_factory=get_llm_provider,
+        )
+    except ApplicationError as exc:
+        raise api_error_from_application_error(exc) from exc
+    return _step_response_from_result(result)

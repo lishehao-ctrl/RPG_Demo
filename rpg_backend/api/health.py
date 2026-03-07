@@ -1,37 +1,13 @@
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
-from sqlmodel.ext.asyncio.session import AsyncSession
 
-from rpg_backend.api.route_paths import HEALTH_PATH, READY_PATH
 from rpg_backend.api.contracts.observability import ReadinessResponse
-from rpg_backend.infrastructure.db.async_engine import async_engine
-from rpg_backend.infrastructure.repositories.observability_async import save_readiness_probe_event
+from rpg_backend.api.route_paths import HEALTH_PATH, READY_PATH
+from rpg_backend.application.readiness.service import persist_readiness_probe, run_backend_readiness
 from rpg_backend.observability.context import get_request_id
 from rpg_backend.observability.logging import log_event
-from rpg_backend.observability.readiness import run_readiness_checks_async
 
 router = APIRouter(tags=["health"])
-
-
-async def _save_backend_readiness_probe(
-    *,
-    ok: bool,
-    error_code: str | None,
-    latency_ms: int | None,
-    request_id: str | None,
-) -> None:
-    try:
-        async with AsyncSession(async_engine, expire_on_commit=False) as db:
-            await save_readiness_probe_event(
-                db,
-                service="backend",
-                ok=ok,
-                error_code=error_code,
-                latency_ms=latency_ms,
-                request_id=request_id,
-            )
-    except Exception:  # noqa: BLE001
-        return
 
 
 @router.get(HEALTH_PATH)
@@ -42,7 +18,7 @@ async def health() -> dict[str, str]:
 @router.get(READY_PATH, response_model=ReadinessResponse)
 async def ready(request: Request, refresh: bool = Query(default=False)) -> ReadinessResponse | JSONResponse:
     request_id = getattr(request.state, "request_id", None) or get_request_id()
-    report = ReadinessResponse.model_validate(await run_readiness_checks_async(refresh=refresh))
+    report = ReadinessResponse.model_validate(await run_backend_readiness(refresh=refresh))
     db_ok = bool(report.checks.db.ok)
     llm_config_ok = bool(report.checks.llm_config.ok)
     llm_probe_ok = bool(report.checks.llm_probe.ok)
@@ -56,7 +32,8 @@ async def ready(request: Request, refresh: bool = Query(default=False)) -> Readi
         isinstance(item, int) for item in latency_candidates
     ) else None
     if report.status == "ready":
-        await _save_backend_readiness_probe(
+        await persist_readiness_probe(
+            service="backend",
             ok=True,
             error_code=None,
             latency_ms=latency_ms,
@@ -81,7 +58,8 @@ async def ready(request: Request, refresh: bool = Query(default=False)) -> Readi
         or report.checks.llm_probe.error_code
         or "readiness_failed"
     )
-    await _save_backend_readiness_probe(
+    await persist_readiness_probe(
+        service="backend",
         ok=False,
         error_code=first_error_code,
         latency_ms=latency_ms,

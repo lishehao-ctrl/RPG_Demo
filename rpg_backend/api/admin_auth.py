@@ -8,6 +8,7 @@ from rpg_backend.api.route_paths import API_ADMIN_AUTH_PREFIX
 from rpg_backend.api.contracts.admin import AdminAuthLoginRequest, AdminAuthLoginResponse, AdminUserPublic
 from rpg_backend.config.settings import get_settings
 from rpg_backend.infrastructure.db.async_session import get_async_session
+from rpg_backend.infrastructure.db.transaction import transactional
 from rpg_backend.infrastructure.repositories.admin_users_async import (
     get_admin_user_by_email,
     normalize_email,
@@ -33,7 +34,8 @@ async def admin_login_endpoint(
     if not verify_password(payload.password, user.password_hash):
         raise ApiError(status_code=401, code="invalid_credentials", message="invalid credentials", retryable=False)
 
-    user = await update_admin_user_last_login(db, user)
+    async with transactional(db):
+        user = await update_admin_user_last_login(db, user)
     settings = get_settings()
     access_token, expires_at = create_access_token(
         user_id=user.id,

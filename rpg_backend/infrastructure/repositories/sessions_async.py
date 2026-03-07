@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from sqlalchemy import update
-from sqlalchemy.exc import IntegrityError
 from sqlmodel import asc, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -36,8 +35,7 @@ async def create_session(
         turn_count=0,
     )
     db.add(session)
-    await db.commit()
-    await db.refresh(session)
+    await db.flush()
     return session
 
 
@@ -69,7 +67,7 @@ class StepCommitResult:
     reason: str
 
 
-async def commit_step_transition_if_turn_matches(
+async def apply_session_turn_update_if_matches(
     db: AsyncSession,
     *,
     session_id: str,
@@ -79,9 +77,6 @@ async def commit_step_transition_if_turn_matches(
     new_state_json: dict,
     new_beat_progress_json: dict,
     new_ended: bool,
-    client_action_id: str,
-    request_json: dict,
-    response_json: dict,
 ) -> StepCommitResult:
     next_turn_count = expected_turn_count + 1
     now = utc_now()
@@ -102,39 +97,37 @@ async def commit_step_transition_if_turn_matches(
             updated_at=now,
         )
     )
-
-    try:
-        update_result = await db.exec(update_stmt)
-        if update_result.rowcount != 1:
-            await db.rollback()
-            return StepCommitResult(
-                applied=False,
-                actual_turn_count=await _read_turn_count(db, session_id, fallback=expected_turn_count),
-                reason="turn_conflict",
-            )
-
-        db.add(
-            SessionAction(
-                session_id=session_id,
-                client_action_id=client_action_id,
-                request_json=request_json,
-                response_json=response_json,
-            )
-        )
-        await db.commit()
-        return StepCommitResult(applied=True, actual_turn_count=next_turn_count, reason="applied")
-    except IntegrityError:
-        await db.rollback()
+    update_result = await db.exec(update_stmt)
+    if update_result.rowcount != 1:
         return StepCommitResult(
             applied=False,
-            actual_turn_count=await _read_turn_count(db, session_id, fallback=expected_turn_count),
-            reason="idempotency_conflict",
+            actual_turn_count=await read_turn_count(db, session_id, fallback=expected_turn_count),
+            reason="turn_conflict",
         )
+    return StepCommitResult(applied=True, actual_turn_count=next_turn_count, reason="applied")
 
 
-async def _read_turn_count(db: AsyncSession, session_id: str, *, fallback: int) -> int:
+async def insert_session_action(
+    db: AsyncSession,
+    *,
+    session_id: str,
+    client_action_id: str,
+    request_json: dict,
+    response_json: dict,
+) -> SessionAction:
+    action = SessionAction(
+        session_id=session_id,
+        client_action_id=client_action_id,
+        request_json=request_json,
+        response_json=response_json,
+    )
+    db.add(action)
+    await db.flush()
+    return action
+
+
+async def read_turn_count(db: AsyncSession, session_id: str, *, fallback: int) -> int:
     session = await db.get(Session, session_id)
     if session is None:
         return fallback
     return int(session.turn_count)
-

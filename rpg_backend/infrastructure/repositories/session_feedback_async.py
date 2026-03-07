@@ -27,8 +27,7 @@ async def create_session_feedback(
         turn_index=turn_index,
     )
     db.add(feedback)
-    await db.commit()
-    await db.refresh(feedback)
+    await db.flush()
     return feedback
 
 
@@ -45,4 +44,3 @@ async def list_session_feedback(
         .limit(limit)
     )
     return list((await db.exec(stmt)).all())
-

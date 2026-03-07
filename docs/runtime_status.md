@@ -16,6 +16,8 @@ This file maps `docs/architecture.md` sections to current implementation status.
   - backend readiness and HTTP observability persistence avoid sync DB calls on request hot path
 - Session step pipeline refactor:
   - runtime step orchestration now executes directly through `application/session_step` staged use-case
+  - application services own orchestration and transaction boundaries; repositories are flush/exec-only primitives
+  - runtime has been decomposed into initializer / step_engine / stance / pressure / ui modules with `RuntimeService` as a thin facade
   - `runtime/session_step/*` package is fully removed; `application/session_step/*` is the only source of truth
 - LLM async call-chain hard cut:
   - `LLMProvider`, `WorkerProvider`, `WorkerClient`, runtime router/narration/service, generator pipeline, prompt compiler, and quality judge are async end-to-end

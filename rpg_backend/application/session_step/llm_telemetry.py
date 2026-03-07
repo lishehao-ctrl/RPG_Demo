@@ -4,6 +4,7 @@ from typing import Any
 
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from rpg_backend.infrastructure.db.transaction import transactional
 from rpg_backend.infrastructure.repositories.observability_async import save_llm_call_event
 from rpg_backend.runtime.errors import RuntimeNarrationError, RuntimeRouteError
 
@@ -57,18 +58,19 @@ async def record_llm_failure_event(
     gateway_mode = str(exc.gateway_mode or provider_gateway_mode or "unknown")
     llm_duration_ms = int(exc.llm_duration_ms) if exc.llm_duration_ms is not None else fallback_duration_ms
 
-    await save_llm_call_event(
-        db,
-        session_id=session_id,
-        turn_index=turn_index_expected,
-        stage=exc.stage,
-        gateway_mode=gateway_mode,
-        model=failed_stage_model,
-        success=False,
-        error_code=exc.provider_error_code or exc.error_code,
-        duration_ms=llm_duration_ms,
-        request_id=request_id,
-    )
+    async with transactional(db):
+        await save_llm_call_event(
+            db,
+            session_id=session_id,
+            turn_index=turn_index_expected,
+            stage=exc.stage,
+            gateway_mode=gateway_mode,
+            model=failed_stage_model,
+            success=False,
+            error_code=exc.provider_error_code or exc.error_code,
+            duration_ms=llm_duration_ms,
+            request_id=request_id,
+        )
     return llm_duration_ms, gateway_mode, failed_stage_model
 
 
@@ -90,31 +92,32 @@ async def record_llm_success_events(
         runtime_metrics.get("narration_llm_gateway_mode") or provider_gateway_mode or "unknown"
     )
 
-    if isinstance(route_llm_duration_ms, int):
-        await save_llm_call_event(
-            db,
-            session_id=session_id,
-            turn_index=turn_index_expected,
-            stage="route",
-            gateway_mode=route_llm_gateway_mode,
-            model=model_for_stage(stage="route", route_model=route_model, narration_model=narration_model),
-            success=True,
-            error_code=None,
-            duration_ms=route_llm_duration_ms,
-            request_id=request_id,
-        )
-    if isinstance(narration_llm_duration_ms, int):
-        await save_llm_call_event(
-            db,
-            session_id=session_id,
-            turn_index=turn_index_expected,
-            stage="narration",
-            gateway_mode=narration_llm_gateway_mode,
-            model=model_for_stage(stage="narration", route_model=route_model, narration_model=narration_model),
-            success=True,
-            error_code=None,
-            duration_ms=narration_llm_duration_ms,
-            request_id=request_id,
-        )
+    async with transactional(db):
+        if isinstance(route_llm_duration_ms, int):
+            await save_llm_call_event(
+                db,
+                session_id=session_id,
+                turn_index=turn_index_expected,
+                stage="route",
+                gateway_mode=route_llm_gateway_mode,
+                model=model_for_stage(stage="route", route_model=route_model, narration_model=narration_model),
+                success=True,
+                error_code=None,
+                duration_ms=route_llm_duration_ms,
+                request_id=request_id,
+            )
+        if isinstance(narration_llm_duration_ms, int):
+            await save_llm_call_event(
+                db,
+                session_id=session_id,
+                turn_index=turn_index_expected,
+                stage="narration",
+                gateway_mode=narration_llm_gateway_mode,
+                model=model_for_stage(stage="narration", route_model=route_model, narration_model=narration_model),
+                success=True,
+                error_code=None,
+                duration_ms=narration_llm_duration_ms,
+                request_id=request_id,
+            )
 
     return route_llm_duration_ms, narration_llm_duration_ms, route_llm_gateway_mode, narration_llm_gateway_mode

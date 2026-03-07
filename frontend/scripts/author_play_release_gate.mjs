@@ -167,7 +167,7 @@ async function publishStory(page, browserRequests, storyId, screenshotsDir, case
   const title = await page.getByRole('heading', { level: 2 }).first().innerText();
   await page.screenshot({ path: path.join(screenshotsDir, `${caseId}_author.png`), fullPage: true, type: 'png' });
   await page.getByRole('button', { name: 'Publish For Play' }).click();
-  await page.getByText(/Published v/i).waitFor({ timeout: 120000 });
+  await page.getByRole('button', { name: 'Open Play Library' }).waitFor({ timeout: 120000 });
   return {
     title,
     requestIds: browserRequests.splice(0),
@@ -188,7 +188,7 @@ async function startSessionFromLibrary(page, storyId) {
 
 async function playMainSession(page, browserRequests, screenshotsDir, caseId) {
   await page.getByRole('textbox', { name: /Free Text Directive/ }).fill('Begin with a careful survey of the breach');
-  await page.getByRole('button', { name: 'Send Directive' }).click();
+  await page.getByRole('button', { name: /Begin Session|Send Directive/ }).click();
   await page.getByText(/Turn 1/i).waitFor({ timeout: 120000 });
   const firstRouteSource = await page.locator('span').filter({ hasText: /llm/i }).first().innerText().catch(() => null);
   await page.locator('article').count();
@@ -207,7 +207,7 @@ async function playMainSession(page, browserRequests, screenshotsDir, caseId) {
 
 async function playButtonSession(page, browserRequests) {
   await page.getByRole('textbox', { name: /Free Text Directive/ }).fill('Begin with a careful survey of the breach');
-  await page.getByRole('button', { name: 'Send Directive' }).click();
+  await page.getByRole('button', { name: /Begin Session|Send Directive/ }).click();
   await page.getByText(/Turn 1/i).waitFor({ timeout: 120000 });
   await page.locator('button').filter({ hasText: /\[.*\]/ }).first().click();
   await page.getByText(/Turn 2/i).waitFor({ timeout: 120000 });
@@ -219,7 +219,7 @@ async function playButtonSession(page, browserRequests) {
 
 async function playEdgeSession(page, browserRequests, screenshotsDir, caseId) {
   await page.getByRole('textbox', { name: /Free Text Directive/ }).fill('help me progress, I am lost, ???, preserve trust, move now');
-  await page.getByRole('button', { name: 'Send Directive' }).click();
+  await page.getByRole('button', { name: /Begin Session|Send Directive/ }).click();
   await Promise.race([
     page.getByText(/Turn 1/i).waitFor({ timeout: 120000 }),
     page.getByText(/error|failed|unavailable/i).waitFor({ timeout: 120000 }),

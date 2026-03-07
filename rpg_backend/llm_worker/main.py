@@ -6,8 +6,6 @@ import json
 
 from fastapi import Depends, FastAPI, Header, Query, Request
 from fastapi.responses import JSONResponse
-from sqlmodel.ext.asyncio.session import AsyncSession
-
 from rpg_backend.api.errors import ApiError, register_error_handlers
 from rpg_backend.config.settings import get_settings
 from rpg_backend.llm.worker_client import close_worker_client_cache
@@ -36,8 +34,7 @@ from rpg_backend.observability.context import get_request_id
 from rpg_backend.observability.logging import configure_logging, log_event
 from rpg_backend.observability.middleware import RequestIdMiddleware
 from rpg_backend.security.bootstrap import assert_production_secret_requirements
-from rpg_backend.infrastructure.db.async_engine import async_engine
-from rpg_backend.infrastructure.repositories.observability_async import save_readiness_probe_event
+from rpg_backend.application.readiness.service import persist_readiness_probe
 from rpg_backend.storage.migrations import assert_schema_current
 
 task_service = WorkerTaskService()
@@ -52,18 +49,13 @@ async def _save_worker_readiness_probe(
     latency_ms: int | None,
     request_id: str | None,
 ) -> None:
-    try:
-        async with AsyncSession(async_engine, expire_on_commit=False) as db:
-            await save_readiness_probe_event(
-                db,
-                service="worker",
-                ok=ok,
-                error_code=error_code,
-                latency_ms=latency_ms,
-                request_id=request_id,
-            )
-    except Exception:  # noqa: BLE001
-        return
+    await persist_readiness_probe(
+        service="worker",
+        ok=ok,
+        error_code=error_code,
+        latency_ms=latency_ms,
+        request_id=request_id,
+    )
 
 
 @asynccontextmanager

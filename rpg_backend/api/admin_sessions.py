@@ -5,19 +5,18 @@ from typing import Literal
 from fastapi import APIRouter, Depends, Query, Request
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from rpg_backend.api.errors import ApiError
-from rpg_backend.api.route_paths import API_ADMIN_SESSIONS_PREFIX
 from rpg_backend.api.contracts.admin import AdminSessionTimelineEvent, AdminSessionTimelineResponse
 from rpg_backend.api.contracts.sessions import SessionFeedbackCreateRequest, SessionFeedbackItem, SessionFeedbackListResponse
-from rpg_backend.infrastructure.db.async_session import get_async_session
-from rpg_backend.infrastructure.repositories.runtime_events_async import list_runtime_events
-from rpg_backend.infrastructure.repositories.session_feedback_async import (
-    create_session_feedback,
-    list_session_feedback,
+from rpg_backend.api.error_mapping import api_error_from_application_error
+from rpg_backend.api.route_paths import API_ADMIN_SESSIONS_PREFIX
+from rpg_backend.application.admin_console.service import (
+    create_session_feedback_view,
+    get_session_timeline_view,
+    list_session_feedback_views,
 )
-from rpg_backend.infrastructure.repositories.sessions_async import get_session as get_session_record
+from rpg_backend.application.errors import ApplicationError
+from rpg_backend.infrastructure.db.async_session import get_async_session
 from rpg_backend.observability.context import get_request_id
-from rpg_backend.observability.logging import log_event
 from rpg_backend.security.deps import require_admin
 
 router = APIRouter(
@@ -25,13 +24,6 @@ router = APIRouter(
     tags=["admin"],
     dependencies=[Depends(require_admin)],
 )
-
-
-async def _require_session(db: AsyncSession, session_id: str):
-    session = await get_session_record(db, session_id)
-    if session is None:
-        raise ApiError(status_code=404, code="not_found", message="session not found", retryable=False)
-    return session
 
 
 @router.get("/{session_id}/timeline", response_model=AdminSessionTimelineResponse)
@@ -42,25 +34,27 @@ async def get_session_timeline_endpoint(
     event_type: str | None = Query(default=None),
     db: AsyncSession = Depends(get_async_session),
 ) -> AdminSessionTimelineResponse:
-    await _require_session(db, session_id)
-    events = await list_runtime_events(
-        db,
-        session_id=session_id,
-        limit=limit,
-        order=order,
-        event_type=event_type,
-    )
+    try:
+        view = await get_session_timeline_view(
+            db=db,
+            session_id=session_id,
+            limit=limit,
+            order=order,
+            event_type=event_type,
+        )
+    except ApplicationError as exc:
+        raise api_error_from_application_error(exc) from exc
     return AdminSessionTimelineResponse(
-        session_id=session_id,
+        session_id=view.session_id,
         events=[
             AdminSessionTimelineEvent(
-                event_id=event.id,
-                turn_index=event.turn_index,
-                event_type=event.event_type,
-                payload=event.payload_json,
-                created_at=event.created_at,
+                event_id=item.event_id,
+                turn_index=item.turn_index,
+                event_type=item.event_type,
+                payload=item.payload,
+                created_at=item.created_at,
             )
-            for event in events
+            for item in view.events
         ],
     )
 
@@ -72,39 +66,29 @@ async def create_session_feedback_endpoint(
     request: Request,
     db: AsyncSession = Depends(get_async_session),
 ) -> SessionFeedbackItem:
-    session = await _require_session(db, session_id)
     request_id = getattr(request.state, "request_id", None) or get_request_id()
-    feedback = await create_session_feedback(
-        db,
-        session_id=session.id,
-        story_id=session.story_id,
-        version=session.version,
-        verdict=payload.verdict,
-        reason_tags=list(payload.reason_tags),
-        note=payload.note,
-        turn_index=payload.turn_index,
-    )
-    log_event(
-        "admin_feedback_created",
-        level="INFO",
-        request_id=request_id,
-        session_id=session.id,
-        story_id=session.story_id,
-        version=session.version,
-        verdict=payload.verdict,
-        reason_tags_count=len(payload.reason_tags),
-        turn_index=payload.turn_index,
-    )
+    try:
+        item = await create_session_feedback_view(
+            db=db,
+            session_id=session_id,
+            verdict=payload.verdict,
+            reason_tags=list(payload.reason_tags),
+            note=payload.note,
+            turn_index=payload.turn_index,
+            request_id=request_id,
+        )
+    except ApplicationError as exc:
+        raise api_error_from_application_error(exc) from exc
     return SessionFeedbackItem(
-        feedback_id=feedback.id,
-        session_id=feedback.session_id,
-        story_id=feedback.story_id,
-        version=feedback.version,
-        verdict=feedback.verdict,
-        reason_tags=list(feedback.reason_tags_json),
-        note=feedback.note,
-        turn_index=feedback.turn_index,
-        created_at=feedback.created_at,
+        feedback_id=item.feedback_id,
+        session_id=item.session_id,
+        story_id=item.story_id,
+        version=item.version,
+        verdict=item.verdict,
+        reason_tags=list(item.reason_tags),
+        note=item.note,
+        turn_index=item.turn_index,
+        created_at=item.created_at,
     )
 
 
@@ -114,22 +98,24 @@ async def list_session_feedback_endpoint(
     limit: int = Query(default=50, ge=1, le=200),
     db: AsyncSession = Depends(get_async_session),
 ) -> SessionFeedbackListResponse:
-    await _require_session(db, session_id)
-    items = await list_session_feedback(db, session_id=session_id, limit=limit)
+    try:
+        view = await list_session_feedback_views(db=db, session_id=session_id, limit=limit)
+    except ApplicationError as exc:
+        raise api_error_from_application_error(exc) from exc
     return SessionFeedbackListResponse(
-        session_id=session_id,
+        session_id=view.session_id,
         items=[
             SessionFeedbackItem(
-                feedback_id=item.id,
+                feedback_id=item.feedback_id,
                 session_id=item.session_id,
                 story_id=item.story_id,
                 version=item.version,
                 verdict=item.verdict,
-                reason_tags=list(item.reason_tags_json),
+                reason_tags=list(item.reason_tags),
                 note=item.note,
                 turn_index=item.turn_index,
                 created_at=item.created_at,
             )
-            for item in items
+            for item in view.items
         ],
     )

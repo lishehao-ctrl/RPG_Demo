@@ -6,8 +6,6 @@ from typing import Literal
 from fastapi import APIRouter, Depends, Query
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from rpg_backend.application.observability.snapshot_service import ObservabilitySnapshotService
-from rpg_backend.api.route_paths import API_ADMIN_OBSERVABILITY_PREFIX, HEALTH_PATH
 from rpg_backend.api.contracts.observability import (
     HttpHealthAggregateResponse,
     LLMCallByGatewayModePayload,
@@ -18,6 +16,13 @@ from rpg_backend.api.contracts.observability import (
     RuntimeErrorsAggregateResponse,
     ReadinessHealthAggregateResponse,
 )
+from rpg_backend.api.route_paths import API_ADMIN_OBSERVABILITY_PREFIX, HEALTH_PATH
+from rpg_backend.application.admin_console.observability_queries import (
+    query_http_health,
+    query_llm_health,
+    query_readiness_health,
+    query_runtime_errors,
+)
 from rpg_backend.infrastructure.db.async_session import get_async_session
 from rpg_backend.security.deps import require_admin
 
@@ -26,7 +31,6 @@ router = APIRouter(
     tags=["admin"],
     dependencies=[Depends(require_admin)],
 )
-snapshot_service = ObservabilitySnapshotService()
 
 
 def _empty_llm_group() -> LLMCallGroupHealthPayload:
@@ -57,7 +61,7 @@ async def get_runtime_errors_aggregate_endpoint(
     error_code: str | None = Query(default=None),
     db: AsyncSession = Depends(get_async_session),
 ) -> RuntimeErrorsAggregateResponse:
-    aggregated = await snapshot_service.aggregate_runtime_errors(
+    aggregated = await query_runtime_errors(
         db,
         window_seconds=window_seconds,
         limit=limit,
@@ -97,7 +101,7 @@ async def get_http_health_endpoint(
     excluded = [item.strip() for item in (exclude_paths or "").split(",") if item.strip()]
     if service == "backend" and not excluded:
         excluded = [HEALTH_PATH]
-    aggregated = await snapshot_service.aggregate_http_health(
+    aggregated = await query_http_health(
         db,
         window_seconds=window_seconds,
         service=service,
@@ -125,7 +129,7 @@ async def get_llm_call_health_endpoint(
     gateway_mode: Literal["worker", "unknown"] | None = Query(default=None),
     db: AsyncSession = Depends(get_async_session),
 ) -> LLMCallHealthAggregateResponse:
-    aggregated = await snapshot_service.aggregate_llm_health(
+    aggregated = await query_llm_health(
         db,
         window_seconds=window_seconds,
         stage=stage,
@@ -150,10 +154,7 @@ async def get_readiness_health_endpoint(
     window_seconds: int = Query(default=300, ge=60, le=3600),
     db: AsyncSession = Depends(get_async_session),
 ) -> ReadinessHealthAggregateResponse:
-    aggregated = await snapshot_service.aggregate_readiness_health(
-        db,
-        window_seconds=window_seconds,
-    )
+    aggregated = await query_readiness_health(db, window_seconds=window_seconds)
     return ReadinessHealthAggregateResponse(
         generated_at=aggregated.get("generated_at") or datetime.now(UTC),
         window_started_at=aggregated.get("window_started_at") or datetime.now(UTC),

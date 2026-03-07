@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { apiService } from '@/shared/api/service';
 import { ApiClientError } from '@/shared/api/client';
 import { usePlayLibraryStore } from '@/shared/store/playLibraryStore';
+import type { ErrorPresentationContext } from '@/shared/lib/apiErrorPresentation';
 import { Button } from '@/shared/ui/Button';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { ErrorBanner } from '@/shared/ui/ErrorBanner';
@@ -16,6 +17,7 @@ export function PlayLibraryPage() {
   const [loading, setLoading] = useState(true);
   const [creatingStoryId, setCreatingStoryId] = useState<string | null>(null);
   const [error, setError] = useState<ApiClientError | Error | null>(null);
+  const [errorContext, setErrorContext] = useState<ErrorPresentationContext>('play-library-load');
 
   async function loadStories() {
     setLoading(true);
@@ -23,6 +25,7 @@ export function PlayLibraryPage() {
       const response = await apiService.listStories();
       setStories(response.stories.filter((story) => story.latest_published_version !== null));
     } catch (caught) {
+      setErrorContext('play-library-load');
       setError(caught as ApiClientError | Error);
     } finally {
       setLoading(false);
@@ -40,6 +43,7 @@ export function PlayLibraryPage() {
       const response = await apiService.createSession({ story_id: storyId, version });
       navigate(`/play/sessions/${response.session_id}`);
     } catch (caught) {
+      setErrorContext('play-create-session');
       setError(caught as ApiClientError | Error);
     } finally {
       setCreatingStoryId(null);
@@ -58,7 +62,7 @@ export function PlayLibraryPage() {
         <Pill tone="success">{publishedCount.toString().padStart(2, '0')} published</Pill>
       </div>
 
-      <ErrorBanner error={error} />
+      <ErrorBanner error={error} context={errorContext} />
 
       {loading ? (
         <div className="rounded-[24px] border border-[var(--line)] bg-[rgba(255,248,229,0.04)] px-5 py-10 text-center text-[var(--text-mist)]">

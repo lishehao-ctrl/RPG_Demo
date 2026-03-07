@@ -74,7 +74,7 @@ export function LoginPage() {
                 onChange={(event) => setPassword(event.target.value)}
               />
 
-              <ErrorBanner error={error} />
+              <ErrorBanner error={error} context="login" />
 
               <Button type="submit" wide disabled={submitting}>
                 {submitting ? 'Opening Gate...' : 'Enter Author Suite'}

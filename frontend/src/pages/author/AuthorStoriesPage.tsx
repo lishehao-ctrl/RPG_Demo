@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { apiService } from '@/shared/api/service';
 import { ApiClientError } from '@/shared/api/client';
 import { useAuthorStoryStore } from '@/shared/store/authorStoryStore';
+import type { ErrorPresentationContext } from '@/shared/lib/apiErrorPresentation';
 import { Button } from '@/shared/ui/Button';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { ErrorBanner } from '@/shared/ui/ErrorBanner';
@@ -22,6 +23,7 @@ export function AuthorStoriesPage() {
   const [loadingStories, setLoadingStories] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<ApiClientError | Error | null>(null);
+  const [errorContext, setErrorContext] = useState<ErrorPresentationContext>('author-stories-load');
 
   async function loadStories() {
     setLoadingStories(true);
@@ -29,6 +31,7 @@ export function AuthorStoriesPage() {
       const response = await apiService.listStories();
       setStories(response.stories);
     } catch (caught) {
+      setErrorContext('author-stories-load');
       setError(caught as ApiClientError | Error);
     } finally {
       setLoadingStories(false);
@@ -54,6 +57,7 @@ export function AuthorStoriesPage() {
       await loadStories();
       navigate(`/author/stories/${response.story_id}`);
     } catch (caught) {
+      setErrorContext('author-generate');
       setError(caught as ApiClientError | Error);
     } finally {
       setGenerating(false);
@@ -112,7 +116,7 @@ export function AuthorStoriesPage() {
             </div>
           </div>
 
-          <ErrorBanner error={error} />
+          <ErrorBanner error={error} context={errorContext} />
 
           <div className="flex flex-wrap items-center gap-3">
             <Button onClick={handleGenerate} disabled={generating || (!promptText.trim() && !seedText.trim())}>

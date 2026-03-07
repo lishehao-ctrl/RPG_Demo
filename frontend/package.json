@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "release:browser-gate": "node ./scripts/author_play_release_gate.mjs"
+    "release:browser-gate": "node ./scripts/author_play_release_gate.mjs",
+    "test:unit": "vitest run"
   },
   "dependencies": {
     "react": "^19.1.1",
@@ -24,9 +25,10 @@
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.7",
     "@vitejs/plugin-react": "^5.0.0",
+    "playwright-core": "^1.55.0",
     "tailwindcss": "^4.1.12",
     "typescript": "^5.9.2",
     "vite": "^7.1.3",
-    "playwright-core": "^1.55.0"
+    "vitest": "^4.0.18"
   }
 }

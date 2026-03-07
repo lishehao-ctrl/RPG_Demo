@@ -3,11 +3,51 @@ import { useAuthStore } from '@/shared/store/authStore';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '/api';
 
+function defaultErrorCode(statusCode: number) {
+  if (statusCode === 404) return 'not_found';
+  if (statusCode === 409) return 'conflict';
+  if (statusCode === 422) return 'validation_error';
+  if (statusCode >= 500) return 'service_unavailable';
+  return 'request_invalid';
+}
+
+async function readErrorEnvelope(response: Response): Promise<ApiErrorEnvelope> {
+  const requestId = response.headers.get('x-request-id');
+  let text = '';
+  try {
+    text = await response.text();
+  } catch {
+    text = '';
+  }
+
+  if (text) {
+    try {
+      const parsed = JSON.parse(text) as ApiErrorEnvelope;
+      if (parsed?.error?.code && parsed?.error?.message) {
+        return parsed;
+      }
+    } catch {
+      // fall through to generic envelope
+    }
+  }
+
+  return {
+    error: {
+      code: defaultErrorCode(response.status),
+      message: text.trim() || `Request failed with status ${response.status}`,
+      retryable: response.status >= 500,
+      request_id: requestId,
+      details: {},
+    },
+  };
+}
+
 export class ApiClientError extends Error {
   code: string;
   retryable: boolean;
   requestId: string | null;
   statusCode: number;
+  details: Record<string, unknown>;
 
   constructor(envelope: ApiErrorEnvelope, statusCode: number) {
     super(envelope.error.message);
@@ -16,6 +56,7 @@ export class ApiClientError extends Error {
     this.retryable = envelope.error.retryable;
     this.requestId = envelope.error.request_id;
     this.statusCode = statusCode;
+    this.details = envelope.error.details ?? {};
   }
 }
 
@@ -42,7 +83,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   });
 
   if (!response.ok) {
-    const payload = (await response.json()) as ApiErrorEnvelope;
+    const payload = await readErrorEnvelope(response);
     if (response.status === 401 && !options.skipAuth) {
       useAuthStore.getState().logout();
     }

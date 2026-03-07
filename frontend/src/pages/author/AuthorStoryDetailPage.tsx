@@ -14,6 +14,7 @@ import {
 import { buildStoryPackReviewModel, type ReviewIssue, type StoryPackBeat, type StoryPackMove, type StoryPackScene } from '@/shared/lib/storyPackReview';
 import { cn } from '@/shared/lib/cn';
 import { formatDateTime, titleCase } from '@/shared/lib/format';
+import type { ErrorPresentationContext } from '@/shared/lib/apiErrorPresentation';
 import { Button } from '@/shared/ui/Button';
 import { ErrorBanner } from '@/shared/ui/ErrorBanner';
 import { Field } from '@/shared/ui/Field';
@@ -95,6 +96,7 @@ export function AuthorStoryDetailPage() {
   const [publishing, setPublishing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<ApiClientError | Error | null>(null);
+  const [errorContext, setErrorContext] = useState<ErrorPresentationContext>('author-draft-load');
   const [activeTab, setActiveTab] = useState<ReviewTab>('overview');
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedLabel, setCopiedLabel] = useState<string | null>(null);
@@ -110,6 +112,7 @@ export function AuthorStoryDetailPage() {
       const response = await apiService.getStoryDraft(storyId);
       setCurrentStory(response);
     } catch (caught) {
+      setErrorContext('author-draft-load');
       setError(caught as ApiClientError | Error);
     } finally {
       setLoading(false);
@@ -157,6 +160,7 @@ export function AuthorStoryDetailPage() {
       await apiService.publishStory(storyId);
       await loadStory();
     } catch (caught) {
+      setErrorContext('author-publish');
       setError(caught as ApiClientError | Error);
     } finally {
       setPublishing(false);
@@ -178,6 +182,7 @@ export function AuthorStoryDetailPage() {
       setCurrentStory(response);
       setEditableDraft(buildEditableStateFromResponse(response));
     } catch (caught) {
+      setErrorContext('author-draft-save');
       setError(caught as ApiClientError | Error);
     } finally {
       setSaving(false);
@@ -399,7 +404,7 @@ export function AuthorStoryDetailPage() {
             : 'Loading draft payload from the author API.'
         }
       >
-        <ErrorBanner error={error} />
+        <ErrorBanner error={error} context={errorContext} />
 
         {loading || !currentStory || !editableDraft ? (
           <div className="rounded-[24px] border border-[var(--line)] bg-[rgba(255,248,229,0.04)] px-5 py-10 text-center text-[var(--text-mist)]">

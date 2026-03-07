@@ -5,6 +5,7 @@ import { ApiClientError } from '@/shared/api/client';
 import { deriveRecommendedMoves } from '@/shared/lib/sessionRecommendations';
 import { cn } from '@/shared/lib/cn';
 import { useSessionStore } from '@/shared/store/sessionStore';
+import type { ErrorPresentationContext } from '@/shared/lib/apiErrorPresentation';
 import { Button } from '@/shared/ui/Button';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { ErrorBanner } from '@/shared/ui/ErrorBanner';
@@ -40,6 +41,7 @@ export function PlaySessionPage() {
   const [textInput, setTextInput] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<ApiClientError | Error | null>(null);
+  const [errorContext, setErrorContext] = useState<ErrorPresentationContext>('play-session-load');
   const [mobileView, setMobileView] = useState<MobileView>('now');
   const { sessionMeta, history, submitting, setSessionMeta, setHistoryResponse, setSubmitting, reset } = useSessionStore();
 
@@ -58,6 +60,7 @@ export function PlaySessionPage() {
       setSessionMeta(meta);
       setHistoryResponse(historyResponse);
     } catch (caught) {
+      setErrorContext('play-session-load');
       setError(caught as ApiClientError | Error);
     } finally {
       setLoading(false);
@@ -95,6 +98,7 @@ export function PlaySessionPage() {
       });
       await loadSession();
     } catch (caught) {
+      setErrorContext('play-session-step');
       setError(caught as ApiClientError | Error);
     } finally {
       setSubmitting(false);
@@ -117,6 +121,7 @@ export function PlaySessionPage() {
       setTextInput('');
       await loadSession();
     } catch (caught) {
+      setErrorContext('play-session-step');
       setError(caught as ApiClientError | Error);
     } finally {
       setSubmitting(false);
@@ -153,7 +158,7 @@ export function PlaySessionPage() {
             subtitle="History remains fully available, but mobile now defaults to the live control surface so you can act without scrolling past the transcript."
             className="min-h-[48vh] xl:min-h-[72vh]"
           >
-            <ErrorBanner error={error} />
+            <ErrorBanner error={error} context={errorContext} />
             <div ref={timelineRef} className="custom-scrollbar mt-4 max-h-[62vh] space-y-4 overflow-y-auto pr-2">
               {loading ? (
                 <div className="rounded-[24px] border border-[var(--line)] bg-[rgba(255,248,229,0.04)] px-5 py-10 text-center text-[var(--text-mist)]">

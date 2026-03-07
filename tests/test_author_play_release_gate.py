@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from scripts.run_author_play_release_gate import _combine_release_verdict
+from scripts.release.run_author_play_release_gate import _combine_release_verdict
 
 
 def test_release_verdict_passes_when_browser_and_system_pass() -> None:

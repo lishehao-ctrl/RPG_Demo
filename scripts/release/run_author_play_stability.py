@@ -13,7 +13,7 @@ from typing import Any, Literal
 
 import httpx
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -31,14 +31,14 @@ from rpg_backend.api.route_paths import (
     stories_path,
 )
 from rpg_backend.eval.story_quality_judge import StoryQualityJudge, StoryQualityJudgeError
-from scripts.branch_coverage import analyze_branch_graph, summarize_branch_coverage
-from scripts.evaluate_llm_story_generation import (
+from scripts.eval.branch_coverage import analyze_branch_graph, summarize_branch_coverage
+from scripts.eval.evaluate_llm_story_generation import (
     _aggregate_playthrough_metrics,
     _build_pack_summary,
     _compute_fun_score,
     _summarize_transcript,
 )
-from scripts.simulate_playthrough import simulate_pack_playthrough
+from scripts.eval.simulate_playthrough import simulate_pack_playthrough
 
 DEFAULT_SUITE_FILE = Path("eval_data/author_play_stability_suite_v1.json")
 DEFAULT_OUTPUT_DIR = Path("reports/author_play_stability")

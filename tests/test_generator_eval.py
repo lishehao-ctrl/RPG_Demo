@@ -12,7 +12,7 @@ RUN_EVAL = bool(os.getenv("RUN_GENERATOR_EVAL"))
 
 @pytest.mark.skipif(not RUN_EVAL, reason="set RUN_GENERATOR_EVAL=1 to run evaluation tests")
 def test_generator_eval_report_shape() -> None:
-    from scripts.evaluate_generator import evaluate_generator
+    from scripts.eval.evaluate_generator import evaluate_generator
 
     report = evaluate_generator(
         seed_text="eval quality gate",
@@ -44,8 +44,8 @@ def test_generator_eval_report_shape() -> None:
 
 @pytest.mark.skipif(not RUN_EVAL, reason="set RUN_GENERATOR_EVAL=1 to run evaluation tests")
 def test_replay_matches_digest(tmp_path: Path) -> None:
-    from scripts.evaluate_generator import evaluate_generator
-    from scripts.simulate_playthrough import simulate_pack_playthrough
+    from scripts.eval.evaluate_generator import evaluate_generator
+    from scripts.eval.simulate_playthrough import simulate_pack_playthrough
     from rpg_backend.generator.versioning import compute_transcript_digest
 
     report = evaluate_generator(

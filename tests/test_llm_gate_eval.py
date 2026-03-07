@@ -11,7 +11,7 @@ import httpx
 
 def _load_gate_eval_module():
     repo_root = Path(__file__).resolve().parents[1]
-    scripts_dir = repo_root / "scripts"
+    scripts_dir = repo_root / "scripts" / "eval"
     sys.path.insert(0, str(repo_root))
     sys.path.insert(0, str(scripts_dir))
     script_path = scripts_dir / "evaluate_llm_gate.py"
@@ -129,7 +129,7 @@ def test_precheck_calls_route_only_not_narration(monkeypatch) -> None:
     assert provider.narration_called == 0
 
 
-def test_precheck_route_model_falls_back_to_narration_model(monkeypatch) -> None:
+def test_precheck_requires_route_model_or_global_fallback(monkeypatch) -> None:
     monkeypatch.setattr(
         gate_eval,
         "get_settings",
@@ -140,16 +140,11 @@ def test_precheck_route_model_falls_back_to_narration_model(monkeypatch) -> None
             llm_openai_model=None,
         ),
     )
-    monkeypatch.setattr(
-        gate_eval.socket,
-        "getaddrinfo",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(socket.gaierror(8, "nodename nor servname provided")),
-    )
 
     precheck = gate_eval._run_openai_precheck()
     assert precheck["status"] == "failed"
-    assert precheck["error_type"] == "dns_unreachable"
-    assert precheck["route_model"] == "narration-only-model"
+    assert precheck["error_type"] == "missing_model"
+    assert precheck["route_model"] == ""
 
 
 def test_classify_precheck_error_marks_unsupported_chat_completions_api() -> None:

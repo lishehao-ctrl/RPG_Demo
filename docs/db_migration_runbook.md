@@ -31,7 +31,7 @@ python scripts/db_migrate.py upgrade head
 3. Deploy backend/worker and verify:
 
 ```bash
-./scripts/k8s_verify_rollout.sh
+./scripts/k8s/k8s_verify_rollout.sh
 ```
 
 ## Rollback flow
@@ -39,7 +39,7 @@ python scripts/db_migrate.py upgrade head
 1. Roll back application deployment first:
 
 ```bash
-./scripts/k8s_rollback_last.sh
+./scripts/k8s/k8s_rollback_last.sh
 ```
 
 2. Evaluate whether database downgrade is required.
@@ -52,7 +52,7 @@ python scripts/db_migrate.py downgrade <revision>
 4. Re-run verification:
 
 ```bash
-./scripts/k8s_verify_rollout.sh
+./scripts/k8s/k8s_verify_rollout.sh
 ```
 
 ## Common failures

@@ -12,11 +12,11 @@ This suite validates the real DB-backed RPG product from multiple angles:
 ## Entry points
 
 - suite cases: `eval_data/author_play_stability_suite_v1.json`
-- system runner: `scripts/run_author_play_stability.py`
+- system runner: `scripts/release/run_author_play_stability.py`
 - browser runner: `frontend/scripts/author_play_release_gate.mjs`
-- release orchestrator: `scripts/run_author_play_release_gate.py`
-- branch analysis: `scripts/branch_coverage.py`
-- simulation engine: `scripts/simulate_playthrough.py`
+- release orchestrator: `scripts/release/run_author_play_release_gate.py`
+- branch analysis: `scripts/eval/branch_coverage.py`
+- simulation engine: `scripts/eval/simulate_playthrough.py`
 
 ## What it runs
 
@@ -58,19 +58,19 @@ Start the local stack from the repo root:
 Then run the full release gate:
 
 ```bash
-python scripts/run_author_play_release_gate.py
+python scripts/release/run_author_play_release_gate.py
 ```
 
 If you only want the system layer without the browser layer:
 
 ```bash
-python scripts/run_author_play_stability.py
+python scripts/release/run_author_play_stability.py
 ```
 
 Useful tuning knobs:
 
 ```bash
-python scripts/run_author_play_stability.py --max-steps 20 --branch-hunter-max-runs 6
+python scripts/release/run_author_play_stability.py --max-steps 20 --branch-hunter-max-runs 6
 ```
 
 When you need raw process logs during a long run:

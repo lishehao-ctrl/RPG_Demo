@@ -9,10 +9,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.run_author_play_stability import run_suite, _load_suite
+from scripts.release.run_author_play_stability import _load_suite, run_suite
 
 DEFAULT_OUTPUT_DIR = Path('reports/author_play_release')
 

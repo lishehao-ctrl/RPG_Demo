@@ -28,6 +28,16 @@ FORBIDDEN_REFERENCES = {
     "story_architecture_v3.md",
     "architecture_story_runtime.md",
     "scripts/playwright_smoke.sh",
+    "scripts/run_author_play_release_gate.py",
+    "scripts/run_author_play_stability.py",
+    "scripts/branch_coverage.py",
+    "scripts/simulate_playthrough.py",
+    "scripts/evaluate_llm_gate.py",
+    "scripts/evaluate_llm_story_generation.py",
+    "scripts/evaluate_generator.py",
+    "./scripts/k8s_db_migrate_manual.sh",
+    "./scripts/k8s_verify_rollout.sh",
+    "./scripts/k8s_rollback_last.sh",
 }
 
 REQUIRED_SECURITY_MARKERS = {

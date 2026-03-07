@@ -10,14 +10,15 @@ import secrets
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+import sys
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO_ROOT))
 
 from rpg_backend.generator.pipeline import GeneratorPipeline
 from rpg_backend.generator.versioning import PalettePolicy, compute_transcript_digest
 
-try:
-    from scripts.simulate_playthrough import DEFAULT_STRATEGIES, simulate_pack_playthrough
-except ModuleNotFoundError:
-    from simulate_playthrough import DEFAULT_STRATEGIES, simulate_pack_playthrough
+from scripts.eval.simulate_playthrough import DEFAULT_STRATEGIES, simulate_pack_playthrough
 
 
 def _extract_palette_ids(pack_json: dict[str, Any]) -> list[str]:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from scripts.branch_coverage import analyze_branch_graph, summarize_branch_coverage
+from scripts.eval.branch_coverage import analyze_branch_graph, summarize_branch_coverage
 
 PACK_PATH = Path('sample_data/story_pack_v1.json')
 

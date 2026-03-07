@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from scripts.run_author_play_stability import _case_pass
+from scripts.release.run_author_play_stability import _case_pass
 
 
 def test_case_pass_returns_true_when_all_metrics_meet_thresholds() -> None:

@@ -7,10 +7,14 @@ import json
 import os
 import random
 import sys
+from pathlib import Path
 import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Any
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO_ROOT))
 
 from rpg_backend.domain.pack_schema import StoryPack
 from rpg_backend.api.route_paths import admin_auth_login_path, session_path, session_step_path, sessions_path

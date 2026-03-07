@@ -12,7 +12,7 @@ pytestmark = pytest.mark.live_openai_critical
 
 def _load_gate_eval_module():
     repo_root = Path(__file__).resolve().parents[2]
-    scripts_dir = repo_root / "scripts"
+    scripts_dir = repo_root / "scripts" / "eval"
     sys.path.insert(0, str(repo_root))
     sys.path.insert(0, str(scripts_dir))
     script_path = scripts_dir / "evaluate_llm_gate.py"

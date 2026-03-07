@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO_ROOT))
+
 import asyncio
 import argparse
 import json
 import socket
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
@@ -16,10 +21,7 @@ from rpg_backend.config.settings import get_settings
 from rpg_backend.llm.base import LLMNarrationError, LLMProviderConfigError, LLMRouteError
 from rpg_backend.llm.factory import get_llm_provider, resolve_openai_models
 
-try:
-    from scripts.simulate_playthrough import simulate_pack_playthrough
-except ModuleNotFoundError:
-    from simulate_playthrough import simulate_pack_playthrough
+from scripts.eval.simulate_playthrough import simulate_pack_playthrough
 
 MEDIUM_GATE_THRESHOLDS: dict[str, float] = {
     "completion_rate_required": 1.0,
@@ -71,6 +73,16 @@ def _run_openai_precheck() -> dict[str, Any]:
     )
     parsed = urlparse(base_url)
     host = parsed.hostname or ""
+
+    if not route_model:
+        return {
+            "status": "failed",
+            "error_type": "missing_model",
+            "error": "missing route model; set APP_LLM_OPENAI_ROUTE_MODEL or APP_LLM_OPENAI_MODEL",
+            "base_url": base_url,
+            "host": host,
+            "route_model": route_model,
+        }
 
     if not host:
         return {

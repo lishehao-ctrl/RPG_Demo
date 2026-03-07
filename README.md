@@ -174,9 +174,9 @@ python scripts/db_migrate.py downgrade <revision>
 Kubernetes helper wrappers:
 
 ```bash
-./scripts/k8s_db_migrate_manual.sh head
-./scripts/k8s_verify_rollout.sh
-./scripts/k8s_rollback_last.sh
+./scripts/k8s/k8s_db_migrate_manual.sh head
+./scripts/k8s/k8s_verify_rollout.sh
+./scripts/k8s/k8s_rollback_last.sh
 ```
 
 Release order:
@@ -455,7 +455,7 @@ curl -sS "http://127.0.0.1:8000/sessions/{session_id}?dev_mode=true" \
 ### 8) Simulate a playthrough transcript
 
 ```bash
-python scripts/simulate_playthrough.py \
+python scripts/eval/simulate_playthrough.py \
   --provider openai \
   --base-url http://127.0.0.1:8000 \
   --story-id {story_id} \
@@ -474,7 +474,7 @@ Transcript entries include:
 You can also run local raw-pack simulation without API:
 
 ```bash
-python scripts/simulate_playthrough.py \
+python scripts/eval/simulate_playthrough.py \
   --pack-file sample_data/story_pack_v1.json \
   --provider openai \
   --strategy mixed \
@@ -488,7 +488,7 @@ python scripts/simulate_playthrough.py \
 ### 9) Evaluate generator quality (manual/nightly)
 
 ```bash
-python scripts/evaluate_generator.py \
+python scripts/eval/evaluate_generator.py \
   --seed-text "A city-wide signal breach" \
   --runs 10 \
   --strategies 5 \
@@ -512,7 +512,7 @@ For replay:
 ### 10) LLM gate evaluation (openai-only, strict)
 
 ```bash
-python scripts/evaluate_llm_gate.py \
+python scripts/eval/evaluate_llm_gate.py \
   --pack-file sample_data/story_pack_v1.json \
   --runs 50 \
   --strategy mixed \
@@ -543,7 +543,7 @@ Restricted environment option:
 Example (restricted sandbox):
 
 ```bash
-python scripts/evaluate_llm_gate.py \
+python scripts/eval/evaluate_llm_gate.py \
   --pack-file sample_data/story_pack_v1.json \
   --runs 50 \
   --strategy mixed \
@@ -560,7 +560,7 @@ Gate status field:
 Run full prompt-driven story generation evaluation:
 
 ```bash
-python scripts/evaluate_llm_story_generation.py \
+python scripts/eval/evaluate_llm_story_generation.py \
   --suite-file eval_data/prompt_suite_v1.json \
   --runs-per-prompt 3 \
   --strategies mixed,text_noise,button_random \
@@ -620,7 +620,7 @@ Precheck behavior:
 Run fun-priority readout while keeping the same full hard gate:
 
 ```bash
-python scripts/evaluate_llm_story_generation.py \
+python scripts/eval/evaluate_llm_story_generation.py \
   --profile fun_focus \
   --output reports/llm_story_generation_eval_fun_12x2.json
 ```
@@ -883,7 +883,7 @@ Use the real browser release gate instead of the removed legacy smoke wrapper:
 
 ```bash
 ./scripts/dev_stack.sh up
-python scripts/run_author_play_release_gate.py
+python scripts/release/run_author_play_release_gate.py
 ```
 
 For browser-only iteration or debugging, the Playwright runner remains available at:

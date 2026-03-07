@@ -5,6 +5,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DOCS_ROOT = REPO_ROOT / "docs"
+ARCHIVE_ROOT = DOCS_ROOT / "archive"
 
 REQUIRED_DOCS = {
     "architecture.md",
@@ -18,6 +19,7 @@ REQUIRED_DOCS = {
 FORBIDDEN_DOC_FILES = {
     "architecture_story_runtime.md",
     "story_architecture_v3.md",
+    "ui_author_play_regression_2026-03-06.md",
 }
 
 FORBIDDEN_REFERENCES = {
@@ -25,6 +27,7 @@ FORBIDDEN_REFERENCES = {
     "docs/story_architecture_v3.md",
     "story_architecture_v3.md",
     "architecture_story_runtime.md",
+    "scripts/playwright_smoke.sh",
 }
 
 REQUIRED_SECURITY_MARKERS = {
@@ -74,3 +77,15 @@ def test_security_markers_present_in_core_docs() -> None:
                 violations.append(f"{rel_path}: missing required marker '{marker}'")
 
     assert not violations, "security marker coverage failures:\n" + "\n".join(sorted(violations))
+
+
+def test_frontend_readme_uses_dev_stack_as_primary_path() -> None:
+    content = _read_text(REPO_ROOT / "frontend" / "README.md")
+    assert "./scripts/dev_stack.sh up" in content
+    assert "Primary Local Run Path" in content
+
+
+def test_ui_regression_logs_live_under_archive() -> None:
+    assert ARCHIVE_ROOT.exists(), "docs/archive must exist for historical logs"
+    archived = {p.name for p in ARCHIVE_ROOT.glob("*.md")}
+    assert "ui_author_play_regression_2026-03-06.md" in archived

@@ -48,13 +48,11 @@ Default suite size:
 
 ## Run
 
-Start the full stack first:
+Start the local stack from the repo root:
 
 ```bash
-PYTHONPATH=. python scripts/db_migrate.py upgrade head
-PYTHONPATH=. uvicorn rpg_backend.llm_worker.main:app --host 127.0.0.1 --port 8100
-PYTHONPATH=. uvicorn rpg_backend.main:app --host 127.0.0.1 --port 8000
-cd frontend && npm run dev -- --host 127.0.0.1 --port 5173
+./scripts/dev_stack.sh up
+./scripts/dev_stack.sh ready
 ```
 
 Then run the full release gate:
@@ -73,6 +71,14 @@ Useful tuning knobs:
 
 ```bash
 python scripts/run_author_play_stability.py --max-steps 20 --branch-hunter-max-runs 6
+```
+
+When you need raw process logs during a long run:
+
+```bash
+./scripts/dev_stack.sh logs backend
+./scripts/dev_stack.sh logs worker
+./scripts/dev_stack.sh logs frontend
 ```
 
 ## Pass criteria

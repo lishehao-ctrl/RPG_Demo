@@ -29,51 +29,36 @@ Current direction:
 - `../frontend_agent_contract.md`
 - `src/shared/api/generated/backend-sdk.ts`
 
-## Run
+## Primary Local Run Path
+
+Use the repo-root dev stack script as the default full-stack entrypoint:
+
+```bash
+./scripts/dev_stack.sh up
+./scripts/dev_stack.sh ready
+./scripts/dev_stack.sh logs frontend
+```
+
+This starts migration, worker, backend, and the Vite frontend together.
+
+When you finish local work:
+
+```bash
+./scripts/dev_stack.sh down
+```
+
+## Frontend-Only Commands
+
+If the full stack is already running and you only need frontend iteration:
 
 ```bash
 cd frontend
 npm install
 npm run dev
-```
-
-The Vite server runs on `http://localhost:5173` and proxies `/api/*` to `http://localhost:8000`.
-
-## Build
-
-```bash
-cd frontend
 npm run build
 ```
 
-## Local Full-Stack Debug Loop
-
-1. Start database migration:
-
-```bash
-python scripts/db_migrate.py upgrade head
-```
-
-2. Start worker:
-
-```bash
-uvicorn rpg_backend.llm_worker.main:app --host 127.0.0.1 --port 8100
-```
-
-3. Start backend:
-
-```bash
-uvicorn rpg_backend.main:app --host 127.0.0.1 --port 8000
-```
-
-4. Start frontend:
-
-```bash
-cd frontend
-npm run dev
-```
-
-5. Open the app at `http://127.0.0.1:5173/login`
+The Vite server runs on `http://127.0.0.1:5173` and proxies `/api/*` to `http://127.0.0.1:8000`.
 
 ## Manual Verification Path
 

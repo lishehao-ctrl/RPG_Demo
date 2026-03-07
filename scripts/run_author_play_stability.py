@@ -18,6 +18,18 @@ sys.path.insert(0, str(REPO_ROOT))
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from rpg_backend.config.settings import get_settings
+from rpg_backend.api.route_paths import (
+    READY_PATH,
+    admin_auth_login_path,
+    session_history_path,
+    session_path,
+    session_step_path,
+    sessions_path,
+    story_draft_path,
+    story_publish_path,
+    stories_generate_path,
+    stories_path,
+)
 from rpg_backend.eval.story_quality_judge import StoryQualityJudge, StoryQualityJudgeError
 from scripts.branch_coverage import analyze_branch_graph, summarize_branch_coverage
 from scripts.evaluate_llm_story_generation import (
@@ -108,7 +120,7 @@ def _login(base_url: str) -> AuthContext:
         "password": settings.admin_bootstrap_password,
     }
     with httpx.Client(timeout=60.0) as client:
-        response = client.post(f"{base_url}/admin/auth/login", json=payload)
+        response = client.post(f"{base_url}{admin_auth_login_path()}", json=payload)
         response.raise_for_status()
         token = response.json()["access_token"]
         return AuthContext(token=token, headers={"Authorization": f"Bearer {token}"})
@@ -116,8 +128,8 @@ def _login(base_url: str) -> AuthContext:
 
 def _check_ready(base_url: str, worker_url: str) -> dict[str, Any]:
     with httpx.Client(timeout=60.0) as client:
-        backend = client.get(f"{base_url}/ready")
-        worker = client.get(f"{worker_url}/ready")
+        backend = client.get(f"{base_url}{READY_PATH}")
+        worker = client.get(f"{worker_url}{READY_PATH}")
     return {
         "backend": backend.json(),
         "worker": worker.json(),
@@ -136,28 +148,28 @@ def _generate_story(base_url: str, auth: AuthContext, case: StabilityCase) -> tu
     else:
         payload["seed_text"] = case.seed_text
     with httpx.Client(timeout=240.0) as client:
-        response = client.post(f"{base_url}/stories/generate", headers=auth.headers, json=payload)
+        response = client.post(f"{base_url}{stories_generate_path()}", headers=auth.headers, json=payload)
         body = response.json()
     return response, body
 
 
 def _publish_story(base_url: str, auth: AuthContext, story_id: str) -> tuple[httpx.Response, dict[str, Any]]:
     with httpx.Client(timeout=120.0) as client:
-        response = client.post(f"{base_url}/stories/{story_id}/publish", headers=auth.headers, json={})
+        response = client.post(f"{base_url}{story_publish_path(story_id)}", headers=auth.headers, json={})
         body = response.json()
     return response, body
 
 
 def _story_supply(base_url: str, auth: AuthContext) -> dict[str, Any]:
     with httpx.Client(timeout=60.0) as client:
-        response = client.get(f"{base_url}/stories", headers=auth.headers)
+        response = client.get(f"{base_url}{stories_path()}", headers=auth.headers)
         response.raise_for_status()
         return response.json()
 
 
 def _story_draft(base_url: str, auth: AuthContext, story_id: str) -> dict[str, Any]:
     with httpx.Client(timeout=60.0) as client:
-        response = client.get(f"{base_url}/stories/{story_id}/draft", headers=auth.headers)
+        response = client.get(f"{base_url}{story_draft_path(story_id)}", headers=auth.headers)
         response.raise_for_status()
         return response.json()
 
@@ -165,7 +177,7 @@ def _story_draft(base_url: str, auth: AuthContext, story_id: str) -> dict[str, A
 def _play_api_flow(base_url: str, auth: AuthContext, story_id: str, version: int) -> dict[str, Any]:
     with httpx.Client(timeout=180.0) as client:
         created = client.post(
-            f"{base_url}/sessions",
+            f"{base_url}{sessions_path()}",
             headers=auth.headers,
             json={"story_id": story_id, "version": version},
         )
@@ -173,7 +185,7 @@ def _play_api_flow(base_url: str, auth: AuthContext, story_id: str, version: int
         session_id = created.json()["session_id"]
 
         first = client.post(
-            f"{base_url}/sessions/{session_id}/step",
+            f"{base_url}{session_step_path(session_id)}",
             headers=auth.headers,
             json={
                 "client_action_id": f"{story_id}-text-1",
@@ -189,7 +201,7 @@ def _play_api_flow(base_url: str, auth: AuthContext, story_id: str, version: int
         if first_ok and first_body.get("ui", {}).get("moves"):
             move_id = first_body["ui"]["moves"][0]["move_id"]
             second = client.post(
-                f"{base_url}/sessions/{session_id}/step",
+                f"{base_url}{session_step_path(session_id)}",
                 headers=auth.headers,
                 json={
                     "client_action_id": f"{story_id}-button-2",
@@ -200,9 +212,9 @@ def _play_api_flow(base_url: str, auth: AuthContext, story_id: str, version: int
             second_body = second.json()
             second_ok = second.status_code == 200
 
-        history = client.get(f"{base_url}/sessions/{session_id}/history", headers=auth.headers)
+        history = client.get(f"{base_url}{session_history_path(session_id)}", headers=auth.headers)
         history.raise_for_status()
-        session_after_reload = client.get(f"{base_url}/sessions/{session_id}", headers=auth.headers)
+        session_after_reload = client.get(f"{base_url}{session_path(session_id)}", headers=auth.headers)
         session_after_reload.raise_for_status()
 
     return {

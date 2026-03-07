@@ -878,11 +878,16 @@ Optional generator evaluation test (skipped by default):
 RUN_GENERATOR_EVAL=1 pytest -q tests/test_generator_eval.py
 ```
 
-## Playwright Smoke
-A script is provided to do a browser smoke check through the Playwright CLI wrapper:
+## Browser Release Gate
+Use the real browser release gate instead of the removed legacy smoke wrapper:
 
 ```bash
-scripts/playwright_smoke.sh
+./scripts/dev_stack.sh up
+python scripts/run_author_play_release_gate.py
 ```
 
-It expects the server to be running at `http://127.0.0.1:8000` and `npx` available.
+For browser-only iteration or debugging, the Playwright runner remains available at:
+
+```bash
+node frontend/scripts/author_play_release_gate.mjs --help
+```

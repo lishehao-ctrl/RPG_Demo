@@ -68,7 +68,7 @@ def main() -> int:
     parser.add_argument('--suite-file', default='eval_data/author_play_stability_suite_v1.json')
     parser.add_argument('--base-url', default='http://127.0.0.1:8000')
     parser.add_argument('--worker-url', default='http://127.0.0.1:8100')
-    parser.add_argument('--ui-base-url', default='http://127.0.0.1:5173')
+    parser.add_argument('--ui-base-url', default='http://127.0.0.1:8173')
     parser.add_argument('--frontend-dir', default='frontend')
     parser.add_argument('--output-dir', default=str(DEFAULT_OUTPUT_DIR))
     parser.add_argument('--max-steps', type=int, default=20)

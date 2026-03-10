@@ -11,7 +11,7 @@ Environment used:
 
 - backend: `http://127.0.0.1:8000`
 - worker: `http://127.0.0.1:8100`
-- frontend: `http://127.0.0.1:5173`
+- frontend: `http://127.0.0.1:8173`
 - live models:
   - `APP_LLM_OPENAI_MODEL=qwen-flash-us`
   - `APP_LLM_OPENAI_ROUTE_MODEL=qwen-plus-us`

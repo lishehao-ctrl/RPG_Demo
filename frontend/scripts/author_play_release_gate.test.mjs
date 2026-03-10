@@ -6,7 +6,7 @@ describe('author_play_release_gate', () => {
   it('parseArgs keeps defaults and toggles headed', () => {
     const args = parseArgs(['node', 'script', '--headed']);
     expect(args.headed).toBe(true);
-    expect(args.baseUrl).toBe('http://127.0.0.1:5173');
+    expect(args.baseUrl).toBe('http://127.0.0.1:8173');
     expect(String(args.suiteFile)).toContain('eval_data');
   });
 

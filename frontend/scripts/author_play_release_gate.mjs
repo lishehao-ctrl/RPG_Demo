@@ -39,7 +39,7 @@ function resolveRepoPath(value) {
 function parseArgs(argv) {
   const args = {
     suiteFile: DEFAULT_SUITE,
-    baseUrl: 'http://127.0.0.1:5173',
+    baseUrl: 'http://127.0.0.1:8173',
     output: DEFAULT_OUTPUT,
     screenshotsDir: DEFAULT_SCREENSHOTS,
     headed: false,
@@ -86,7 +86,7 @@ function parseArgs(argv) {
 }
 
 function printHelp() {
-  console.log(`usage: node frontend/scripts/author_play_release_gate.mjs [options]\n\nOptions:\n  --suite-file <path>      Path to release suite JSON\n  --base-url <url>         Frontend base URL (default: http://127.0.0.1:5173)\n  --output <path>          Output browser report JSON\n  --screenshots-dir <dir>  Directory for screenshots\n  --email <email>          Admin login email\n  --password <password>    Admin login password\n  --headed                 Run headed browser\n  -h, --help               Show this help`);
+  console.log(`usage: node frontend/scripts/author_play_release_gate.mjs [options]\n\nOptions:\n  --suite-file <path>      Path to release suite JSON\n  --base-url <url>         Frontend base URL (default: http://127.0.0.1:8173)\n  --output <path>          Output browser report JSON\n  --screenshots-dir <dir>  Directory for screenshots\n  --email <email>          Admin login email\n  --password <password>    Admin login password\n  --headed                 Run headed browser\n  -h, --help               Show this help`);
 }
 
 function commonChromePaths() {
@@ -152,10 +152,20 @@ function wait(ms) {
 
 async function login(page, args) {
   await page.goto(uiUrl(args.baseUrl, '/login'), { waitUntil: 'domcontentloaded' });
+  if (/\/author\//.test(page.url())) {
+    await page.getByRole('heading', { name: /Story Forge/i }).waitFor({ timeout: 15000 });
+    return;
+  }
   await page.getByRole('textbox', { name: 'Admin Email' }).fill(args.email);
   await page.getByRole('textbox', { name: 'Access Phrase' }).fill(args.password);
   await page.getByRole('button', { name: 'Enter Author Suite' }).click();
-  await page.waitForURL('**/author/stories');
+  await Promise.race([
+    page.waitForURL((url) => /\/author\//.test(url.pathname), { timeout: 20000 }),
+    page.getByRole('heading', { name: /Story Forge/i }).waitFor({ timeout: 20000 }),
+  ]).catch(async (error) => {
+    const body = await page.locator('body').innerText().catch(() => '');
+    throw new Error(`browser_login_failed: ${body || String(error)}`);
+  });
 }
 
 async function apiLogin(args) {
@@ -191,14 +201,21 @@ async function waitForAuthorRunTerminal(page) {
   const start = Date.now();
   while (Date.now() - start < AUTHOR_RUN_TIMEOUT_MS) {
     const url = page.url();
-    if (/\/author\/stories\/[^/]+$/.test(url)) {
-      return { status: 'review_ready', storyId: url.split('/').pop() ?? null };
+    if (/\/author\/stories\/[^/]+\/review$/.test(url)) {
+      const parts = url.split('/');
+      return { status: 'review_ready', storyId: parts.at(-2) ?? null };
+    }
+    if (/\/author\/runs\/[^/]+$/.test(url)) {
+      const body = await page.locator('body').innerText();
+      if (/Run failed|Run diagnostics/i.test(body)) {
+        return { status: 'failed', storyId: null, errorText: body };
+      }
     }
     const body = await page.locator('body').innerText();
     if (/run failed|author run failed|prompt_compile_failed|validation_error|workflow failed/i.test(body)) {
       return { status: 'failed', storyId: null, errorText: body };
     }
-    if (/Run failed|Run review_ready|Run running|Run pending|Latest node:/i.test(body)) {
+    if (/Run failed|Run ready|Run review_ready|Graph running|Queued|Current node:/i.test(body)) {
       // stay on page and keep polling UI state
     }
     await wait(2000);
@@ -239,22 +256,20 @@ async function generateFromAuthor(page, browserRequests, testCase, args, authHea
     };
   }
 
-  await page.goto(uiUrl(args.baseUrl, `/author/stories/${created.story_id}`), { waitUntil: 'domcontentloaded' });
+  await page.goto(uiUrl(args.baseUrl, `/author/stories/${created.story_id}/review`), { waitUntil: 'domcontentloaded' });
   await page.getByRole('button', { name: 'Publish For Play' }).waitFor({ timeout: 120000 });
-  const statusPill = await page.getByText(/Run review_ready|Run running|Run pending|Run failed/i).first().innerText().catch(() => 'review_ready');
-  const currentNodeText = await page.getByText(/Latest node:/i).first().innerText().catch(() => terminal.current_node ?? null);
   return {
     status: 'ok',
     storyId: created.story_id,
     runId: created.run_id,
-    authorRunStatus: statusPill,
-    authorRunCurrentNode: currentNodeText,
+    authorRunStatus: terminal.status,
+    authorRunCurrentNode: terminal.current_node ?? null,
     requestIds: consumeRequestLog(browserRequests),
   };
 }
 
 async function publishStory(page, browserRequests, storyId, screenshotsDir, caseId) {
-  await page.waitForURL(`**/author/stories/${storyId}`);
+  await page.waitForURL((url) => /\/author\/stories\/.+\/review$/.test(url.pathname), { timeout: 120000 });
   const title = await page.getByRole('heading', { level: 2 }).first().innerText();
   await page.screenshot({ path: path.join(screenshotsDir, `${caseId}_author_detail.png`), fullPage: true, type: 'png' });
   const publishButton = page.getByRole('button', { name: 'Publish For Play' });
@@ -281,23 +296,23 @@ async function startSessionFromLibrary(page, storyId) {
 }
 
 async function readLatestTurnState(page) {
-  const pills = await page.locator('text=/Scene /').allInnerTexts().catch(() => []);
-  const routeSource = await page.locator('span').filter({ hasText: /^(llm|button)$/i }).last().innerText().catch(() => null);
-  const sceneText = pills.at(-1) ?? null;
+  const panelText = await page.locator('body').innerText();
+  const sceneMatch = panelText.match(/Current Turn State[\s\S]*?Scene\s+([^\n]+)/i);
+  const routeMatch = panelText.match(/Current Turn State[\s\S]*?Route\s+([^\n]+)/i);
   return {
-    sceneIdAfter: sceneText ? sceneText.replace(/^Scene\s+/, '').trim() : null,
-    routeSource,
+    sceneIdAfter: sceneMatch?.[1]?.trim() ?? null,
+    routeSource: routeMatch?.[1]?.toLowerCase().includes('llm') ? 'llm' : routeMatch?.[1]?.toLowerCase().includes('button') ? 'button' : null,
     ended: /Session sealed|Completed/i.test(await page.locator('body').innerText()),
   };
 }
 
 async function submitTextTurn(page, text) {
-  await page.getByRole('textbox', { name: /Free Text Directive/ }).fill(text);
+  await page.getByRole('textbox', { name: /Your move/i }).fill(text);
   await page.getByRole('button', { name: /Begin Session|Send Directive/ }).click();
 }
 
 async function waitForSuggestedMoveButton(page, timeoutMs = 15000) {
-  const buttons = page.getByRole('button').filter({ hasText: /low|medium|high/i });
+  const buttons = page.getByRole('button').filter({ hasText: /Fast \/ Risky|Low Risk|Safe \/ Costly|Trace The Anomaly|Protect Civilians|Decode Control Pattern/i });
   try {
     await buttons.first().waitFor({ timeout: timeoutMs });
     return buttons.first();
@@ -560,43 +575,64 @@ async function main() {
     return 0;
   }
 
-  const suite = await loadSuite(args.suiteFile);
   await ensureDir(path.dirname(args.output));
   await ensureDir(args.screenshotsDir);
-  const executablePath = await resolveChromeExecutable();
-  const browser = await chromium.launch({ headless: !args.headed, executablePath });
-  const context = await browser.newContext({ viewport: { width: 1600, height: 980 } });
-  const page = await context.newPage();
+  let suite = null;
+  let browser = null;
+  let summary = null;
+  try {
+    suite = await loadSuite(args.suiteFile);
+    const executablePath = await resolveChromeExecutable();
+    browser = await chromium.launch({ headless: !args.headed, executablePath });
+    const context = await browser.newContext({ viewport: { width: 1600, height: 980 } });
+    const page = await context.newPage();
 
-  await login(page, args);
-  const authHeaders = await apiLogin(args);
+    await login(page, args);
+    const authHeaders = await apiLogin(args);
 
-  const caseResults = [];
-  for (const testCase of suite.cases) {
-    try {
-      caseResults.push(await runCase(page, testCase, args.screenshotsDir, args, authHeaders));
-    } catch (error) {
-      caseResults.push({
-        case: testCase,
-        status: 'failed',
-        failures: ['browser_runner_exception'],
-        error: error instanceof Error ? error.message : String(error),
-        error_stack: error instanceof Error ? (error.stack || null) : null,
-      });
+    const caseResults = [];
+    for (const testCase of suite.cases) {
+      try {
+        caseResults.push(await runCase(page, testCase, args.screenshotsDir, args, authHeaders));
+      } catch (error) {
+        caseResults.push({
+          case: testCase,
+          status: 'failed',
+          failures: ['browser_runner_exception'],
+          error: error instanceof Error ? error.message : String(error),
+          error_stack: error instanceof Error ? (error.stack || null) : null,
+        });
+      }
     }
+
+    summary = {
+      suite,
+      screenshots_dir: args.screenshotsDir,
+      ...summarizeCases(caseResults),
+    };
+    await fs.writeFile(args.output, JSON.stringify(summary, null, 2));
+    console.log(args.output);
+    return summary.status === 'passed' ? 0 : 1;
+  } catch (error) {
+    summary = {
+      suite,
+      screenshots_dir: args.screenshotsDir,
+      generated_at: new Date().toISOString(),
+      status: 'failed',
+      case_count: suite?.cases?.length ?? 0,
+      passed_case_count: 0,
+      failed_case_count: suite?.cases?.length ?? 0,
+      cases: [],
+      error: error instanceof Error ? error.message : String(error),
+      error_stack: error instanceof Error ? (error.stack || null) : null,
+    };
+    await fs.writeFile(args.output, JSON.stringify(summary, null, 2));
+    console.error(error);
+    console.log(args.output);
+    return 1;
+  } finally {
+    await browser?.close().catch(() => {});
   }
-
-  await browser.close();
-
-  const summary = {
-    suite,
-    screenshots_dir: args.screenshotsDir,
-    ...summarizeCases(caseResults),
-  };
-
-  await fs.writeFile(args.output, JSON.stringify(summary, null, 2));
-  console.log(args.output);
-  return summary.status === 'passed' ? 0 : 1;
 }
 
 export { parseArgs, summarizeCases };

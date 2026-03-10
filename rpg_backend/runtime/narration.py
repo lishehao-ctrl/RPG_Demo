@@ -81,7 +81,7 @@ async def render_echo_commit_hook(
         duration_ms = int((time.perf_counter() - started_at) * 1000)
         raise RuntimeNarrationError(
             error_code="llm_narration_failed",
-            message=f"render_narration failed after provider retries: {exc}",
+            message=f"narration chain failed after provider retries: {exc}",
             provider=provider_name,
             provider_error_code=getattr(exc, "provider_error_code", None),
             llm_duration_ms=duration_ms,
@@ -91,7 +91,7 @@ async def render_echo_commit_hook(
     if not isinstance(rendered, str) or not rendered.strip():
         raise RuntimeNarrationError(
             error_code="llm_narration_failed",
-            message="render_narration returned blank text",
+            message="narration chain returned blank text",
             provider=provider_name,
             llm_duration_ms=duration_ms,
             gateway_mode=gateway_mode,

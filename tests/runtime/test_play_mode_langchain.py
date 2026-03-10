@@ -39,7 +39,7 @@ class _FakeJsonProvider(LLMProvider):
     async def invoke_json_object(self, **kwargs) -> LLMJsonObjectResult:  # noqa: ANN003
         payload = json.loads(kwargs["user_prompt"])
         task = payload["task"]
-        if task == "route_intent":
+        if task == "select_route_candidate":
             fallback = payload["scene_context"]["fallback_key"]
             return LLMJsonObjectResult(
                 payload={
@@ -52,7 +52,7 @@ class _FakeJsonProvider(LLMProvider):
         return LLMJsonObjectResult(payload={"narration_text": "Echo Commit Hook"}, duration_ms=9)
 
 
-def test_route_intent_chain_gateway_payload_uses_selected_key_only(monkeypatch) -> None:
+def test_route_choice_chain_gateway_payload_uses_selected_key_only(monkeypatch) -> None:
     provider = _worker_provider()
     captured: dict[str, object] = {}
 
@@ -85,7 +85,7 @@ def test_route_intent_chain_gateway_payload_uses_selected_key_only(monkeypatch) 
     assert payload["scene_context"]["moves"][0]["key"] == "m0"
 
 
-def test_route_intent_chain_generic_provider_maps_key() -> None:
+def test_route_choice_chain_generic_provider_maps_key() -> None:
     provider = _FakeJsonProvider()
     scene_context = {
         "moves": [{"id": "move.a", "label": "A", "intents": [], "synonyms": [], "is_global": False}],

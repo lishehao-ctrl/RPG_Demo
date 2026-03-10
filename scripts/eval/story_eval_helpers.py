@@ -153,14 +153,14 @@ def _summarize_transcript(report: dict[str, Any]) -> dict[str, Any]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Legacy story-generation evaluator helpers")
+    parser = argparse.ArgumentParser(description="Story evaluation helper utilities")
     parser.add_argument("--dump-pack-summary", default=None)
     args = parser.parse_args()
     if args.dump_pack_summary:
         payload = json.loads(args.dump_pack_summary)
         print(json.dumps(_build_pack_summary(payload), ensure_ascii=False, indent=2))
         return 0
-    print("evaluate_llm_story_generation legacy evaluator removed; helper functions remain for release tooling.")
+    print("story_eval_helpers exposes helper utilities for release tooling.")
     return 0
 
 

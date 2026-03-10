@@ -122,11 +122,11 @@ def test_precheck_calls_route_only_not_narration(monkeypatch) -> None:
         async def invoke_json_object(self, **kwargs):  # noqa: ANN003, ANN201
             import json
             payload = json.loads(kwargs["user_prompt"])
-            if payload.get("task") == "route_intent":
+            if payload.get("task") == "select_route_candidate":
                 self.route_called += 1
                 return SimpleNamespace(payload={"selected_key": "m0", "confidence": 0.9, "interpreted_intent": "help me progress"}, duration_ms=5)
             self.narration_called += 1
-            raise AssertionError("render_narration should not be called by precheck")
+            raise AssertionError("runtime narration chain should not be called by precheck")
 
     provider = _Provider()
     monkeypatch.setattr(gate_eval, "get_llm_provider", lambda *_args, **_kwargs: provider)
@@ -247,7 +247,7 @@ def test_evaluate_llm_gate_status_failed_when_metrics_below_threshold(monkeypatc
             "runtime_error": True,
             "runtime_error_code": "llm_narration_failed",
             "runtime_error_stage": "narration",
-            "runtime_error_message": "render_narration failed",
+            "runtime_error_message": "runtime narration chain failed",
         },
     )
     report = gate_eval.evaluate_llm_gate(

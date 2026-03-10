@@ -151,7 +151,7 @@ async def route_player_action(
         route_duration_ms = int((time.perf_counter() - route_started_at) * 1000)
         raise RuntimeRouteError(
             error_code="llm_route_failed",
-            message=f"route_intent failed after provider retries: {exc}",
+            message=f"route chain failed after provider retries: {exc}",
             provider=provider_name,
             provider_error_code=getattr(exc, "provider_error_code", None),
             llm_duration_ms=route_duration_ms,
@@ -165,7 +165,7 @@ async def route_player_action(
     if chosen_move not in llm_available:
         raise RuntimeRouteError(
             error_code="llm_route_invalid_move",
-            message=f"route_intent returned unavailable selected_key: {routed.selected_key}",
+            message=f"route chain returned unavailable selected_key: {routed.selected_key}",
             provider=provider_name,
             llm_duration_ms=route_duration_ms,
             gateway_mode=gateway_mode,
@@ -173,7 +173,7 @@ async def route_player_action(
     elif confidence < threshold:
         raise RuntimeRouteError(
             error_code="llm_route_low_confidence",
-            message=f"route_intent confidence {confidence:.4f} below threshold {threshold:.4f}",
+            message=f"route chain confidence {confidence:.4f} below threshold {threshold:.4f}",
             provider=provider_name,
             llm_duration_ms=route_duration_ms,
             gateway_mode=gateway_mode,

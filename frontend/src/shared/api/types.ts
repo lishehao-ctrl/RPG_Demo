@@ -94,6 +94,20 @@ export type AuthorRunCreateResponse = {
 };
 
 
+
+export type AuthorRunEventPayload = {
+  event_id: string;
+  node_name: string;
+  event_type: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+};
+
+export type AuthorRunEventsResponse = {
+  run_id: string;
+  events: AuthorRunEventPayload[];
+};
+
 export type AuthorRunArtifactSummary = {
   artifact_type: string;
   artifact_key: string;

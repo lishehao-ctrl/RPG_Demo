@@ -26,7 +26,7 @@ class _CaptureProvider(LLMProvider):
 
     async def invoke_json_object(self, **kwargs) -> LLMJsonObjectResult:  # noqa: ANN003
         payload = json.loads(kwargs["user_prompt"])
-        if payload.get("task") == "route_intent":
+        if payload.get("task") == "select_route_candidate":
             self.contexts.append(payload["scene_context"])
             return LLMJsonObjectResult(
                 payload={

@@ -30,9 +30,9 @@ class _BaseFakeProvider(LLMProvider):
         del system_prompt, model, temperature, max_retries, timeout_seconds
         payload = json.loads(user_prompt)
         task = payload.get("task")
-        if task == "route_intent":
+        if task == "select_route_candidate":
             return LLMJsonObjectResult(payload=self._route_payload(payload), duration_ms=5)
-        if task == "render_narration":
+        if task == "render_runtime_narration":
             return LLMJsonObjectResult(payload=self._narration_payload(payload), duration_ms=5)
         raise AssertionError(f"unexpected task: {task}")
 
@@ -58,7 +58,7 @@ class DeterministicProvider(_BaseFakeProvider):
 class RouteFailureProvider(_BaseFakeProvider):
     async def invoke_json_object(self, **kwargs):  # noqa: ANN003, ANN201
         payload = json.loads(kwargs["user_prompt"])
-        if payload.get("task") == "route_intent":
+        if payload.get("task") == "select_route_candidate":
             raise RuntimeError("route failed")
         return await super().invoke_json_object(**kwargs)
 

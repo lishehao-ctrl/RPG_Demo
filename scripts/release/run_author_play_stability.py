@@ -33,7 +33,7 @@ from rpg_backend.api.route_paths import (
 )
 from rpg_backend.eval.story_quality_judge import StoryQualityJudge, StoryQualityJudgeError
 from scripts.eval.branch_coverage import analyze_branch_graph, summarize_branch_coverage
-from scripts.eval.evaluate_llm_story_generation import (
+from scripts.eval.story_eval_helpers import (
     _aggregate_playthrough_metrics,
     _build_pack_summary,
     _compute_fun_score,

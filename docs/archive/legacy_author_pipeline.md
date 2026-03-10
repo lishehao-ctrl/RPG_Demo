@@ -1,6 +1,8 @@
 # Prompt Authoring Structure (Legacy Baseline)
 
-This document describes the legacy two-stage prompt-authoring pipeline that was used by `/stories/generate` before the single-stage LangChain-based `AuthorGenerationChain` refactor.
+This document describes the legacy two-stage prompt-authoring pipeline that was used by `/stories/generate` before the workflow-based author system replaced it.
+
+Historical note: the file paths referenced below are preserved for historical explanation only; the modules themselves have since been removed from the active codebase.
 
 Goal:
 - give reviewers a concrete view of prompt structure and constraints

@@ -4,6 +4,7 @@ import { apiService } from '@/shared/api/service';
 import { ApiClientError } from '@/shared/api/client';
 import { useAuthorStoryStore } from '@/features/author-review/store/authorStoryStore';
 import type { AuthorRunGetResponse } from '@/shared/api/types';
+import { authorRunStatusLabel, authorRunTone, authorStoryCardClasses, authorStoryTarget, storyIndexSummary } from '@/features/author-review/lib/authorViewModel';
 import type { ErrorPresentationContext } from '@/shared/lib/apiErrorPresentation';
 import { Button } from '@/shared/ui/Button';
 import { EmptyState } from '@/shared/ui/EmptyState';
@@ -16,47 +17,6 @@ import { formatDateTime } from '@/shared/lib/format';
 const POLL_INTERVAL_MS = 2000;
 const POLL_LIMIT = 120;
 
-
-function runStatusLabel(status: string | null | undefined) {
-  if (status === 'failed') return 'Run failed';
-  if (status === 'review_ready') return 'Review ready';
-  if (status === 'running') return 'Graph running';
-  if (status === 'pending') return 'Queued';
-  return 'Detached';
-}
-
-function runTone(status: string | null | undefined) {
-  if (status === 'failed') return 'high' as const;
-  if (status === 'review_ready') return 'success' as const;
-  if (status === 'pending' || status === 'running') return 'medium' as const;
-  return 'neutral' as const;
-}
-
-function storyStateSummary(story: { latest_run_status: string | null; latest_run_current_node: string | null; latest_published_version: number | null }) {
-  if (story.latest_published_version !== null) {
-    return `Published for Play as version ${story.latest_published_version}.`;
-  }
-  if (story.latest_run_status === 'failed') {
-    return `Workflow stopped${story.latest_run_current_node ? ` at ${story.latest_run_current_node}` : ''}. Re-run before review or publish.`;
-  }
-  if (story.latest_run_status === 'review_ready') {
-    return 'Draft is review-ready and waiting for publish.';
-  }
-  if (story.latest_run_status === 'pending' || story.latest_run_status === 'running') {
-    return `Author workflow still running${story.latest_run_current_node ? ` at ${story.latest_run_current_node}` : ''}.`;
-  }
-  return 'Draft shell exists, but no completed author run is attached yet.';
-}
-
-function storyCardClasses(status: string | null | undefined) {
-  if (status === 'failed') {
-    return 'border-[rgba(239,126,69,0.28)] bg-[rgba(239,126,69,0.08)] hover:border-[rgba(239,126,69,0.45)] hover:bg-[rgba(239,126,69,0.12)]';
-  }
-  if (status === 'review_ready') {
-    return 'border-[rgba(120,192,156,0.24)] bg-[rgba(120,192,156,0.07)] hover:border-[rgba(120,192,156,0.4)] hover:bg-[rgba(120,192,156,0.1)]';
-  }
-  return 'border-[var(--line)] bg-[rgba(255,248,229,0.05)] hover:border-[var(--line-strong)] hover:bg-[rgba(255,248,229,0.08)]';
-}
 
 export function AuthorStoriesPage() {
   const navigate = useNavigate();
@@ -91,7 +51,7 @@ export function AuthorStoriesPage() {
       setPendingRun(run);
       if (run.status === 'review_ready') {
         await loadStories();
-        navigate(`/author/stories/${storyId}`);
+        navigate(`/author/stories/${storyId}/review`);
         return;
       }
       if (run.status === 'failed') {
@@ -147,7 +107,7 @@ export function AuthorStoriesPage() {
                 <div className="min-w-0">
                   <div className="text-xs uppercase tracking-[0.18em] text-[var(--text-dim)]">Current author run</div>
                   <div className="mt-2 flex flex-wrap gap-2">
-                    <Pill tone={runTone(pendingRun.status)}>{runStatusLabel(pendingRun.status)}</Pill>
+                    <Pill tone={authorRunTone(pendingRun.status)}>{authorRunStatusLabel(pendingRun.status)}</Pill>
                     {pendingRun.current_node ? <Pill tone="neutral">{pendingRun.current_node}</Pill> : null}
                   </div>
                 </div>
@@ -160,7 +120,7 @@ export function AuthorStoriesPage() {
                 </div>
                 <div>
                   <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--text-dim)]">Latest status</div>
-                  <p className="mt-2 break-words text-sm leading-7 text-[var(--text-mist)]">{pendingRun.error_message || storyStateSummary({ latest_run_status: pendingRun.status, latest_run_current_node: pendingRun.current_node, latest_published_version: null })}</p>
+                  <p className="mt-2 break-words text-sm leading-7 text-[var(--text-mist)]">{pendingRun.error_message || storyIndexSummary({ latest_run_status: pendingRun.status, latest_run_current_node: pendingRun.current_node, latest_published_version: null })}</p>
                 </div>
               </div>
             </div>
@@ -204,8 +164,8 @@ export function AuthorStoriesPage() {
               <button
                 key={story.story_id}
                 type="button"
-                onClick={() => navigate(`/author/stories/${story.story_id}`)}
-                className={`w-full rounded-[24px] border p-4 text-left transition ${storyCardClasses(story.latest_run_status)}`}
+                onClick={() => navigate(authorStoryTarget(story))}
+                className={`w-full rounded-[24px] border p-4 text-left transition ${authorStoryCardClasses(story.latest_run_status)}`}
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
@@ -214,8 +174,8 @@ export function AuthorStoriesPage() {
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {story.latest_run_status ? (
-                      <Pill tone={runTone(story.latest_run_status)}>
-                        {runStatusLabel(story.latest_run_status)}
+                      <Pill tone={authorRunTone(story.latest_run_status)}>
+                        {authorRunStatusLabel(story.latest_run_status)}
                       </Pill>
                     ) : null}
                     {story.latest_published_version !== null ? (
@@ -232,7 +192,7 @@ export function AuthorStoriesPage() {
                 <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
                   <div className="min-w-0">
                     <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--text-dim)]">State summary</div>
-                    <p className="mt-2 break-words text-sm leading-7 text-[var(--text-mist)]">{storyStateSummary(story)}</p>
+                    <p className="mt-2 break-words text-sm leading-7 text-[var(--text-mist)]">{storyIndexSummary(story)}</p>
                   </div>
                   <div className="flex flex-col items-start gap-1 text-sm md:items-end">
                     <span className="font-semibold text-[var(--text-ivory)]">Open detail →</span>

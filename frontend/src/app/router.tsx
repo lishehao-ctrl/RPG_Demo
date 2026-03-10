@@ -1,6 +1,8 @@
 import { Navigate, Outlet, createBrowserRouter } from 'react-router-dom';
 import { AuthorStoriesPage } from '@/pages/author/AuthorStoriesPage';
-import { AuthorStoryDetailPage } from '@/pages/author/AuthorStoryDetailPage';
+import { AuthorRunDetailPage } from '@/pages/author/AuthorRunDetailPage';
+import { AuthorStoryReviewPage } from '@/pages/author/AuthorStoryReviewPage';
+import { AuthorStoryResolverPage } from '@/pages/author/AuthorStoryResolverPage';
 import { LoginPage } from '@/pages/LoginPage';
 import { PlayLibraryPage } from '@/pages/play/PlayLibraryPage';
 import { PlaySessionPage } from '@/pages/play/PlaySessionPage';
@@ -96,7 +98,9 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <Navigate to="/author/stories" replace /> },
       { path: 'stories', element: <AuthorStoriesPage /> },
-      { path: 'stories/:storyId', element: <AuthorStoryDetailPage /> },
+      { path: 'runs/:runId', element: <AuthorRunDetailPage /> },
+      { path: 'stories/:storyId', element: <AuthorStoryResolverPage /> },
+      { path: 'stories/:storyId/review', element: <AuthorStoryReviewPage /> },
     ],
   },
   {

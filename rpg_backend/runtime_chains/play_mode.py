@@ -105,7 +105,7 @@ class RouteIntentChain(_JsonSchemaPlayChain):
         payload = await self._invoke_chain_via_provider(
             system_prompt=system_prompt,
             user_payload={
-                "task": "route_intent",
+                "task": "select_route_candidate",
                 "player_text": text,
                 "scene_context": {
                     "scene_seed": scene_context.get("scene_seed"),
@@ -161,7 +161,7 @@ class NarrationChain(_JsonSchemaPlayChain):
         payload = await self._invoke_chain_via_provider(
             system_prompt=system_prompt,
             user_payload={
-                "task": "render_narration",
+                "task": "render_runtime_narration",
                 "style_guard": style_guard,
                 "narration_context": narration_context,
                 "prompt_slots": prompt_slots,

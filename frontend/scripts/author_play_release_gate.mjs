@@ -197,35 +197,18 @@ async function pollAuthorRunViaApi(args, authHeaders, runId) {
   return { status: 'timeout', error_message: 'author run polling timed out' };
 }
 
-async function waitForAuthorRunTerminal(page) {
-  const start = Date.now();
-  while (Date.now() - start < AUTHOR_RUN_TIMEOUT_MS) {
-    const url = page.url();
-    if (/\/author\/stories\/[^/]+\/review$/.test(url)) {
-      const parts = url.split('/');
-      return { status: 'review_ready', storyId: parts.at(-2) ?? null };
-    }
-    if (/\/author\/runs\/[^/]+$/.test(url)) {
-      const body = await page.locator('body').innerText();
-      if (/Run failed|Run diagnostics/i.test(body)) {
-        return { status: 'failed', storyId: null, errorText: body };
-      }
-    }
-    const body = await page.locator('body').innerText();
-    if (/run failed|author run failed|prompt_compile_failed|validation_error|workflow failed/i.test(body)) {
-      return { status: 'failed', storyId: null, errorText: body };
-    }
-    if (/Run failed|Run ready|Run review_ready|Graph running|Queued|Current node:/i.test(body)) {
-      // stay on page and keep polling UI state
-    }
-    await wait(2000);
-  }
-  return { status: 'timeout', storyId: null, errorText: 'author run polling timed out' };
-}
-
 async function generateFromAuthor(page, browserRequests, testCase, args, authHeaders) {
   await page.goto(uiUrl(args.baseUrl, '/author/stories'), { waitUntil: 'domcontentloaded' });
-  const rawBrief = (testCase.kind === 'prompt' ? testCase.prompt_text : testCase.seed_text) || '';
+  const rawBrief = `${testCase.raw_brief || ''}`.trim();
+  if (!rawBrief) {
+    return {
+      status: 'failed',
+      authorRunStatus: 'failed',
+      authorRunCurrentNode: null,
+      errorText: 'stability case missing raw_brief',
+      requestIds: consumeRequestLog(browserRequests),
+    };
+  }
   await page.getByRole('textbox', { name: /Raw Brief/ }).fill(rawBrief);
 
   const createResponsePromise = page.waitForResponse((response) => response.url().includes('/author/runs') && response.request().method() === 'POST', { timeout: 30000 });
@@ -390,7 +373,7 @@ async function playMainSession(page, browserRequests, screenshotsDir, caseId) {
 
     const state = await readLatestTurnState(page);
     routeSources.push(state.routeSource);
-    const gatewayMode = await page.locator('text=/worker|unknown/i').last().innerText().catch(() => null);
+    const gatewayMode = await page.locator('text=/responses|unknown/i').last().innerText().catch(() => null);
     gatewayModes.push(gatewayMode);
     steps.push({
       stepIndex,

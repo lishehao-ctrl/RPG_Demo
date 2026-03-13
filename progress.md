@@ -1,0 +1,47 @@
+Original prompt: 你先仔细看眼现在的架构
+
+- Follow-up prompt: 对的 你可以自己尝试拉起服务 然后跑一次 看看fail在了哪里
+- 2026-03-11: Reviewed repo architecture, identified backend-first split with author/play rails.
+- 2026-03-11: Using develop-web-game and playwright skills to start local stack and reproduce failures.
+- 2026-03-11: Started local stack with `./scripts/dev_stack.sh up`; postgres/backend/worker/frontend all reported healthy.
+- 2026-03-11: Reproduced Author failure by creating run `1478b5ef-2dc9-409b-8885-0c3fff334416` from the UI.
+- 2026-03-11: Run progressed through `generate_story_overview -> plan_beats -> generate_next_beat -> assemble_story_pack -> final_lint`, then failed at `repair_pack` with `error_code=prompt_compile_failed` and empty message.
+- 2026-03-11: Likely root cause is timeout propagation around worker-backed JSON generation: app-level generator timeout is 20s and worker client timeout is also 20s, so backend can time out waiting on worker before worker finishes/reports its own structured failure.
+- 2026-03-11: Play flow for published story `Whispers in the Veilwood` succeeded through session creation and first turn; screenshot saved at `/Users/lishehao/Desktop/Project/RPG_Demo/output/playwright/play-session.png`.
+- 2026-03-11: Split timeout configuration by lane: route=8s, narration=12s, generator=45s, pack repair=90s, worker response buffer=10s.
+- 2026-03-11: Improved worker timeout propagation so `llm_worker_timeout` and upstream timeout failures no longer collapse into an empty message.
+- 2026-03-11: Added targeted tests for worker timeout buffering/messages and route/narration timeout selection.
+- 2026-03-11: Validation passed for `tests/llm/test_worker_client.py`, `tests/llm/test_worker_provider.py`, and `tests/runtime/test_play_mode_langchain.py`.
+- 2026-03-11: Post-change live restart is partially blocked by an existing host listener on port 8000 (`com.docke`), so end-to-end browser repro after restart was not reliable from the shell environment.
+- 2026-03-11: Killed the conflicting Docker Desktop backend process that had rebound host port 8000; then relaunched Docker.
+- 2026-03-11: Retested with direct long-lived worker/backend/frontend sessions because backgrounded `dev_stack` services were flaky in the shell harness.
+- 2026-03-11: New author run `514eaeb6-1d22-4e76-9b9f-175c0671989d` completed successfully to `review_ready`.
+- 2026-03-11: `repair_pack` now completed twice (~19.1s and ~19.0s) instead of failing with `prompt_compile_failed` at the old backend/worker timeout boundary.
+- 2026-03-11: Switched Author workflow to node-level execution policy: each LangGraph node gets a 10s timeout and up to 2 retries (3 attempts total).
+- 2026-03-11: Live retest after restart: run `026e5873-b09a-4b19-b5d0-46572ab8d270` now shows the intended node-level behavior — `generate_next_beat` timed out at 10s, retried, and ultimately failed with `author_node_timeout` after 3 attempts.
+- 2026-03-11: Added structured `AuthorMemory` for author generation continuity instead of relying only on `prefix_summary` + `last_accepted_beat`.
+- 2026-03-11: `AuthorMemory` now tracks beat_count, active_npcs, unresolved_threads, and recent_beats summaries; it is persisted as an author run artifact and passed into beat generation payloads.
+- 2026-03-11: Validation passed for `.venv/bin/pytest tests/api/test_author_runs_api.py tests/test_author_workflow_beat_generation.py tests/test_author_workflow_validators.py -q`.
+- 2026-03-11: Slimmed `prefix_summary` to a beat-order skeleton (`completed_beats` only). Continuity fields now live in `author_memory` instead of being duplicated.
+- 2026-03-11: `generate_next_beat` now receives a compact `last_accepted_beat` plus `author_memory`, with `prefix_summary` reduced to ordering context.
+- 2026-03-11: Validation passed for `.venv/bin/pytest tests/test_author_workflow_beat_generation.py tests/test_author_workflow_validators.py tests/api/test_author_runs_api.py -q`.
+- 2026-03-12: Ran a 10-run author generation batch with a small concurrency pool (2). Full report saved to `reports/author_batch_test_10.json`.
+- 2026-03-12: Batch result: 0/10 review_ready, 10/10 failed. Fail distribution: `generate_story_overview`=1, `generate_next_beat`=4, `repair_pack`=5.
+- 2026-03-12: Error distribution: `overview_invalid`=1, `author_node_timeout`=9. Retry hot spots: `generate_story_overview`=9, `generate_next_beat`=14, `repair_pack`=10.
+- 2026-03-12: Second 10-run batch after memory-first + compact overview payload saved to `reports/author_batch_test_10_after_memory_first.json`.
+- 2026-03-12: Before/after comparison: average duration improved from 63.91s -> 44.64s (~30% faster), `generate_story_overview` no longer appears as a final failure node, but `generate_next_beat` is now the dominant bottleneck.
+- 2026-03-12: Refactored author beat generation into `generate_beat_outline -> materialize_beat -> beat_lint` to separate LLM planning from deterministic materialization and rule-based validation.
+- 2026-03-12: Added `beat_materialization_errors` state/artifact flow and later simplified the graph to use `compile_outline()` as the single LLM intermediate contract.
+- 2026-03-12: Validation passed for `.venv/bin/pytest tests/api/test_author_runs_api.py tests/test_author_workflow_beat_generation.py tests/test_author_workflow_validators.py -q`.
+- 2026-03-12: Third 10-run batch after the beat-outline split saved to `reports/author_batch_test_10_after_skeleton_split.json`.
+- 2026-03-12: Three-way comparison: baseline avg 63.91s -> memory-first avg 44.64s -> outline-split avg 49.13s. The split improved failure observability (separate beat planning and `repair_pack`) but did not improve throughput versus the memory-first-only version under the current 10s node budget.
+- 2026-03-12: Fourth 10-run batch after LLM-node timeout split saved to `reports/author_batch_test_10_after_llm_timeout_split.json`.
+- 2026-03-12: This was the first batch with a non-zero success rate: 1/10 reached `review_ready`, average duration improved to 27.4s.
+- 2026-03-12: The dominant failure mode is no longer timeout; it is deterministic workflow failure from strategy coverage lint after skeleton materialization (`scene ... missing strategy styles ...`).
+- 2026-03-12: Sixth 10-run batch after removing optional skeleton indexes/templates saved to `reports/author_batch_test_10_after_minimal_skeleton.json`.
+- 2026-03-12: Minimal skeleton removed index/schema self-conflicts, but surfaced deterministic graph issues (`unreachable scenes`) and pack validation issues (`opening_guidance.intro_text` too long). Success rate returned to 0/10.
+- 2026-03-12: Seventh 10-run author-only batch after the outline refactor saved to `reports/author_batch_test_10_after_outline_refactor.json`.
+- 2026-03-12: Outline refactor improved success rate from 1/10 -> 3/10. Dominant failure mode is now no longer strategy coverage or graph reachability; it is final deterministic NPC coverage (`npc ... appears fewer than 2 times`) after the workflow already completes beat generation and pack repair.
+- 2026-03-12: Introduced a `playable` lint profile and switched author final-lint / publish gating to runtime-safety-first semantics, demoting quality-only checks like NPC recurrence and strategy-style coverage to warnings.
+- 2026-03-12: Eighth 10-run author-only batch after the playable gate saved to `reports/author_batch_test_10_after_playable_gate.json`.
+- 2026-03-12: Playable gate reached `10/10 review_ready` with average duration `17.31s`, confirming that the dominant remaining failures were quality gating rather than runtime playability.

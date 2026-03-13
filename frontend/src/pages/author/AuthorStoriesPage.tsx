@@ -5,6 +5,7 @@ import { ApiClientError } from '@/shared/api/client';
 import { useAuthorStoryStore } from '@/features/author-review/store/authorStoryStore';
 import type { AuthorRunGetResponse } from '@/shared/api/types';
 import { authorRunStatusLabel, authorRunTone, authorStoryCardClasses, authorStoryTarget, storyIndexSummary } from '@/features/author-review/lib/authorViewModel';
+import { isAuthorRunFailed, isAuthorRunReviewReady } from '@/features/author-review/lib/authorStatus';
 import type { ErrorPresentationContext } from '@/shared/lib/apiErrorPresentation';
 import { Button } from '@/shared/ui/Button';
 import { EmptyState } from '@/shared/ui/EmptyState';
@@ -49,12 +50,12 @@ export function AuthorStoriesPage() {
     for (let attempt = 0; attempt < POLL_LIMIT; attempt += 1) {
       const run = await apiService.getAuthorRun(runId);
       setPendingRun(run);
-      if (run.status === 'review_ready') {
+      if (isAuthorRunReviewReady(run.status)) {
         await loadStories();
         navigate(`/author/stories/${storyId}/review`);
         return;
       }
-      if (run.status === 'failed') {
+      if (isAuthorRunFailed(run.status)) {
         throw new Error(run.error_message || run.error_code || 'Author run failed');
       }
       await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
@@ -102,7 +103,7 @@ export function AuthorStoriesPage() {
           />
 
           {pendingRun ? (
-            <div className={`rounded-[24px] border p-4 ${pendingRun.status === 'failed' ? 'border-[rgba(239,126,69,0.3)] bg-[rgba(239,126,69,0.08)]' : pendingRun.status === 'review_ready' ? 'border-[rgba(120,192,156,0.24)] bg-[rgba(120,192,156,0.08)]' : 'border-[rgba(245,179,111,0.24)] bg-[rgba(245,179,111,0.08)]'}`}>
+            <div className={`rounded-[24px] border p-4 ${isAuthorRunFailed(pendingRun.status) ? 'border-[rgba(239,126,69,0.3)] bg-[rgba(239,126,69,0.08)]' : isAuthorRunReviewReady(pendingRun.status) ? 'border-[rgba(120,192,156,0.24)] bg-[rgba(120,192,156,0.08)]' : 'border-[rgba(245,179,111,0.24)] bg-[rgba(245,179,111,0.08)]'}`}>
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="text-xs uppercase tracking-[0.18em] text-[var(--text-dim)]">Current author run</div>
@@ -180,9 +181,9 @@ export function AuthorStoriesPage() {
                     ) : null}
                     {story.latest_published_version !== null ? (
                       <Pill tone="success">Published v{story.latest_published_version}</Pill>
-                    ) : story.latest_run_status === 'failed' ? (
+                    ) : isAuthorRunFailed(story.latest_run_status) ? (
                       <Pill tone="high">No valid draft</Pill>
-                    ) : story.latest_run_status === 'review_ready' ? (
+                    ) : isAuthorRunReviewReady(story.latest_run_status) ? (
                       <Pill tone="medium">Unpublished</Pill>
                     ) : (
                       <Pill tone="neutral">No completed run</Pill>

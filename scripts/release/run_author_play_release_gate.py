@@ -67,7 +67,6 @@ def main() -> int:
     parser = argparse.ArgumentParser(description='Run release gate with browser layer plus system layer.')
     parser.add_argument('--suite-file', default='eval_data/author_play_stability_suite_v1.json')
     parser.add_argument('--base-url', default='http://127.0.0.1:8000')
-    parser.add_argument('--worker-url', default='http://127.0.0.1:8100')
     parser.add_argument('--ui-base-url', default='http://127.0.0.1:8173')
     parser.add_argument('--frontend-dir', default='frontend')
     parser.add_argument('--output-dir', default=str(DEFAULT_OUTPUT_DIR))
@@ -97,7 +96,6 @@ def main() -> int:
     system_report = run_suite(
         suite=suite,
         base_url=args.base_url.rstrip('/'),
-        worker_url=args.worker_url.rstrip('/'),
         output_dir=output_dir / 'system',
         max_steps=max(1, args.max_steps),
         branch_hunter_max_runs=max(1, args.branch_hunter_max_runs),

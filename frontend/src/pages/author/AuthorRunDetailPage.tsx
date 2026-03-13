@@ -5,6 +5,7 @@ import { ApiClientError } from '@/shared/api/client';
 import type { ErrorPresentationContext } from '@/shared/lib/apiErrorPresentation';
 import type { AuthorRunArtifactSummary, AuthorRunEventPayload, AuthorRunGetResponse } from '@/shared/api/types';
 import { authorRunShellSubtitle, authorRunShellTitle, authorRunStatusLabel, authorRunTone, authorStoryTarget } from '@/features/author-review/lib/authorViewModel';
+import { isAuthorRunReviewReady } from '@/features/author-review/lib/authorStatus';
 import { formatDateTime } from '@/shared/lib/format';
 import { Button } from '@/shared/ui/Button';
 import { ErrorBanner } from '@/shared/ui/ErrorBanner';
@@ -119,7 +120,7 @@ export function AuthorRunDetailPage() {
               {run.error_code ? <Pill tone="neutral">{run.error_code}</Pill> : null}
             </div>
             <div className="flex flex-wrap gap-3">
-              {run.status === 'review_ready' ? (
+              {isAuthorRunReviewReady(run.status) ? (
                 <Button onClick={() => navigate(authorStoryTarget({ story_id: run.story_id, latest_run: run }))}>Open Review Workspace</Button>
               ) : null}
               <Button variant="secondary" onClick={() => void load()} disabled={loading}>Refresh</Button>
@@ -140,9 +141,9 @@ export function AuthorRunDetailPage() {
             </div>
             <div className="rounded-[22px] border border-[var(--line)] bg-[rgba(255,248,229,0.05)] px-4 py-4">
               <div className="text-xs uppercase tracking-[0.18em] text-[var(--text-dim)]">Next action</div>
-              <div className="mt-2 font-[var(--font-title)] text-2xl text-[var(--text-ivory)]">{run.status === 'review_ready' ? 'Review' : 'Rerun'}</div>
+              <div className="mt-2 font-[var(--font-title)] text-2xl text-[var(--text-ivory)]">{isAuthorRunReviewReady(run.status) ? 'Review' : 'Rerun'}</div>
               <div className="mt-3">
-                {run.status === 'review_ready' ? (
+                {isAuthorRunReviewReady(run.status) ? (
                   <Button onClick={() => navigate(authorStoryTarget({ story_id: run.story_id, latest_run: run }))}>Open Review Workspace</Button>
                 ) : (
                   <Button onClick={() => void handleRerun()} disabled={rerunning}>{rerunning ? 'Starting...' : 'Re-run Author Workflow'}</Button>

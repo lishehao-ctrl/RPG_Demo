@@ -12,6 +12,7 @@ import {
   type EditableStoryDraftState,
 } from '@/features/author-review/lib/storyDraftEditing';
 import { buildStoryPackReviewModel, type ReviewIssue, type StoryPackBeat, type StoryPackMove, type StoryPackScene } from '@/features/author-review/lib/storyPackReview';
+import { isAuthorRunReviewReady } from '@/features/author-review/lib/authorStatus';
 import { authorStoryTarget } from '@/features/author-review/lib/authorViewModel';
 import { cn } from '@/shared/lib/cn';
 import { formatDateTime, titleCase } from '@/shared/lib/format';
@@ -161,7 +162,7 @@ export function AuthorStoryReviewPage() {
   );
   const latestRun = currentStory?.latest_run ?? null;
   const latestRunStatus = latestRun?.status ?? null;
-  const isReviewReady = latestRunStatus === 'review_ready';
+  const isReviewReady = isAuthorRunReviewReady(latestRunStatus);
   const canPublish = !publishing && !saving && !isDirty && (!latestRun || isReviewReady);
 
 

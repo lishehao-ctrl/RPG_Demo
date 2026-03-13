@@ -9,13 +9,13 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from statistics import mean
-from typing import Any, Literal
+from typing import Any
 
 import httpx
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 from rpg_backend.config.settings import get_settings
 from rpg_backend.api.route_paths import (
@@ -23,7 +23,6 @@ from rpg_backend.api.route_paths import (
     admin_auth_login_path,
     author_run_path,
     author_runs_path,
-    author_stories_path,
     session_history_path,
     session_path,
     session_step_path,
@@ -74,21 +73,8 @@ class StabilityCase(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str = Field(min_length=1)
-    kind: Literal["prompt", "seed"]
-    prompt_text: str | None = None
-    seed_text: str | None = None
-    style: str | None = None
-    target_minutes: int = Field(default=10, ge=8, le=12)
-    npc_count: int = Field(default=4, ge=3, le=5)
+    raw_brief: str = Field(min_length=1)
     expected_tone: str | None = None
-
-    @model_validator(mode="after")
-    def validate_source(self) -> "StabilityCase":
-        if self.kind == "prompt" and not (self.prompt_text or "").strip():
-            raise ValueError("prompt case requires prompt_text")
-        if self.kind == "seed" and not (self.seed_text or "").strip():
-            raise ValueError("seed case requires seed_text")
-        return self
 
 
 class StabilitySuite(BaseModel):
@@ -127,18 +113,16 @@ def _login(base_url: str) -> AuthContext:
         return AuthContext(token=token, headers={"Authorization": f"Bearer {token}"})
 
 
-def _check_ready(base_url: str, worker_url: str) -> dict[str, Any]:
+def _check_ready(base_url: str) -> dict[str, Any]:
     with httpx.Client(timeout=60.0) as client:
         backend = client.get(f"{base_url}{READY_PATH}")
-        worker = client.get(f"{worker_url}{READY_PATH}")
     return {
         "backend": backend.json(),
-        "worker": worker.json(),
     }
 
 
 def _generate_story(base_url: str, auth: AuthContext, case: StabilityCase) -> tuple[Any, dict[str, Any]]:
-    raw_brief = (case.prompt_text or case.seed_text or '').strip()
+    raw_brief = case.raw_brief.strip()
     with httpx.Client(timeout=240.0) as client:
         created = client.post(
             f"{base_url}{author_runs_path()}",
@@ -180,13 +164,6 @@ def _publish_story(base_url: str, auth: AuthContext, story_id: str) -> tuple[htt
         response = client.post(f"{base_url}{story_publish_path(story_id)}", headers=auth.headers, json={})
         body = response.json()
     return response, body
-
-
-def _story_supply(base_url: str, auth: AuthContext) -> dict[str, Any]:
-    with httpx.Client(timeout=60.0) as client:
-        response = client.get(f"{base_url}{author_stories_path()}", headers=auth.headers)
-        response.raise_for_status()
-        return response.json()
 
 
 def _story_draft(base_url: str, auth: AuthContext, story_id: str) -> dict[str, Any]:
@@ -263,7 +240,7 @@ def _judge_reports(case: StabilityCase, pack_json: dict[str, Any], reports: list
         try:
             decision = asyncio.run(
                 judge.evaluate(
-                    prompt_text=case.prompt_text or case.seed_text or case.id,
+                    prompt_text=case.raw_brief or case.id,
                     expected_tone=case.expected_tone,
                     pack_summary=_build_pack_summary(pack_json),
                     transcript_summary=transcript_summary,
@@ -386,9 +363,9 @@ def _case_pass(case_result: dict[str, Any]) -> tuple[bool, list[str]]:
     return (len(failures) == 0, failures)
 
 
-def run_suite(*, suite: StabilitySuite, base_url: str, worker_url: str, output_dir: Path, max_steps: int, branch_hunter_max_runs: int) -> dict[str, Any]:
+def run_suite(*, suite: StabilitySuite, base_url: str, output_dir: Path, max_steps: int, branch_hunter_max_runs: int) -> dict[str, Any]:
     auth = _login(base_url)
-    readiness = _check_ready(base_url, worker_url)
+    readiness = _check_ready(base_url)
     summary_cases: list[dict[str, Any]] = []
     passed_cases = 0
 
@@ -467,7 +444,6 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Run large-scale author/play stability evaluation.")
     parser.add_argument("--suite-file", default=str(DEFAULT_SUITE_FILE), help="Path to stability suite JSON")
     parser.add_argument("--base-url", default="http://127.0.0.1:8000", help="Backend base URL")
-    parser.add_argument("--worker-url", default="http://127.0.0.1:8100", help="Worker base URL")
     parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR), help="Output directory")
     parser.add_argument("--max-steps", type=int, default=20, help="Maximum playthrough steps per run")
     parser.add_argument("--branch-hunter-max-runs", type=int, default=BRANCH_HUNTER_MAX_RUNS, help="Maximum branch hunter runs per game")
@@ -477,7 +453,6 @@ def main() -> int:
     summary = run_suite(
         suite=suite,
         base_url=args.base_url.rstrip("/"),
-        worker_url=args.worker_url.rstrip("/"),
         output_dir=Path(args.output_dir),
         max_steps=max(1, args.max_steps),
         branch_hunter_max_runs=max(1, args.branch_hunter_max_runs),

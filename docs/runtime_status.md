@@ -1,92 +1,32 @@
-# Runtime Status Matrix
+# Runtime Status
 
-This file maps `docs/architecture.md` sections to current implementation status.
+## Current Active Runtime
 
-## Implemented
-- OpenAI strict runtime loop (Pass A + Pass B) with deterministic outcome resolution.
-- LLM worker-only runtime:
-  - backend always calls internal `rpg_backend.llm_worker` service (`POST /internal/llm/tasks/{route-intent|render-narration|json-object}`)
-  - worker task calls require `X-Internal-Worker-Token` sourced from `APP_INTERNAL_WORKER_TOKEN`
-  - worker probes remain unversioned (`GET /health`, `GET /ready`)
-  - legacy worker routes `/v2/llm/tasks/*` removed (hard cut, no compatibility alias)
-  - `LEGACY_V2_*` route constants removed from production route path module
-- Async data layer hard cut:
-  - API/repository access uses `AsyncSession` via `rpg_backend/infrastructure/db/async_session.py`
-  - worker quota reservation/reconcile/cleanup uses async repository path
-  - backend readiness and HTTP observability persistence avoid sync DB calls on request hot path
-- Session step pipeline refactor:
-  - runtime step orchestration now executes directly through `application/session_step` staged use-case
-  - application services own orchestration and transaction boundaries; repositories are flush/exec-only primitives
-  - runtime has been decomposed into initializer / step_engine / stance / pressure / ui modules with `RuntimeService` as a thin facade
-  - `runtime/session_step/*` package is fully removed; `application/session_step/*` is the only source of truth
-- LLM async call-chain hard cut:
-  - worker-backed `json_object`, runtime router/narration chains, author workflow, and quality judge are async end-to-end
-  - LLM hot paths no longer use `asyncio.to_thread` bridges
-- Readiness shared-core refactor:
-  - backend and worker readiness both reuse `rpg_backend/observability/readiness_core.py`
-  - config validation, check payload shaping, and TTL probe cache semantics are single-source
-  - backend readiness module is async-only (no awaitable/sync compatibility helpers)
-- Monorepo backend/frontend contract flow:
-  - backend exports `contracts/openapi/backend.openapi.json` as canonical API contract artifact
-  - frontend consumes generated SDK `frontend/src/shared/api/generated/backend-sdk.ts`
-  - backend-first merge gate is enforced by contract sync checks (`scripts.export_openapi` + `scripts.generate_frontend_sdk`)
-- Auth and account baseline:
-  - `POST /admin/auth/login` issues JWT access token from bootstrap admin account
-  - all business/admin routes require Bearer auth; only `/health`, `/ready`, `/admin/auth/login` are anonymous
-  - `/admin/users` and `/admin/users/{user_id}` expose safe admin profile fields only
-- `fail_forward` mandatory linter validation.
-- OpenAI-only routing policy:
-  - `openai`: quality-first failfast on route error/invalid move/low confidence
-- Text routing convergence:
-  - `global.help_me_progress` is excluded from non-help text routing candidates
-  - explicit help/stuck intent can still route to `global.help_me_progress`
-- Story DSL hard break:
-  - `Move.strategy_style` required
-  - `StoryPack.npc_profiles[{name, red_line, conflict_tags}]` required
-  - scene-level strategy triangle coverage is a linter hard error
-- Fixed delayed-consequence tracks in runtime state:
-  - `public_trust`, `resource_stress`, `coordination_noise`
-  - late-beat pressure recoil with cooldown
-- NPC stance visibility:
-  - runtime tracks `npc_trust::<name>`
-  - narration periodically emits stance updates (support/opposition/red-line pressure)
-- Author workflow pipeline:
-  - `/author/runs` drives `RawBrief -> StoryOverview -> BeatDraft(loop) -> StoryPack`
-  - beat generation uses `BeatDraftLLM -> normalize -> BeatDraft` with local lint + final lint
-  - backend uses worker-backed JSON generation via `JsonGateway`
-- Session idempotency by `client_action_id` replay.
-- Story draft/publish/get APIs.
-- Session create/get/step APIs.
-- Sample story pack and canary tests.
-- Eval diagnostics extended (non-hard-gate diagnostics):
-  - `global_help_route_rate`
-  - `non_global_text_route_rate`
-  - `strategy_triangle_coverage_rate`
-  - `pressure_recoil_trigger_rate`
-  - `npc_stance_mentions_per_run_avg`
-  - `duplicate_beat_title_run_count`
-  - `banned_move_hit_count`
-- Observability health endpoints:
-  - `GET /admin/observability/http-health`
-  - `GET /admin/observability/llm-call-health`
-  - `GET /admin/observability/readiness-health`
-  - all three responses include `window_started_at/window_ended_at` for fixed window boundaries
-  - `llm-call-health` group fields are stable (`by_stage`: route/narration/json/unknown, `by_gateway_mode`: worker/unknown)
-- Alert loop closure:
-  - `scripts/emit_runtime_alerts.py` emits severity-based webhook alerts for `http_5xx_rate_high`, `backend_ready_unhealthy`, `worker_failure_rate_high`, and `llm_call_p95_high`
-  - cooldown dedupe persisted via `RuntimeAlertDispatch`
-  - oncall SOP documented in `docs/oncall_sop.md`
-- Route organization and path source-of-truth:
-  - backend route constants: `rpg_backend/api/route_paths.py`
-  - worker route constants: `rpg_backend/llm_worker/route_paths.py`
-  - centralized router registration: `rpg_backend/api/router_registry.py`
-- Database migration guard:
-  - Alembic revision management is the source of truth for schema lifecycle
-  - backend/worker startup fails when DB revision is not at Alembic head
-- local development defaults to PostgreSQL (`127.0.0.1:8132`), not SQLite
-  - manual migration and rollback flow documented in `docs/db_migration_runbook.md`
+- Backend directly calls Responses API through `ResponsesTransport`.
+- Play rail uses one `PlayAgent` abstraction (`interpret_turn`, `render_resolved_turn`).
+- Author rail uses one `AuthorAgent` abstraction for overview/outline nodes.
+- Provider cursor reuse uses `previous_response_id` persisted in `response_session_cursors`.
 
-## Planned
-- Promote route-convergence KPI to hard gate after repeated stable runs:
-  - target `global_help_route_rate <= 0.25`
-- Threshold/config externalization for pressure recoil (currently hardcoded runtime constants).
+## Determinism Boundaries
+
+- Play outcome resolution and effect application remain deterministic in backend runtime.
+- Author `plan_beats/materialize/lint/normalize` remain deterministic.
+
+## Observability Contract
+
+- `llm_gateway_mode` / gateway aggregation use `responses` naming.
+- stage naming is `interpret_turn` and `render_resolved_turn`.
+- readiness health aggregates `backend` and `responses` services.
+
+## Readiness
+
+- `/ready` checks:
+  - database check
+  - responses config check
+  - direct responses probe check (TTL-cached)
+
+## Deployment/Dev Stack
+
+- Active local stack: postgres + backend + frontend (`./scripts/dev_stack.sh up`).
+- No worker startup in active scripts/manifests.
+

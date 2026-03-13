@@ -35,8 +35,7 @@ Per game:
 Default suite size:
 
 - 3 games
-- 2 prompt cases
-- 1 seed case
+- all cases provide a single `raw_brief` input (no prompt/seed split compatibility layer)
 
 ## Output layout
 
@@ -79,7 +78,7 @@ When you need raw process logs during a long run:
 
 ```bash
 ./scripts/dev_stack.sh logs backend
-./scripts/dev_stack.sh logs worker
+./scripts/dev_stack.sh logs backend
 ./scripts/dev_stack.sh logs frontend
 ```
 

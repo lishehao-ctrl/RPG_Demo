@@ -1,6 +1,6 @@
 # DB Migration Runbook
 
-This runbook defines the manual migration workflow for backend/worker services.
+This runbook defines the manual migration workflow for backend services.
 
 ## Preconditions
 
@@ -9,7 +9,9 @@ This runbook defines the manual migration workflow for backend/worker services.
   - `APP_AUTH_JWT_SECRET`
   - `APP_ADMIN_BOOTSTRAP_EMAIL`
   - `APP_ADMIN_BOOTSTRAP_PASSWORD`
-  - `APP_INTERNAL_WORKER_TOKEN`
+  - `APP_RESPONSES_BASE_URL`
+  - `APP_RESPONSES_API_KEY`
+  - `APP_RESPONSES_MODEL`
 - Current deploy image contains the latest Alembic files.
 - You can run repository scripts from the deploy environment.
 
@@ -39,7 +41,7 @@ python scripts/db_migrate.py heads
 python scripts/db_migrate.py upgrade head
 ```
 
-3. Deploy backend/worker and verify:
+3. Deploy backend and verify:
 
 ```bash
 ./scripts/k8s/k8s_verify_rollout.sh

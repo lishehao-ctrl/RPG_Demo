@@ -33,11 +33,16 @@ FORBIDDEN_REFERENCES = {
 }
 
 REQUIRED_SECURITY_MARKERS = {
-    "README.md": {"APP_AUTH_JWT_SECRET", "APP_INTERNAL_WORKER_TOKEN", "/admin/auth/login"},
-    "docs/deployment_probes.md": {"APP_AUTH_JWT_SECRET", "APP_INTERNAL_WORKER_TOKEN"},
-    "docs/db_migration_runbook.md": {"APP_AUTH_JWT_SECRET", "APP_INTERNAL_WORKER_TOKEN"},
-    "docs/runtime_status.md": {"APP_INTERNAL_WORKER_TOKEN", "/admin/auth/login"},
-    "docs/architecture.md": {"APP_INTERNAL_WORKER_TOKEN", "/admin/auth/login"},
+    "README.md": {"APP_RESPONSES_BASE_URL", "APP_RESPONSES_API_KEY", "APP_RESPONSES_MODEL"},
+    "docs/deployment_probes.md": {"APP_RESPONSES_BASE_URL", "APP_RESPONSES_API_KEY", "APP_RESPONSES_MODEL"},
+    "docs/db_migration_runbook.md": {
+        "APP_AUTH_JWT_SECRET",
+        "APP_RESPONSES_BASE_URL",
+        "APP_RESPONSES_API_KEY",
+        "APP_RESPONSES_MODEL",
+    },
+    "docs/runtime_status.md": {"responses", "interpret_turn", "render_resolved_turn"},
+    "docs/architecture.md": {"APP_RESPONSES_BASE_URL", "APP_RESPONSES_API_KEY", "APP_RESPONSES_MODEL"},
 }
 
 

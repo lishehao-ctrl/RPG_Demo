@@ -12,7 +12,7 @@ This runbook defines acknowledgement targets, triage flow, and mitigation steps 
 - `warning`
 - ACK within 15 minutes.
 - Mitigate or document accepted risk within 60 minutes.
-- Signals: `worker_failure_rate_high`, `llm_call_p95_high`.
+- Signals: `responses_failure_rate_high`, `llm_call_p95_high`.
 
 ## First Response Checklist
 
@@ -35,48 +35,47 @@ Immediate checks:
 1. Call `GET /ready` and inspect `checks.db`, `checks.llm_config`, `checks.llm_probe`.
    - use `GET /ready?refresh=true` when you need to bypass readiness probe cache.
 2. Confirm backend process health: `GET /health`.
-3. Compare with worker readiness: `GET http://<worker>/ready`.
+3. Confirm readiness-health counters for `backend` and `responses` channels.
 
 Likely causes:
 - DB unavailable or locked.
-- Missing/invalid LLM configuration.
-- Upstream LLM probe timeout/auth failure.
-- readiness cache stale data during active upstream incidents (verify with `refresh=true`).
+- Missing/invalid Responses configuration.
+- Upstream Responses probe timeout/auth failure.
+- Readiness cache stale data during active upstream incidents (verify with `refresh=true`).
 
 Mitigations:
 1. Restore DB connectivity or release lock pressure.
-2. Correct env/secrets (`APP_LLM_*`, `APP_LLM_WORKER_*`).
-3. Temporarily reduce worker executor concurrency.
-4. Roll back latest backend/worker config release if regression is confirmed.
+2. Correct env/secrets (`APP_RESPONSES_BASE_URL`, `APP_RESPONSES_API_KEY`, `APP_RESPONSES_MODEL`).
+3. Reduce request pressure or step traffic while upstream provider is unstable.
+4. Roll back latest backend config release if regression is confirmed.
 
 Exit criteria:
 - `/ready` returns `200` consistently for at least two consecutive probe windows.
 
-## worker_failure_rate_high
+## responses_failure_rate_high
 
 Signal criteria:
-- worker mode call volume `>= APP_OBS_ALERT_WORKER_FAIL_MIN_COUNT`.
-- worker failure rate `> APP_OBS_ALERT_WORKER_FAIL_RATE`.
+- responses mode call volume `>= APP_OBS_ALERT_RESPONSES_FAIL_MIN_COUNT`.
+- responses failure rate `> APP_OBS_ALERT_RESPONSES_FAIL_RATE`.
 
 Immediate checks:
-1. Query `GET /admin/observability/llm-call-health?window_seconds=300&gateway_mode=worker`.
-2. Inspect worker logs for `llm_worker_task_failed` grouped by `error_code`.
-3. Verify worker `/ready` and backend `/ready`.
+1. Query `GET /admin/observability/llm-call-health?window_seconds=300&gateway_mode=responses`.
+2. Inspect backend logs for `llm_call_failed` and provider error classifications.
+3. Verify backend `/ready` probe detail for responses status.
 
 Likely causes:
 - Upstream model 429/5xx spikes.
-- Worker connection saturation or queue/concurrency misconfiguration.
-- Bad deploy of worker task handlers.
+- Expired/invalid Responses credentials.
+- Prompt/output drift causing strict JSON parse failures.
 
 Mitigations:
-1. Lower worker executor concurrency:
-- `APP_LLM_WORKER_EXECUTOR_CONCURRENCY`
-2. Scale worker replicas temporarily.
-3. Tune worker queue/quota knobs (`APP_LLM_WORKER_QUEUE_*`, `APP_LLM_WORKER_DEFAULT_RPM/TPM`, model limits JSON).
-4. Roll back worker version/config if failures correlate with recent release.
+1. Verify credentials, base URL, and model config in environment.
+2. Raise timeout guard if failures are dominated by provider timeouts (`APP_RESPONSES_TIMEOUT_SECONDS`).
+3. Temporarily disable reasoning (`APP_RESPONSES_ENABLE_THINKING=false`) if provider-side overhead spikes.
+4. Roll back latest runtime prompt/config release if failures correlate with recent deploy.
 
 Exit criteria:
-- worker failure rate remains below threshold for two windows.
+- responses failure rate remains below threshold for two windows.
 
 ## llm_call_p95_high
 
@@ -87,22 +86,21 @@ Signal criteria:
 Immediate checks:
 1. Query `GET /admin/observability/llm-call-health?window_seconds=300`.
 2. Split by stage:
-- `...&stage=route`
-- `...&stage=narration`
+- `...&stage=interpret_turn`
+- `...&stage=render_resolved_turn`
 3. Split by gateway mode:
-- `...&gateway_mode=worker`
+- `...&gateway_mode=responses`
 - `...&gateway_mode=unknown` (for fallback/error classification)
 
 Likely causes:
 - Upstream model latency regression.
-- Worker/network bottleneck.
-- Prompt payload inflation.
+- Oversized prompt payloads in play/author flows.
+- Elevated retry volume after cursor invalidation.
 
 Mitigations:
-1. Reduce worker executor concurrency to avoid queue collapse.
-2. Scale worker horizontally.
-3. Trim oversized prompt context if a recent change introduced payload bloat.
-4. Roll back latest runtime/gateway changes if latency jump aligns with deploy.
+1. Trim oversized context payloads in recent changes.
+2. Tune `APP_RESPONSES_TIMEOUT_SECONDS` to avoid long-hanging requests.
+3. Roll back latest runtime/agent prompt release if latency jump aligns with deploy.
 
 Exit criteria:
 - `p95_ms` drops below threshold for two windows and 5xx/error rates do not rise.
@@ -121,22 +119,22 @@ Immediate checks:
 Likely causes:
 - Runtime strict failures concentrated on `/sessions/*/step`.
 - Readiness failures (`/ready`) causing infra churn.
-- Worker task path failures in worker mode.
+- Responses transport or cursor fallback failures.
 
 Mitigations:
 1. Isolate failing path and revert the latest risky change.
-2. Apply targeted config relief (retry/inflight/timeout) without breaking strict semantics.
-3. Scale service if resource saturation is confirmed.
+2. Apply targeted config relief (timeout/retry pressure) without breaking strict semantics.
+3. Scale backend service if resource saturation is confirmed.
 
 Exit criteria:
 - 5xx rate is below threshold and top buckets are no longer growing.
 
 ## Standard Mitigation Levers
 
-1. Reduce worker executor concurrency.
-2. Increase worker replica count.
-3. Tune worker queue and quota settings.
-4. Roll back latest version/config.
+1. Validate Responses env and secret injection.
+2. Tune Responses timeout and thinking toggle.
+3. Reduce load via traffic shaping if provider incident is ongoing.
+4. Roll back latest backend version/config.
 
 ## Incident Closure Template
 

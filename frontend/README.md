@@ -8,8 +8,9 @@ This frontend is a `Vite + React + TypeScript` app for a real dual-track product
 ## Route Summary
 
 - `/login`: authentication gate
-- `/author/stories`: story generation and story supply
-- `/author/stories/:storyId`: draft detail and publish action
+- `/author/stories`: run creation + story index
+- `/author/runs/:runId`: run shell (events/artifacts/rerun)
+- `/author/stories/:storyId/review`: review + draft edit + publish
 - `/play/library`: published story library
 - `/play/sessions/:sessionId`: live play runtime
 
@@ -21,7 +22,7 @@ This UI continues from the self-authored Figma review file:
 
 Current direction:
 
-- `Author Mode`: control room / publishing cadence / structured content management
+- `Author Mode`: thin client over backend workflow state (`/author/runs` + `/author/stories`)
 - `Play Mode`: runtime chamber / transcript-first / action deck
 
 ## Contract Inputs
@@ -39,7 +40,7 @@ Use the repo-root dev stack script as the default full-stack entrypoint:
 ./scripts/dev_stack.sh logs frontend
 ```
 
-This starts migration, worker, backend, and the Vite frontend together.
+This starts migration, backend, and the Vite frontend together.
 
 When you finish local work:
 
@@ -64,8 +65,9 @@ The Vite server runs on `http://127.0.0.1:8173`, proxies `/api/*` to `http://127
 
 - Login with the configured admin credentials.
 - Enter `Author Mode` on `/author/stories`.
-- Generate a draft with `prompt_text` or `seed_text`.
-- Open draft detail on `/author/stories/:storyId`.
+- Generate a draft with a single `raw_brief`.
+- Open run shell on `/author/runs/:runId` (or via story resolver).
+- Open review workspace on `/author/stories/:storyId/review`.
 - Publish the story.
 - Move to `Play Mode` on `/play/library`.
 - Start a session from the published version.
@@ -76,9 +78,9 @@ The Vite server runs on `http://127.0.0.1:8173`, proxies `/api/*` to `http://127
 
 Implemented now:
 
-- author draft generation
-- author story list and draft detail
-- publish for play
+- author run creation + run diagnostics
+- author story index + review workspace
+- publish handoff to play
 - published play library
 - live runtime session with reload-safe history
 

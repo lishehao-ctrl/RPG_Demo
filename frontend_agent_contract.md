@@ -32,14 +32,16 @@ Purpose:
 Routes:
 
 - `/author/stories`
+- `/author/runs/{run_id}`
 - `/author/stories/{story_id}`
+- `/author/stories/{story_id}/review`
 
 Purpose:
 
-- Generate a DB-backed story draft with the real LLM pipeline.
-- List story supply across drafts and published versions.
-- Inspect draft payload.
-- Publish a story version so Play Mode can consume it.
+- Submit a `raw_brief` to create an async author run.
+- Inspect run status, node timeline, and artifacts from `/author/runs`.
+- Resolve each story into run shell vs review workspace based on latest run status.
+- Edit draft payload and publish once the latest run is review-ready.
 
 Current scope:
 
@@ -67,8 +69,10 @@ Purpose:
 | Route | Product role | Mode |
 | --- | --- | --- |
 | `/login` | access gate | entry |
-| `/author/stories` | author list + generation | author |
-| `/author/stories/{story_id}` | draft detail + publish | author |
+| `/author/stories` | create run + story index | author |
+| `/author/runs/{run_id}` | run shell (events + artifacts + rerun) | author |
+| `/author/stories/{story_id}` | resolver to run/review shell | author |
+| `/author/stories/{story_id}/review` | review + patch + publish | author |
 | `/play/library` | published story library | play |
 | `/play/sessions/{session_id}` | live runtime | play |
 
@@ -116,30 +120,7 @@ Response:
 
 ## 5. Author APIs
 
-### Create raw draft
-
-`POST /stories`
-
-Request:
-
-```json
-{
-  "title": "Signal Draft",
-  "pack_json": {}
-}
-```
-
-Response:
-
-```json
-{
-  "story_id": "uuid",
-  "status": "draft",
-  "created_at": "timestamp"
-}
-```
-
-### Generate draft with LLM
+### Create author run
 
 `POST /author/runs`
 
@@ -147,32 +128,94 @@ Request:
 
 ```json
 {
-  "prompt_text": "A city-wide signal breach with a pyrrhic ending.",
-  "target_minutes": 10,
-  "npc_count": 4,
-  "style": "tense, cinematic, strategic",
-  "publish": false
+  "raw_brief": "A city-wide signal breach with a pyrrhic ending."
 }
 ```
+
+Response (`202`):
+
+```json
+{
+  "story_id": "uuid",
+  "run_id": "uuid",
+  "status": "pending",
+  "created_at": "timestamp"
+}
+```
+
+### Get author run
+
+`GET /author/runs/{run_id}`
 
 Response:
 
 ```json
 {
-  "status": "ok",
   "story_id": "uuid",
-  "version": null,
-  "pack": {},
-  "pack_hash": "sha256",
-  "generation": {
-    "mode": "prompt"
-  }
+  "run_id": "uuid",
+  "status": "running",
+  "current_node": "generate_beat_outline",
+  "raw_brief": "A city-wide signal breach with a pyrrhic ending.",
+  "error_code": null,
+  "error_message": null,
+  "created_at": "timestamp",
+  "updated_at": "timestamp",
+  "completed_at": null,
+  "artifacts": []
 }
 ```
 
-### List stories
+### Get author run events
 
-`GET /stories`
+`GET /author/runs/{run_id}/events`
+
+Response:
+
+```json
+{
+  "run_id": "uuid",
+  "events": [
+    {
+      "event_id": "uuid",
+      "node_name": "generate_story_overview",
+      "event_type": "node_started",
+      "payload": {
+        "attempt": 1,
+        "max_attempts": 3,
+        "timeout_seconds": 20
+      },
+      "created_at": "timestamp"
+    }
+  ]
+}
+```
+
+### Re-run existing story
+
+`POST /author/stories/{story_id}/runs`
+
+Request:
+
+```json
+{
+  "raw_brief": "Adjust tone toward tense political pressure with constrained resources."
+}
+```
+
+Response (`202`):
+
+```json
+{
+  "story_id": "uuid",
+  "run_id": "uuid",
+  "status": "pending",
+  "created_at": "timestamp"
+}
+```
+
+### List author stories
+
+`GET /author/stories`
 
 Response:
 
@@ -181,9 +224,12 @@ Response:
   "stories": [
     {
       "story_id": "uuid",
-      "title": "Generated: Signal Draft",
+      "title": "Signal Rift Protocol",
       "created_at": "timestamp",
-      "has_draft": true,
+      "latest_run_id": "uuid",
+      "latest_run_status": "review_ready",
+      "latest_run_current_node": "review_ready",
+      "latest_run_updated_at": "timestamp",
       "latest_published_version": 1,
       "latest_published_at": "timestamp"
     }
@@ -191,17 +237,30 @@ Response:
 }
 ```
 
-### Get draft detail
+### Get author story summary + draft
 
-`GET /stories/{story_id}/draft`
+`GET /author/stories/{story_id}`
 
 Response:
 
 ```json
 {
   "story_id": "uuid",
-  "title": "Generated: Signal Draft",
+  "title": "Signal Rift Protocol",
   "created_at": "timestamp",
+  "latest_run": {
+    "story_id": "uuid",
+    "run_id": "uuid",
+    "status": "review_ready",
+    "current_node": "review_ready",
+    "raw_brief": "A city-wide signal breach with a pyrrhic ending.",
+    "error_code": null,
+    "error_message": null,
+    "created_at": "timestamp",
+    "updated_at": "timestamp",
+    "completed_at": "timestamp",
+    "artifacts": []
+  },
   "draft_pack": {},
   "latest_published_version": 1,
   "latest_published_at": "timestamp"
@@ -232,7 +291,7 @@ Request:
       "target_type": "scene",
       "target_id": "sc2",
       "field": "scene_seed",
-      "value": "Investigate the broken vow under strict silence."
+      "value": "Investigate the broken vow while the team argues over risk."
     },
     {
       "target_type": "npc",
@@ -489,10 +548,11 @@ All API errors return:
 | Behavior | Route | Mode | Current target |
 | --- | --- | --- | --- |
 | Login | `/login` | entry | required |
-| Generate story draft | `/author/stories` | author | required |
-| View story supply | `/author/stories` | author | required |
-| Inspect draft detail | `/author/stories/{story_id}` | author | required |
-| Publish story | `/author/stories/{story_id}` | author | required |
+| Create author run | `/author/stories` | author | required |
+| View story index | `/author/stories` | author | required |
+| Inspect run timeline + artifacts | `/author/runs/{run_id}` | author | required |
+| Resolve story shell | `/author/stories/{story_id}` | author | required |
+| Review/edit/publish draft | `/author/stories/{story_id}/review` | author | required |
 | Browse published stories | `/play/library` | play | required |
 | Start session from published version | `/play/library` | play | required |
 | Show narration timeline | `/play/sessions/{session_id}` | play | required |

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from rpg_backend.domain.conflict_tags import NPCConflictTag
 from rpg_backend.domain.constants import GLOBAL_MOVE_IDS
@@ -12,6 +12,22 @@ StrategyStyle = Literal[
     "steady_slow",
     "political_safe_resource_heavy",
 ]
+
+
+def _normalize_bounded_text(value: Any, *, max_length: int) -> Any:
+    if not isinstance(value, str):
+        return value
+
+    text = " ".join(value.strip().split())
+    if len(text) <= max_length:
+        return text
+
+    clipped = text[: max_length + 1]
+    for separator in (". ", "! ", "? ", "; ", ", "):
+        idx = clipped.rfind(separator)
+        if idx >= max_length // 2:
+            return clipped[: idx + 1].strip()
+    return text[:max_length].rstrip(" ,;")
 
 
 class Beat(BaseModel):
@@ -129,6 +145,16 @@ class OpeningGuidance(BaseModel):
     intro_text: str = Field(min_length=1, max_length=320)
     goal_hint: str = Field(min_length=1, max_length=220)
     starter_prompts: list[str] = Field(min_length=3, max_length=3)
+
+    @field_validator("intro_text", mode="before")
+    @classmethod
+    def normalize_intro_text(cls, value: Any) -> Any:
+        return _normalize_bounded_text(value, max_length=320)
+
+    @field_validator("goal_hint", mode="before")
+    @classmethod
+    def normalize_goal_hint(cls, value: Any) -> Any:
+        return _normalize_bounded_text(value, max_length=220)
 
     @model_validator(mode="after")
     def validate_starter_prompts(self) -> "OpeningGuidance":

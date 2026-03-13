@@ -1,14 +1,21 @@
 from __future__ import annotations
 
-import json
-from pathlib import Path
+import asyncio
 
+import rpg_backend.application.author_runs.workflow_nodes as author_workflow_nodes_module
 from rpg_backend.application.author_runs.service import author_workflow_service
+from rpg_backend.application.author_runs.workflow_vocabulary import (
+    AuthorWorkflowArtifactType,
+    AuthorWorkflowErrorCode,
+    AuthorWorkflowEventType,
+    AuthorWorkflowNode,
+    AuthorWorkflowStatus,
+)
 from rpg_backend.domain.constants import GLOBAL_CLARIFY_MOVE_ID, GLOBAL_HELP_ME_PROGRESS_MOVE_ID, GLOBAL_LOOK_MOVE_ID
-from rpg_backend.domain.pack_schema import StoryPack
-from rpg_backend.generator.author_workflow_models import BeatDraft, BeatDraftLLM, StoryOverview
-from rpg_backend.generator.outcome_materialization import PALETTE_IDS_BY_RESULT
+from rpg_backend.domain.linter import LintReport
 from rpg_backend.generator.author_workflow_errors import PromptCompileError
+from rpg_backend.generator.author_workflow_models import BeatDraft, BeatOutlineLLM, StoryOverview
+from rpg_backend.generator.author_workflow_policy import AuthorWorkflowPolicy
 from tests.helpers.route_paths import (
     author_run_events_path,
     author_run_path,
@@ -18,13 +25,6 @@ from tests.helpers.route_paths import (
     author_stories_path,
     story_publish_path,
 )
-
-
-PACK_PATH = Path("sample_data/story_pack_v1.json")
-
-
-def _sample_pack() -> dict:
-    return json.loads(PACK_PATH.read_text(encoding="utf-8"))
 
 
 def _sample_overview() -> StoryOverview:
@@ -251,72 +251,63 @@ def _make_beat_draft(*, overview: StoryOverview, blueprint, beat_index: int) -> 
 
 
 class _FakeOverviewChain:
-    async def compile(self, *, raw_brief: str) -> StoryOverview:
-        del raw_brief
+    async def compile(self, *, raw_brief: str, timeout_seconds: float | None = None) -> StoryOverview:
+        del raw_brief, timeout_seconds
         return _sample_overview()
 
 
 class _FakeBeatChain:
-    async def compile(self, *, story_id: str, overview_context: dict | object, blueprint: dict, last_accepted_beat: dict | None, prefix_summary: dict | object, lint_feedback: list[str] | None = None) -> BeatDraft:
-        del story_id, last_accepted_beat, prefix_summary, lint_feedback
+    async def compile_outline(self, *, story_id: str, overview_context: dict | object, blueprint: dict, last_accepted_beat: dict | None, prefix_summary: dict | object, author_memory: dict | object | None = None, lint_feedback: list[str] | None = None, timeout_seconds: float | None = None) -> BeatOutlineLLM:
+        del story_id, last_accepted_beat, prefix_summary, author_memory, lint_feedback, timeout_seconds
         beat_index = int(str(blueprint["beat_id"])[1:]) - 1
         overview = _sample_overview()
-        self.last_beat_draft_llm = BeatDraftLLM.model_validate(
+        npc_pair = [
+            overview.npc_roster[beat_index % len(overview.npc_roster)].name,
+            overview.npc_roster[(beat_index + 1) % len(overview.npc_roster)].name,
+        ]
+        self.last_beat_outline_llm = BeatOutlineLLM.model_validate(
             {
-                "present_npcs": [overview.npc_roster[0].name, overview.npc_roster[1].name],
+                "present_npcs": npc_pair,
                 "events_produced": [blueprint["required_event"]],
-                "scenes": [
+                "scene_plans": [
                     {
                         "scene_seed": blueprint["scene_intent"],
-                        "present_npcs": [overview.npc_roster[0].name, overview.npc_roster[1].name],
-                        "enabled_move_indexes": [0, 1, 2],
+                        "present_npcs": npc_pair,
                         "is_terminal": False,
                     }
                 ],
-                "moves": [
+                "move_surfaces": [
                     {
-                        "label": "A",
-                        "strategy_style": "fast_dirty",
-                        "intents": ["a"],
-                        "synonyms": [],
-                        "resolution_policy": "prefer_success",
-                        "outcomes": [
-                            {"result": "success", "palette_id": PALETTE_IDS_BY_RESULT["success"][0], "next_scene_index": None},
-                            {"result": "fail_forward", "palette_id": PALETTE_IDS_BY_RESULT["fail_forward"][0], "next_scene_index": None},
+                        "label": "Push fast through the breach",
+                        "intents": ["rush ahead"],
+                        "synonyms": ["rush"],
+                        "roleplay_examples": [
+                            "I shove through the breach and cut the delay.",
+                            "I force the line open before panic spreads.",
                         ],
                     },
                     {
-                        "label": "B",
-                        "strategy_style": "steady_slow",
-                        "intents": ["b"],
-                        "synonyms": [],
-                        "resolution_policy": "prefer_success",
-                        "outcomes": [
-                            {"result": "success", "palette_id": PALETTE_IDS_BY_RESULT["success"][1], "next_scene_index": None},
-                            {"result": "fail_forward", "palette_id": PALETTE_IDS_BY_RESULT["fail_forward"][1], "next_scene_index": None},
+                        "label": "Stabilize the corridor carefully",
+                        "intents": ["move carefully"],
+                        "synonyms": ["steady"],
+                        "roleplay_examples": [
+                            "I stabilize the corridor one relay at a time.",
+                            "I slow the team down and do this carefully.",
                         ],
                     },
                     {
-                        "label": "C",
-                        "strategy_style": "political_safe_resource_heavy",
-                        "intents": ["c"],
-                        "synonyms": [],
-                        "resolution_policy": "prefer_success",
-                        "outcomes": [
-                            {"result": "success", "palette_id": PALETTE_IDS_BY_RESULT["success"][2], "next_scene_index": None},
-                            {"result": "fail_forward", "palette_id": PALETTE_IDS_BY_RESULT["fail_forward"][2], "next_scene_index": None},
+                        "label": "Take the official safe route",
+                        "intents": ["take the careful official route"],
+                        "synonyms": ["official"],
+                        "roleplay_examples": [
+                            "I follow the official route and protect the critical grid.",
+                            "I spend what we must, but keep the process clean.",
                         ],
                     },
                 ],
             }
         )
-        return _make_beat_draft(overview=overview, blueprint=blueprint, beat_index=beat_index)
-
-
-class _FakeRepairPackChain:
-    async def compile(self, *, story_pack: dict, lint_errors: list[str], lint_warnings: list[str], repair_count: int) -> StoryPack:
-        del lint_errors, lint_warnings, repair_count
-        return StoryPack.model_validate(story_pack)
+        return self.last_beat_outline_llm
 
 
 class _InlineScheduler:
@@ -324,26 +315,64 @@ class _InlineScheduler:
         await author_workflow_service._execute_run(run_id)
 
 
-def _install_fake_workflow(monkeypatch) -> None:
+def _install_fake_workflow(monkeypatch, *, policy: AuthorWorkflowPolicy | None = None) -> None:
     monkeypatch.setattr(author_workflow_service, "overview_chain_factory", _FakeOverviewChain)
     monkeypatch.setattr(author_workflow_service, "beat_chain_factory", _FakeBeatChain)
-    monkeypatch.setattr(author_workflow_service, "repair_chain_factory", _FakeRepairPackChain)
+    monkeypatch.setattr(
+        author_workflow_service,
+        "policy_factory",
+        lambda: policy or AuthorWorkflowPolicy(max_attempts=3, timeout_seconds=20.0),
+    )
     monkeypatch.setattr(author_workflow_service, "scheduler", _InlineScheduler())
 
 
 class _FailingBeatChain:
-    async def compile(self, *, story_id: str, overview_context: dict | object, blueprint: dict, last_accepted_beat: dict | None, prefix_summary: dict | object, lint_feedback: list[str] | None = None) -> BeatDraft:
-        del story_id, overview_context, blueprint, last_accepted_beat, prefix_summary, lint_feedback
+    async def compile_outline(self, *, story_id: str, overview_context: dict | object, blueprint: dict, last_accepted_beat: dict | None, prefix_summary: dict | object, author_memory: dict | object | None = None, lint_feedback: list[str] | None = None, timeout_seconds: float | None = None) -> BeatOutlineLLM:
+        del story_id, overview_context, blueprint, last_accepted_beat, prefix_summary, author_memory, lint_feedback, timeout_seconds
         raise RuntimeError("beat generation exploded")
 
 
 class _InvalidBeatChain:
-    async def compile(self, *, story_id: str, overview_context: dict | object, blueprint: dict, last_accepted_beat: dict | None, prefix_summary: dict | object, lint_feedback: list[str] | None = None) -> BeatDraft:
-        del story_id, overview_context, blueprint, last_accepted_beat, prefix_summary, lint_feedback
+    async def compile_outline(self, *, story_id: str, overview_context: dict | object, blueprint: dict, last_accepted_beat: dict | None, prefix_summary: dict | object, author_memory: dict | object | None = None, lint_feedback: list[str] | None = None, timeout_seconds: float | None = None) -> BeatOutlineLLM:
+        del story_id, overview_context, blueprint, last_accepted_beat, prefix_summary, author_memory, lint_feedback, timeout_seconds
         raise PromptCompileError(
             error_code="beat_invalid",
             errors=["always_available_moves must only contain global move ids"],
-            notes=["beat draft generation failed after schema feedback retry"],
+            notes=["beat draft generation failed"],
+        )
+
+
+class _RetryingOverviewChain:
+    attempts = 0
+
+    async def compile(self, *, raw_brief: str, timeout_seconds: float | None = None) -> StoryOverview:
+        del raw_brief
+        _RetryingOverviewChain.attempts += 1
+        if _RetryingOverviewChain.attempts == 1:
+            await asyncio.sleep(float(timeout_seconds or 0.01) * 2)
+        return _sample_overview()
+
+
+class _RetryingBeatChain:
+    attempts = 0
+
+    async def compile_outline(self, *, story_id: str, overview_context: dict | object, blueprint: dict, last_accepted_beat: dict | None, prefix_summary: dict | object, author_memory: dict | object | None = None, lint_feedback: list[str] | None = None, timeout_seconds: float | None = None) -> BeatOutlineLLM:
+        _RetryingBeatChain.attempts += 1
+        if _RetryingBeatChain.attempts < 3:
+            raise PromptCompileError(
+                error_code="prompt_compile_failed",
+                errors=["temporary gateway failure"],
+                notes=["retry in graph"],
+            )
+        return await _FakeBeatChain().compile_outline(
+            story_id=story_id,
+            overview_context=overview_context,
+            blueprint=blueprint,
+            last_accepted_beat=last_accepted_beat,
+            prefix_summary=prefix_summary,
+            author_memory=author_memory,
+            lint_feedback=lint_feedback,
+            timeout_seconds=timeout_seconds,
         )
 
 
@@ -359,42 +388,46 @@ def test_create_author_run_and_fetch_review_ready_story(client, monkeypatch) -> 
     run_response = client.get(author_run_path(run_id))
     assert run_response.status_code == 200
     run_body = run_response.json()
-    assert run_body["status"] == "review_ready"
+    assert run_body["status"] == AuthorWorkflowStatus.REVIEW_READY
     artifact_types = {item["artifact_type"] for item in run_body["artifacts"]}
-    prefix_summary_artifact = next(item for item in run_body["artifacts"] if item["artifact_type"] == "prefix_summary")
+    prefix_summary_artifact = next(
+        item for item in run_body["artifacts"] if item["artifact_type"] == AuthorWorkflowArtifactType.PREFIX_SUMMARY
+    )
     assert "completed_beats" in prefix_summary_artifact["payload"]
     assert "text" not in prefix_summary_artifact["payload"]
-    assert "overview" in artifact_types
-    assert "beat_blueprints" in artifact_types
-    assert "beat_overview_context" in artifact_types
-    assert "current_beat_llm" in artifact_types
-    assert "current_beat_draft" in artifact_types
-    assert "story_pack" in artifact_types
-    assert "final_lint" in artifact_types
-    current_llm = next(item for item in run_body["artifacts"] if item["artifact_type"] == "current_beat_llm")
-    first_outcome = current_llm["payload"]["moves"][0]["outcomes"][0]
-    assert "palette_id" in first_outcome
-    assert "effects" not in first_outcome
-    assert "narration_slots" not in first_outcome
-    assert sum(1 for item in run_body["artifacts"] if item["artifact_type"] == "accepted_beat_draft") == 4
+    assert AuthorWorkflowArtifactType.OVERVIEW in artifact_types
+    assert AuthorWorkflowArtifactType.BEAT_BLUEPRINTS in artifact_types
+    assert AuthorWorkflowArtifactType.BEAT_OVERVIEW_CONTEXT in artifact_types
+    assert AuthorWorkflowArtifactType.CURRENT_BEAT_OUTLINE in artifact_types
+    assert AuthorWorkflowArtifactType.CURRENT_BEAT_DRAFT in artifact_types
+    assert AuthorWorkflowArtifactType.AUTHOR_MEMORY in artifact_types
+    assert AuthorWorkflowArtifactType.STORY_PACK in artifact_types
+    assert AuthorWorkflowArtifactType.STORY_PACK_NORMALIZATION in artifact_types
+    assert AuthorWorkflowArtifactType.FINAL_LINT in artifact_types
+    current_outline = next(
+        item for item in run_body["artifacts"] if item["artifact_type"] == AuthorWorkflowArtifactType.CURRENT_BEAT_OUTLINE
+    )
+    assert "scene_plans" in current_outline["payload"]
+    assert "move_surfaces" in current_outline["payload"]
+    assert sum(1 for item in run_body["artifacts"] if item["artifact_type"] == AuthorWorkflowArtifactType.ACCEPTED_BEAT_DRAFT) == 4
 
     events_response = client.get(author_run_events_path(run_id))
     assert events_response.status_code == 200
     events = events_response.json()["events"]
-    assert any(event["node_name"] == "generate_story_overview" for event in events)
-    assert any(event["node_name"] == "review_ready" for event in events)
+    assert any(event["node_name"] == AuthorWorkflowNode.GENERATE_STORY_OVERVIEW for event in events)
+    assert any(event["node_name"] == AuthorWorkflowNode.REVIEW_READY for event in events)
 
     story_response = client.get(author_story_path(story_id))
     assert story_response.status_code == 200
     story_body = story_response.json()
-    assert story_body["latest_run"]["status"] == "review_ready"
+    assert story_body["latest_run"]["status"] == AuthorWorkflowStatus.REVIEW_READY
     assert story_body["draft_pack"]["title"] == _sample_overview().title
 
     list_response = client.get(author_stories_path())
     assert list_response.status_code == 200
     stories = list_response.json()["stories"]
     listed = next(item for item in stories if item["story_id"] == story_id)
-    assert listed["latest_run_status"] == "review_ready"
+    assert listed["latest_run_status"] == AuthorWorkflowStatus.REVIEW_READY
 
 
 def test_rerun_author_story_creates_second_run(client, monkeypatch) -> None:
@@ -427,7 +460,7 @@ def test_publish_requires_review_ready_when_author_run_exists(client, monkeypatc
 def test_failed_author_run_records_actual_failing_node(client, monkeypatch) -> None:
     monkeypatch.setattr(author_workflow_service, "overview_chain_factory", _FakeOverviewChain)
     monkeypatch.setattr(author_workflow_service, "beat_chain_factory", _FailingBeatChain)
-    monkeypatch.setattr(author_workflow_service, "repair_chain_factory", _FakeRepairPackChain)
+    monkeypatch.setattr(author_workflow_service, "policy_factory", lambda: AuthorWorkflowPolicy(max_attempts=3, timeout_seconds=20.0))
     monkeypatch.setattr(author_workflow_service, "scheduler", _InlineScheduler())
 
     created = client.post(author_runs_path(), json={"raw_brief": "Generate a tense reactor incident story."})
@@ -437,17 +470,25 @@ def test_failed_author_run_records_actual_failing_node(client, monkeypatch) -> N
     run_response = client.get(author_run_path(run_id))
     assert run_response.status_code == 200
     run_body = run_response.json()
-    assert run_body["status"] == "failed"
-    assert run_body["current_node"] == "generate_next_beat"
+    assert run_body["status"] == AuthorWorkflowStatus.FAILED
+    assert run_body["current_node"] == AuthorWorkflowNode.GENERATE_BEAT_OUTLINE
     events = client.get(author_run_events_path(run_id)).json()["events"]
-    assert any(event["node_name"] == "generate_next_beat" and event["event_type"] == "node_started" for event in events)
-    assert any(event["node_name"] == "generate_next_beat" and event["event_type"] == "run_exception" for event in events)
+    assert any(
+        event["node_name"] == AuthorWorkflowNode.GENERATE_BEAT_OUTLINE
+        and event["event_type"] == AuthorWorkflowEventType.NODE_STARTED
+        for event in events
+    )
+    assert any(
+        event["node_name"] == AuthorWorkflowNode.GENERATE_BEAT_OUTLINE
+        and event["event_type"] == AuthorWorkflowEventType.RUN_EXCEPTION
+        for event in events
+    )
 
 
 def test_failed_author_run_exposes_prompt_compile_error_code(client, monkeypatch) -> None:
     monkeypatch.setattr(author_workflow_service, "overview_chain_factory", _FakeOverviewChain)
     monkeypatch.setattr(author_workflow_service, "beat_chain_factory", _InvalidBeatChain)
-    monkeypatch.setattr(author_workflow_service, "repair_chain_factory", _FakeRepairPackChain)
+    monkeypatch.setattr(author_workflow_service, "policy_factory", lambda: AuthorWorkflowPolicy(max_attempts=3, timeout_seconds=20.0))
     monkeypatch.setattr(author_workflow_service, "scheduler", _InlineScheduler())
 
     created = client.post(author_runs_path(), json={"raw_brief": "Generate a tense reactor incident story."})
@@ -457,10 +498,103 @@ def test_failed_author_run_exposes_prompt_compile_error_code(client, monkeypatch
     run_response = client.get(author_run_path(run_id))
     assert run_response.status_code == 200
     run_body = run_response.json()
-    assert run_body["status"] == "failed"
-    assert run_body["current_node"] == "generate_next_beat"
+    assert run_body["status"] == AuthorWorkflowStatus.FAILED
+    assert run_body["current_node"] == AuthorWorkflowNode.GENERATE_BEAT_OUTLINE
     assert run_body["error_code"] == "beat_invalid"
     assert "always_available_moves" in run_body["error_message"]
-    workflow_errors = [item for item in run_body["artifacts"] if item["artifact_type"] == "workflow_error"]
+    workflow_errors = [item for item in run_body["artifacts"] if item["artifact_type"] == AuthorWorkflowArtifactType.WORKFLOW_ERROR]
     assert workflow_errors
     assert workflow_errors[0]["payload"]["error_code"] == "beat_invalid"
+
+
+def test_author_workflow_retries_timed_out_node_per_attempt(client, monkeypatch) -> None:
+    _RetryingOverviewChain.attempts = 0
+    monkeypatch.setattr(author_workflow_service, "overview_chain_factory", _RetryingOverviewChain)
+    monkeypatch.setattr(author_workflow_service, "beat_chain_factory", _FakeBeatChain)
+    monkeypatch.setattr(
+        author_workflow_service,
+        "policy_factory",
+        lambda: AuthorWorkflowPolicy(max_attempts=3, timeout_seconds=0.01),
+    )
+    monkeypatch.setattr(author_workflow_service, "scheduler", _InlineScheduler())
+
+    created = client.post(author_runs_path(), json={"raw_brief": "Generate a tense reactor incident story."})
+    assert created.status_code == 202, created.text
+    run_id = created.json()["run_id"]
+
+    run_response = client.get(author_run_path(run_id))
+    assert run_response.status_code == 200
+    run_body = run_response.json()
+    assert run_body["status"] == AuthorWorkflowStatus.REVIEW_READY
+    assert _RetryingOverviewChain.attempts == 2
+
+    events = client.get(author_run_events_path(run_id)).json()["events"]
+    retry_events = [
+        event
+        for event in events
+        if event["node_name"] == AuthorWorkflowNode.GENERATE_STORY_OVERVIEW
+        and event["event_type"] == AuthorWorkflowEventType.NODE_RETRY
+    ]
+    started_events = [
+        event
+        for event in events
+        if event["node_name"] == AuthorWorkflowNode.GENERATE_STORY_OVERVIEW
+        and event["event_type"] == AuthorWorkflowEventType.NODE_STARTED
+    ]
+    assert len(started_events) == 2
+    assert len(retry_events) == 1
+    assert retry_events[0]["payload"]["reason"] == "timeout"
+    assert retry_events[0]["payload"]["max_attempts"] == 3
+    assert retry_events[0]["payload"]["timeout_seconds"] == 0.01
+
+
+def test_author_workflow_retries_beat_outline_until_third_attempt(client, monkeypatch) -> None:
+    _RetryingBeatChain.attempts = 0
+    single_blueprint = author_workflow_nodes_module.plan_beat_blueprints_from_overview(_sample_overview())[-1:]
+    monkeypatch.setattr(author_workflow_service, "overview_chain_factory", _FakeOverviewChain)
+    monkeypatch.setattr(author_workflow_service, "beat_chain_factory", _RetryingBeatChain)
+    monkeypatch.setattr(author_workflow_service, "policy_factory", lambda: AuthorWorkflowPolicy(max_attempts=3, timeout_seconds=20.0))
+    monkeypatch.setattr(author_workflow_service, "scheduler", _InlineScheduler())
+    monkeypatch.setattr(author_workflow_nodes_module, "plan_beat_blueprints_from_overview", lambda overview: single_blueprint)
+    monkeypatch.setattr(author_workflow_nodes_module, "check_beat_blueprints", lambda blueprints: [])
+
+    created = client.post(author_runs_path(), json={"raw_brief": "Generate a tense reactor incident story."})
+    assert created.status_code == 202, created.text
+    run_id = created.json()["run_id"]
+
+    run_body = client.get(author_run_path(run_id)).json()
+    assert run_body["status"] == AuthorWorkflowStatus.REVIEW_READY
+    assert _RetryingBeatChain.attempts == 3
+
+    events = client.get(author_run_events_path(run_id)).json()["events"]
+    retry_events = [
+        event
+        for event in events
+        if event["node_name"] == AuthorWorkflowNode.GENERATE_BEAT_OUTLINE
+        and event["event_type"] == AuthorWorkflowEventType.NODE_RETRY
+    ]
+    assert len(retry_events) == 2
+    assert all(event["payload"]["reason"] == "prompt_compile_failed" for event in retry_events)
+
+
+def test_author_workflow_final_lint_failure_does_not_enter_repair(client, monkeypatch) -> None:
+    _install_fake_workflow(monkeypatch)
+    monkeypatch.setattr(
+        author_workflow_nodes_module,
+        "lint_story_pack",
+        lambda pack: LintReport(errors=["entry scene cannot reach terminal"], warnings=[]),
+    )
+
+    created = client.post(author_runs_path(), json={"raw_brief": "Generate a tense reactor incident story."})
+    assert created.status_code == 202, created.text
+    run_id = created.json()["run_id"]
+
+    run_body = client.get(author_run_path(run_id)).json()
+    assert run_body["status"] == AuthorWorkflowStatus.FAILED
+    assert run_body["current_node"] == AuthorWorkflowNode.WORKFLOW_FAILED
+    assert run_body["error_code"] == AuthorWorkflowErrorCode.AUTHOR_WORKFLOW_FAILED
+    assert run_body["error_message"] == "entry scene cannot reach terminal"
+
+    events = client.get(author_run_events_path(run_id)).json()["events"]
+    assert any(event["node_name"] == AuthorWorkflowNode.FINAL_LINT for event in events)
+    assert not any(event["node_name"] == "repair_pack" for event in events)

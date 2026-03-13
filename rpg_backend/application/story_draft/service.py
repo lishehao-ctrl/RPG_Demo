@@ -13,19 +13,13 @@ from rpg_backend.application.story_draft.errors import (
 from rpg_backend.application.story_draft.models import DraftPatchChange, OpeningGuidanceView, StoryDraftView
 from rpg_backend.domain.opening_guidance import build_opening_guidance_for_pack
 from rpg_backend.domain.pack_schema import StoryPack
+from rpg_backend.domain.story_pack_normalizer import try_normalize_story_pack_payload
 
 
 def normalize_draft_pack(pack_json: dict[str, Any]) -> dict[str, Any]:
-    try:
-        pack = StoryPack.model_validate(pack_json)
-    except ValidationError:
+    normalized, errors = try_normalize_story_pack_payload(pack_json)
+    if errors:
         return deepcopy(pack_json)
-
-    if pack.opening_guidance is not None:
-        return deepcopy(pack_json)
-
-    normalized = deepcopy(pack_json)
-    normalized["opening_guidance"] = build_opening_guidance_for_pack(pack).model_dump(mode="json")
     return normalized
 
 

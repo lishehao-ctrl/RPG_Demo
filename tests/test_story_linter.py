@@ -30,18 +30,18 @@ def test_story_pack_linter_rejects_duplicate_beat_titles() -> None:
     pack["beats"][1]["title"] = pack["beats"][0]["title"]
 
     report = lint_story_pack(pack)
-    assert not report.ok
-    assert any("duplicate beat titles" in err for err in report.errors)
+    assert report.ok
+    assert any("duplicate beat titles" in warning for warning in report.warnings)
 
 
 def test_story_pack_linter_rejects_missing_strategy_triangle_style() -> None:
     pack = json.loads(FIXTURE.read_text(encoding="utf-8"))
     scene = pack["scenes"][0]
-    scene["enabled_moves"] = ["scan_signal", "calm_crowd", "inspect_infrastructure", "global.look"]
+    scene["enabled_moves"] = ["scan_signal", "decode_core", "inspect_infrastructure", "global.look"]
 
     report = lint_story_pack(pack)
-    assert not report.ok
-    assert any("missing strategy styles" in err for err in report.errors)
+    assert report.ok
+    assert any("missing strategy styles" in warning for warning in report.warnings)
 
 
 def test_story_pack_linter_rejects_banned_move_id() -> None:
@@ -88,3 +88,36 @@ def test_story_pack_linter_rejects_invalid_npc_conflict_tag_value() -> None:
     report = lint_story_pack(pack)
     assert not report.ok
     assert any("schema validation failed" in err for err in report.errors)
+
+
+def test_story_pack_linter_allows_duplicate_titles_as_warning() -> None:
+    pack = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    pack["beats"][1]["title"] = pack["beats"][0]["title"]
+
+    report = lint_story_pack(pack)
+
+    assert report.ok
+    assert any("duplicate beat titles" in warning for warning in report.warnings)
+
+
+def test_story_pack_linter_allows_missing_strategy_triangle_as_warning() -> None:
+    pack = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    scene = pack["scenes"][0]
+    scene["enabled_moves"] = ["scan_signal", "decode_core", "inspect_infrastructure", "global.look"]
+
+    report = lint_story_pack(pack)
+
+    assert report.ok
+    assert any("missing strategy styles" in warning for warning in report.warnings)
+
+
+def test_story_pack_linter_allows_sparse_npc_recurrence_as_warning() -> None:
+    pack = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    npc_name = pack["npcs"][0]
+    for scene in pack["scenes"][1:]:
+        scene["present_npcs"] = [name for name in scene["present_npcs"] if name != npc_name]
+
+    report = lint_story_pack(pack)
+
+    assert report.ok
+    assert any(f"npc '{npc_name}' appears fewer than 2 times" in warning for warning in report.warnings)

@@ -33,6 +33,13 @@ def _check_condition(scene_id: str, cond, report: LintReport) -> None:
         report.errors.append(f"scene '{scene_id}' exit condition '{cond.id}' missing key")
 
 
+def _record_issue(report: LintReport, message: str, *, quality_only: bool = False) -> None:
+    if quality_only:
+        report.warnings.append(message)
+        return
+    report.errors.append(message)
+
+
 def lint_story_pack(pack_json: dict[str, Any]) -> LintReport:
     report = LintReport()
     try:
@@ -57,7 +64,7 @@ def lint_story_pack(pack_json: dict[str, Any]) -> LintReport:
 
     normalized_titles = [beat.title.strip().casefold() for beat in pack.beats]
     if len(set(normalized_titles)) != len(normalized_titles):
-        report.errors.append("duplicate beat titles")
+        _record_issue(report, "duplicate beat titles", quality_only=True)
 
     banned_moves_seen = set(move_map).intersection(_BANNED_MOVE_IDS)
 
@@ -71,9 +78,9 @@ def lint_story_pack(pack_json: dict[str, Any]) -> LintReport:
         missing_profiles = sorted(npcs_set - profile_names_set)
         extra_profiles = sorted(profile_names_set - npcs_set)
         if missing_profiles:
-            report.errors.append(f"missing npc_profiles for: {missing_profiles}")
+            _record_issue(report, f"missing npc_profiles for: {missing_profiles}", quality_only=True)
         if extra_profiles:
-            report.errors.append(f"npc_profiles contain unknown names: {extra_profiles}")
+            _record_issue(report, f"npc_profiles contain unknown names: {extra_profiles}", quality_only=True)
 
     for scene in pack.scenes:
         if scene.beat_id not in beat_map:
@@ -98,8 +105,10 @@ def lint_story_pack(pack_json: dict[str, Any]) -> LintReport:
         }
         missing_styles = sorted(_REQUIRED_STRATEGY_STYLES - enabled_styles)
         if missing_styles:
-            report.errors.append(
-                f"scene '{scene.id}' missing strategy styles: {missing_styles}"
+            _record_issue(
+                report,
+                f"scene '{scene.id}' missing strategy styles: {missing_styles}",
+                quality_only=True,
             )
 
         for cond in scene.exit_conditions:
@@ -196,6 +205,6 @@ def lint_story_pack(pack_json: dict[str, Any]) -> LintReport:
     for npc in pack.npcs:
         appearances = sum(1 for scene in pack.scenes if npc in scene.present_npcs)
         if appearances < 2:
-            report.errors.append(f"npc '{npc}' appears fewer than 2 times")
+            _record_issue(report, f"npc '{npc}' appears fewer than 2 times", quality_only=True)
 
     return report

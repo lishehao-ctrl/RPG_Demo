@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from rpg_backend.application.author_runs.errors import AuthorStoryNotReadyForPublishError
+from rpg_backend.application.author_runs.workflow_vocabulary import AuthorWorkflowStatus
 from rpg_backend.application.story_authoring.errors import (
     PublishedStoryVersionNotFoundError,
     StoryLintFailedError,
@@ -87,7 +88,7 @@ async def publish_story(*, db, story_id: str) -> StoryPublishView:
         raise StoryNotFoundError(story_id=story_id)
 
     latest_run = await get_latest_author_run_for_story(db, story_id)
-    if latest_run is not None and latest_run.status != "review_ready":
+    if latest_run is not None and latest_run.status != AuthorWorkflowStatus.REVIEW_READY:
         raise AuthorStoryNotReadyForPublishError(
             story_id=story_id,
             latest_run_status=latest_run.status,

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from rpg_backend.domain.constants import GLOBAL_MOVE_IDS
 from rpg_backend.generator.author_workflow_models import (
+    AuthorMemory,
+    AuthorMemoryBeatSummary,
     BeatBlueprint,
     BeatDraft,
     BeatLintReport,
@@ -69,29 +71,40 @@ def project_overview_for_beat_generation(overview: StoryOverview) -> BeatOvervie
 
 def build_structured_prefix_summary(prior_beats: list[BeatDraft]) -> BeatPrefixSummary:
     completed_beats = [BeatPrefixBeatSummary(beat_id=beat.beat_id, title=beat.title) for beat in prior_beats]
-    events_produced: list[str] = []
+    return BeatPrefixSummary(completed_beats=completed_beats)
+
+
+def build_author_memory(prior_beats: list[BeatDraft]) -> AuthorMemory:
     active_npcs: list[str] = []
-    unresolved_hooks: list[str] = []
+    unresolved_threads: list[str] = []
     for beat in prior_beats:
-        for event in beat.events_produced or [beat.required_event]:
-            if event not in events_produced:
-                events_produced.append(event)
         for npc in beat.present_npcs:
             if npc not in active_npcs:
                 active_npcs.append(npc)
-        if beat.events_produced:
-            for event in beat.events_produced:
-                if event not in unresolved_hooks:
-                    unresolved_hooks.append(event)
+        for event in beat.events_produced or [beat.required_event]:
+            if event not in unresolved_threads:
+                unresolved_threads.append(event)
         if beat.scenes:
             final_scene_seed = _trim_sentence(beat.scenes[-1].scene_seed, max_length=120)
-            if final_scene_seed and final_scene_seed not in unresolved_hooks:
-                unresolved_hooks.append(final_scene_seed)
-    return BeatPrefixSummary(
-        completed_beats=completed_beats,
-        events_produced=events_produced,
+            if final_scene_seed and final_scene_seed not in unresolved_threads:
+                unresolved_threads.append(final_scene_seed)
+
+    recent_beats = [
+        AuthorMemoryBeatSummary(
+            beat_id=beat.beat_id,
+            title=beat.title,
+            objective=_trim_sentence(beat.objective, max_length=140),
+            present_npcs=list(beat.present_npcs),
+            events_produced=list(beat.events_produced or [beat.required_event])[:3],
+            closing_hook=_trim_sentence(beat.scenes[-1].scene_seed, max_length=120) if beat.scenes else None,
+        )
+        for beat in prior_beats[-2:]
+    ]
+    return AuthorMemory(
+        beat_count=len(prior_beats),
         active_npcs=active_npcs,
-        unresolved_hooks=unresolved_hooks,
+        unresolved_threads=unresolved_threads[:8],
+        recent_beats=recent_beats,
     )
 
 

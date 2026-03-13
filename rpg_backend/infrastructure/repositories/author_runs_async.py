@@ -17,7 +17,7 @@ async def create_author_run(
     *,
     story_id: str,
     raw_brief: str,
-    status: str = "pending",
+    status: str,
 ) -> AuthorRun:
     run = AuthorRun(story_id=story_id, raw_brief=raw_brief, status=status, current_node=None)
     db.add(run)
@@ -27,11 +27,6 @@ async def create_author_run(
 
 async def get_author_run(db: AsyncSession, run_id: str) -> AuthorRun | None:
     return await db.get(AuthorRun, run_id)
-
-
-async def list_author_runs_for_story(db: AsyncSession, story_id: str) -> list[AuthorRun]:
-    stmt = select(AuthorRun).where(AuthorRun.story_id == story_id).order_by(desc(AuthorRun.created_at))
-    return list((await db.exec(stmt)).all())
 
 
 async def get_latest_author_run_for_story(db: AsyncSession, story_id: str) -> AuthorRun | None:

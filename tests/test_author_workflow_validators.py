@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from rpg_backend.generator.author_workflow_models import BeatDraft, BeatOverviewContext, BeatPrefixSummary, StoryOverview
+from rpg_backend.generator.author_workflow_models import AuthorMemory, BeatDraft, BeatOverviewContext, BeatPrefixSummary, StoryOverview
 from rpg_backend.generator.author_workflow_planner import check_beat_blueprints, plan_beat_blueprints_from_overview
 from rpg_backend.generator.author_workflow_validators import (
+    build_author_memory,
     build_structured_prefix_summary,
     check_story_overview,
     lint_beat_draft,
@@ -120,6 +121,18 @@ def test_lint_beat_draft_rejects_missing_fail_forward() -> None:
     assert any("fail_forward" in err for err in report.errors)
 
 
+def test_lint_beat_draft_rejects_missing_strategy_styles() -> None:
+    overview = _overview()
+    blueprint = plan_beat_blueprints_from_overview(overview)[0]
+    draft = _valid_beat_draft(blueprint)
+    draft.moves[2].strategy_style = "steady_slow"
+
+    report = lint_beat_draft(overview=overview, blueprint=blueprint, draft=draft, prior_beats=[])
+
+    assert report.ok is False
+    assert any("missing strategy styles" in err for err in report.errors)
+
+
 def test_project_overview_for_beat_generation_trims_fields() -> None:
     projected = project_overview_for_beat_generation(_overview())
     assert isinstance(projected, BeatOverviewContext)
@@ -135,5 +148,14 @@ def test_build_structured_prefix_summary_mentions_prior_ids() -> None:
     summary = build_structured_prefix_summary([_valid_beat_draft(blueprints[0]), _valid_beat_draft(blueprints[1])])
     assert isinstance(summary, BeatPrefixSummary)
     assert [item.beat_id for item in summary.completed_beats] == ["b1", "b2"]
-    assert "b1.milestone" in summary.events_produced
-    assert "Mara" in summary.active_npcs
+
+
+def test_build_author_memory_summarizes_recent_beats() -> None:
+    overview = _overview()
+    blueprints = plan_beat_blueprints_from_overview(overview)
+    memory = build_author_memory([_valid_beat_draft(blueprints[0]), _valid_beat_draft(blueprints[1])])
+    assert isinstance(memory, AuthorMemory)
+    assert memory.beat_count == 2
+    assert [item.beat_id for item in memory.recent_beats] == ["b1", "b2"]
+    assert "Mara" in memory.active_npcs
+    assert "b1.milestone" in memory.unresolved_threads

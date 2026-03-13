@@ -127,3 +127,59 @@ def materialize_move_from_template(
             ),
         ],
     }
+
+
+def materialize_local_move_from_template(
+    *,
+    template: MoveTemplate,
+    local_move_id: str,
+    npcs: list[str],
+    rng: random.Random,
+    palette_policy: PalettePolicy,
+    palette_usage: dict[str, int],
+    surface_label: str | None = None,
+    surface_intents: list[str] | None = None,
+    surface_synonyms: list[str] | None = None,
+    surface_roleplay_examples: list[str] | None = None,
+) -> dict[str, Any]:
+    strategy_style = strategy_style_for_move(template.id)
+    default_label = template.label_template
+    if "{target_npc}" in default_label and npcs:
+        default_label = default_label.format(target_npc=npcs[rng.randrange(0, len(npcs))])
+    default_label = f"{default_label} [{_STYLE_LABEL_HINTS[strategy_style]}]"
+    label = " ".join((surface_label or default_label).strip().split())
+
+    intents = list(dict.fromkeys((template.id, *(surface_intents or template.intent_patterns), *(surface_roleplay_examples or []))))
+    synonyms = list(dict.fromkeys((surface_synonyms or template.synonym_bank)))
+    synonyms.extend(surface_roleplay_examples or [])
+    label_tokens = [item.lower() for item in label.replace("/", " ").split() if item.isalpha()]
+    synonyms.extend(label_tokens[:2])
+    if npcs:
+        first_npc = npcs[rng.randrange(0, len(npcs))]
+        synonyms.append(first_npc.lower())
+
+    outcomes: list[dict[str, Any]] = []
+    for outcome_index, result in enumerate(("success", "partial", "fail_forward")):
+        outcomes.append(
+            build_template_outcome(
+                move_id=local_move_id,
+                result=result,
+                template=template,
+                rng=rng,
+                palette_policy=palette_policy,
+                palette_usage=palette_usage,
+                strategy_style=strategy_style,
+            )
+        )
+        outcomes[-1]["id"] = f"{local_move_id}.o{outcome_index + 1}.{result}"
+
+    return {
+        "id": local_move_id,
+        "label": label,
+        "strategy_style": strategy_style,
+        "intents": intents,
+        "synonyms": list(dict.fromkeys(synonyms)),
+        "args_schema": dict(template.args_schema),
+        "resolution_policy": template.resolution_policy,
+        "outcomes": outcomes,
+    }

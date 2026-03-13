@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from rpg_backend.domain.conflict_tags import NPCConflictTag
-from rpg_backend.domain.pack_schema import Condition, Effect, Move, NarrationSlots, Scene, StoryPack, StrategyStyle
-from rpg_backend.generator.outcome_materialization import validate_palette_id_exists
+from rpg_backend.domain.pack_schema import Move, Scene, StoryPack
 from rpg_backend.generator.author_shared_types import EndingShape, MoveBiasTag
 
 
@@ -58,57 +57,72 @@ class BeatBlueprint(BaseModel):
     scene_intent: str = Field(min_length=1)
 
 
-class BeatOutcomeLLM(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    result: Literal["success", "partial", "fail_forward"]
-    palette_id: str = Field(min_length=1)
-    next_scene_index: int | None = Field(default=None, ge=0)
-
-    @model_validator(mode="after")
-    def validate_palette_id(self) -> "BeatOutcomeLLM":
-        validate_palette_id_exists(self.palette_id)
-        return self
-
-
-class BeatMoveLLM(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    label: str = Field(min_length=1)
-    strategy_style: StrategyStyle
-    intents: list[str] = Field(default_factory=list)
-    synonyms: list[str] = Field(default_factory=list)
-    resolution_policy: Literal["prefer_success", "prefer_partial", "always_fail_forward"] = "prefer_success"
-    outcomes: list[BeatOutcomeLLM] = Field(min_length=1)
-
-    @model_validator(mode="after")
-    def validate_required_outcome_coverage(self) -> "BeatMoveLLM":
-        results = {outcome.result for outcome in self.outcomes}
-        if "success" not in results or "fail_forward" not in results:
-            raise ValueError("moves must include success and fail_forward outcomes")
-        return self
-
-
-class BeatSceneLLM(BaseModel):
+class BeatOutlineSceneLLM(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     scene_seed: str = Field(min_length=1)
     present_npcs: list[str] = Field(min_length=1)
-    enabled_move_indexes: list[int] = Field(min_length=3, max_length=5)
     is_terminal: bool = False
 
+
+class BeatMoveSurfaceLLM(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    label: str = Field(min_length=1, max_length=80)
+    intents: list[str] = Field(min_length=1, max_length=4)
+    synonyms: list[str] = Field(default_factory=list, max_length=6)
+    roleplay_examples: list[str] = Field(min_length=2, max_length=3)
+
     @model_validator(mode="after")
-    def validate_indexes_unique(self) -> "BeatSceneLLM":
-        if len(set(self.enabled_move_indexes)) != len(self.enabled_move_indexes):
-            raise ValueError("enabled_move_indexes must be unique within a scene")
+    def normalize_surface_terms(self) -> "BeatMoveSurfaceLLM":
+        self.label = " ".join(self.label.strip().split())
+        if not self.label:
+            raise ValueError("move surface label must be non-empty")
+        lowered_label = self.label.casefold()
+        if "surface" in lowered_label:
+            raise ValueError("move surface label must be a concrete action, not a slot placeholder")
+        if lowered_label in {
+            "fast dirty",
+            "steady slow",
+            "political safe resource heavy",
+            "fast dirty surface",
+            "steady slow surface",
+            "political safe resource heavy surface",
+        }:
+            raise ValueError("move surface label must not be a strategy slot name")
+
+        normalized_intents: list[str] = []
+        for item in self.intents:
+            text = " ".join((item or "").strip().split())
+            if text and text not in normalized_intents:
+                normalized_intents.append(text)
+        if not normalized_intents:
+            raise ValueError("move surface intents must include at least one non-empty value")
+        self.intents = normalized_intents
+
+        normalized_synonyms: list[str] = []
+        for item in self.synonyms:
+            text = " ".join((item or "").strip().split())
+            if text and text not in normalized_synonyms:
+                normalized_synonyms.append(text)
+        self.synonyms = normalized_synonyms
+
+        normalized_examples: list[str] = []
+        for item in self.roleplay_examples:
+            text = " ".join((item or "").strip().split())
+            if text and text not in normalized_examples:
+                normalized_examples.append(text)
+        if len(normalized_examples) < 2:
+            raise ValueError("move surface roleplay_examples must include at least two non-empty values")
+        self.roleplay_examples = normalized_examples
         return self
 
 
-class BeatDraftLLM(BaseModel):
+class BeatOutlineLLM(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    scenes: list[BeatSceneLLM] = Field(min_length=1)
-    moves: list[BeatMoveLLM] = Field(min_length=3)
+    scene_plans: list[BeatOutlineSceneLLM] = Field(min_length=1)
+    move_surfaces: list[BeatMoveSurfaceLLM] = Field(min_length=3, max_length=3)
     present_npcs: list[str] = Field(min_length=1)
     events_produced: list[str] = Field(default_factory=list)
 
@@ -146,9 +160,26 @@ class BeatPrefixSummary(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     completed_beats: list[BeatPrefixBeatSummary] = Field(default_factory=list)
+
+
+class AuthorMemoryBeatSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    beat_id: str = Field(min_length=1)
+    title: str = Field(min_length=1)
+    objective: str = Field(min_length=1)
+    present_npcs: list[str] = Field(default_factory=list)
     events_produced: list[str] = Field(default_factory=list)
+    closing_hook: str | None = None
+
+
+class AuthorMemory(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    beat_count: int = Field(default=0, ge=0)
     active_npcs: list[str] = Field(default_factory=list)
-    unresolved_hooks: list[str] = Field(default_factory=list)
+    unresolved_threads: list[str] = Field(default_factory=list)
+    recent_beats: list[AuthorMemoryBeatSummary] = Field(default_factory=list, max_length=2)
 
 
 class BeatDraft(BaseModel):

@@ -5,6 +5,7 @@ import json
 from types import SimpleNamespace
 
 from rpg_backend.llm.agents import AuthorAgent, PlayAgent
+from rpg_backend.llm.task_specs import ResponsesTaskSpec
 
 
 class _FakeSessionStore:
@@ -15,6 +16,16 @@ class _FakeSessionStore:
         del scope_type, scope_id, channel
         self.last_model = model
         return await invoke(None)
+
+
+def _task_spec(*, task_name: str, output_mode: str, channel: str = "play_agent", enable_thinking: bool = False) -> ResponsesTaskSpec:
+    return ResponsesTaskSpec(
+        task_name=task_name,
+        developer_prompt=f"developer prompt for {task_name}",
+        output_mode=output_mode,  # type: ignore[arg-type]
+        channel=channel,
+        enable_thinking=enable_thinking,
+    )
 
 
 def test_play_agent_forces_thinking_off() -> None:
@@ -38,7 +49,18 @@ def test_play_agent_forces_thinking_off() -> None:
         session_store=session_store,  # type: ignore[arg-type]
         model="qwen-plus",
         timeout_seconds=20.0,
-        enable_thinking=False,
+        interpret_task_spec=_task_spec(
+            task_name="interpret_turn",
+            output_mode="strict_json",
+            channel="play_agent",
+            enable_thinking=False,
+        ),
+        render_task_spec=_task_spec(
+            task_name="render_resolved_turn",
+            output_mode="text",
+            channel="play_agent",
+            enable_thinking=False,
+        ),
     )
 
     result = asyncio.run(
@@ -88,8 +110,18 @@ def test_author_agent_overview_forces_thinking_off_and_beat_forces_on() -> None:
         session_store=session_store,  # type: ignore[arg-type]
         model="qwen-plus",
         timeout_seconds=20.0,
-        overview_enable_thinking=False,
-        beat_enable_thinking=True,
+        overview_task_spec=_task_spec(
+            task_name="generate_overview",
+            output_mode="strict_json",
+            channel="author_overview",
+            enable_thinking=False,
+        ),
+        beat_task_spec=_task_spec(
+            task_name="generate_beat",
+            output_mode="strict_json",
+            channel="author_beat",
+            enable_thinking=True,
+        ),
     )
 
     overview_result = asyncio.run(

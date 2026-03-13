@@ -26,13 +26,15 @@ def _overview() -> StoryOverview:
             "target_minutes": 10,
             "npc_count": 4,
             "ending_shape": "pyrrhic",
+            "ending_shape_note": "Containment holds, but only after the team accepts reputational and operational damage that cannot be undone by morning.",
             "npc_roster": [
-                {"name": "Mara", "role": "engineer", "motivation": "stabilize", "red_line": "No false telemetry.", "conflict_tags": ["anti_noise"]},
-                {"name": "Rook", "role": "security", "motivation": "protect", "red_line": "No civilian abandonment.", "conflict_tags": ["anti_speed"]},
-                {"name": "Sera", "role": "analyst", "motivation": "preserve evidence", "red_line": "No telemetry wipe.", "conflict_tags": ["anti_noise"]},
-                {"name": "Vale", "role": "director", "motivation": "retain control", "red_line": "No legitimacy collapse.", "conflict_tags": ["anti_resource_burn"]},
+                {"name": "Mara", "role": "engineer", "motivation": "stabilize", "red_line": "No false telemetry.", "conflict_tags": ["anti_noise"], "pressure_signature": "Pushes for precise fixes and grows sharp when the room gets sloppy."},
+                {"name": "Rook", "role": "security", "motivation": "protect", "red_line": "No civilian abandonment.", "conflict_tags": ["anti_speed"], "pressure_signature": "Turns confrontational the moment urgency starts overriding evacuation discipline."},
+                {"name": "Sera", "role": "analyst", "motivation": "preserve evidence", "red_line": "No telemetry wipe.", "conflict_tags": ["anti_noise"], "pressure_signature": "Keeps circling back to record integrity even when everyone wants to move on."},
+                {"name": "Vale", "role": "director", "motivation": "retain control", "red_line": "No legitimacy collapse.", "conflict_tags": ["anti_resource_burn"], "pressure_signature": "Treats every sacrifice as acceptable until it threatens command authority itself."},
             ],
             "move_bias": ["technical", "investigate", "social"],
+            "move_bias_note": "Progress should come from diagnosis, interrogation, and negotiated access more often than brute force.",
             "scene_constraints": ["One", "Two", "Three", "Four"],
         }
     )
@@ -150,6 +152,9 @@ def test_project_overview_for_beat_generation_trims_fields() -> None:
     assert "target_minutes" not in payload
     assert "npc_count" not in payload
     assert all("motivation" not in item for item in payload["npc_roster"])
+    assert payload["ending_shape_note"]
+    assert payload["move_bias_note"]
+    assert all(item["pressure_signature"] for item in payload["npc_roster"])
 
 
 def test_build_structured_prefix_summary_mentions_prior_ids() -> None:

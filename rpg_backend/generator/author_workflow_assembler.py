@@ -75,12 +75,15 @@ def assemble_story_pack(
         "story_id": story_id,
         "title": overview.title,
         "description": f"{overview.premise} Stakes: {overview.stakes}".strip(),
+        "ending_shape_note": overview.ending_shape_note,
+        "move_bias_note": overview.move_bias_note,
         "npcs": overview_npcs,
         "npc_profiles": [
             {
                 "name": npc.name,
                 "red_line": npc.red_line,
                 "conflict_tags": list(npc.conflict_tags),
+                "pressure_signature": npc.pressure_signature,
             }
             for npc in overview.npc_roster
         ],

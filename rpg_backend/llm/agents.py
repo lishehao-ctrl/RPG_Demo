@@ -5,14 +5,13 @@ from dataclasses import dataclass
 from typing import Any
 
 from rpg_backend.llm.response_sessions import (
-    AUTHOR_BEAT_CHANNEL,
-    AUTHOR_OVERVIEW_CHANNEL,
     AUTHOR_SCOPE_TYPE,
     PLAY_CHANNEL,
     PLAY_SCOPE_TYPE,
     ResponseSessionStore,
 )
 from rpg_backend.llm.responses_transport import ResponsesTransport, ResponsesTransportResult
+from rpg_backend.llm.task_specs import ResponsesTaskSpec
 
 
 @dataclass(frozen=True)
@@ -92,19 +91,21 @@ class PlayAgent:
         session_store: ResponseSessionStore,
         model: str,
         timeout_seconds: float,
-        enable_thinking: bool,
+        interpret_task_spec: ResponsesTaskSpec,
+        render_task_spec: ResponsesTaskSpec,
     ) -> None:
         self.transport = transport
         self.session_store = session_store
         self.model = str(model)
         self.timeout_seconds = float(timeout_seconds)
-        self.enable_thinking = bool(enable_thinking)
+        self.interpret_task_spec = interpret_task_spec
+        self.render_task_spec = render_task_spec
 
     async def _invoke(
         self,
         *,
         session_id: str,
-        developer_prompt: str,
+        task_spec: ResponsesTaskSpec,
         user_payload: dict[str, Any],
     ) -> ResponsesTransportResult:
         user_text = json.dumps(user_payload, ensure_ascii=False, sort_keys=True)
@@ -113,18 +114,18 @@ class PlayAgent:
             return await self.transport.create(
                 model=self.model,
                 input=[
-                    _message("developer", developer_prompt),
+                    _message("developer", task_spec.developer_prompt),
                     _message("user", user_text),
                 ],
                 previous_response_id=previous_response_id,
                 timeout=self.timeout_seconds,
-                extra_body={"enable_thinking": self.enable_thinking},
+                extra_body={"enable_thinking": task_spec.enable_thinking},
             )
 
         return await self.session_store.call_with_cursor(
             scope_type=PLAY_SCOPE_TYPE,
             scope_id=session_id,
-            channel=PLAY_CHANNEL,
+            channel=task_spec.channel or PLAY_CHANNEL,
             model=self.model,
             invoke=_call,
         )
@@ -137,15 +138,11 @@ class PlayAgent:
         route_candidates: list[dict[str, Any]],
         text: str,
     ) -> PlayInterpretResult:
-        developer_prompt = (
-            "You are the Play Agent. For a text player action, select exactly one candidate key. "
-            "Return strict JSON only with keys: selected_key, confidence, interpreted_intent."
-        )
         result = await self._invoke(
             session_id=session_id,
-            developer_prompt=developer_prompt,
+            task_spec=self.interpret_task_spec,
             user_payload={
-                "task": "interpret_turn",
+                "task": self.interpret_task_spec.task_name,
                 "player_text": text,
                 "scene_context": scene_context,
                 "route_candidates": route_candidates,
@@ -179,15 +176,11 @@ class PlayAgent:
         prompt_slots: dict[str, Any],
         style_guard: str,
     ) -> PlayRenderResult:
-        developer_prompt = (
-            "You are the Play Agent. Render concise player-facing narration from deterministic resolution. "
-            "Do not change outcome facts. Return narration text only, no JSON and no markdown fences."
-        )
         result = await self._invoke(
             session_id=session_id,
-            developer_prompt=developer_prompt,
+            task_spec=self.render_task_spec,
             user_payload={
-                "task": "render_resolved_turn",
+                "task": self.render_task_spec.task_name,
                 "style_guard": style_guard,
                 "narration_context": narration_context,
                 "prompt_slots": prompt_slots,
@@ -212,44 +205,44 @@ class AuthorAgent:
         session_store: ResponseSessionStore,
         model: str,
         timeout_seconds: float,
-        overview_enable_thinking: bool,
-        beat_enable_thinking: bool,
+        overview_task_spec: ResponsesTaskSpec,
+        beat_task_spec: ResponsesTaskSpec,
     ) -> None:
         self.transport = transport
         self.session_store = session_store
         self.model = str(model)
         self.timeout_seconds = float(timeout_seconds)
-        self.overview_enable_thinking = bool(overview_enable_thinking)
-        self.beat_enable_thinking = bool(beat_enable_thinking)
+        self.overview_task_spec = overview_task_spec
+        self.beat_task_spec = beat_task_spec
 
     async def _invoke_structured(
         self,
         *,
         run_id: str,
-        channel: str,
-        developer_prompt: str,
+        task_spec: ResponsesTaskSpec,
         user_payload: dict[str, Any],
-        enable_thinking: bool,
         timeout_seconds: float | None = None,
     ) -> AuthorStructuredResult:
+        if task_spec.channel is None:
+            raise ValueError("author structured task requires a continuity channel")
         user_text = json.dumps(user_payload, ensure_ascii=False, sort_keys=True)
 
         async def _call(previous_response_id: str | None) -> ResponsesTransportResult:
             return await self.transport.create(
                 model=self.model,
                 input=[
-                    _message("developer", developer_prompt),
+                    _message("developer", task_spec.developer_prompt),
                     _message("user", user_text),
                 ],
                 previous_response_id=previous_response_id,
                 timeout=float(timeout_seconds or self.timeout_seconds),
-                extra_body={"enable_thinking": enable_thinking},
+                extra_body={"enable_thinking": task_spec.enable_thinking},
             )
 
         result = await self.session_store.call_with_cursor(
             scope_type=AUTHOR_SCOPE_TYPE,
             scope_id=run_id,
-            channel=channel,
+            channel=task_spec.channel,
             model=self.model,
             invoke=_call,
         )
@@ -267,20 +260,14 @@ class AuthorAgent:
         output_schema: dict[str, Any],
         timeout_seconds: float | None = None,
     ) -> AuthorStructuredResult:
-        developer_prompt = (
-            "You are the Author Agent. Compile one StoryOverview JSON object. "
-            "Return strict JSON only. No prose, no markdown fences."
-        )
         return await self._invoke_structured(
             run_id=run_id,
-            channel=AUTHOR_OVERVIEW_CHANNEL,
-            developer_prompt=developer_prompt,
+            task_spec=self.overview_task_spec,
             user_payload={
-                "task": "generate_overview",
+                "task": self.overview_task_spec.task_name,
                 "raw_brief": raw_brief,
                 "output_schema": output_schema,
             },
-            enable_thinking=self.overview_enable_thinking,
             timeout_seconds=timeout_seconds,
         )
 
@@ -291,17 +278,11 @@ class AuthorAgent:
         payload: dict[str, Any],
         timeout_seconds: float | None = None,
     ) -> AuthorStructuredResult:
-        developer_prompt = (
-            "You are the Author Agent. Compile one BeatDraft JSON object. "
-            "Return strict JSON only. No prose, no markdown fences."
-        )
         request_payload = dict(payload)
-        request_payload["task"] = "generate_beat"
+        request_payload["task"] = self.beat_task_spec.task_name
         return await self._invoke_structured(
             run_id=run_id,
-            channel=AUTHOR_BEAT_CHANNEL,
-            developer_prompt=developer_prompt,
+            task_spec=self.beat_task_spec,
             user_payload=request_payload,
-            enable_thinking=self.beat_enable_thinking,
             timeout_seconds=timeout_seconds,
         )

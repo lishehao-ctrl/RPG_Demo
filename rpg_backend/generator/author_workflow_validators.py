@@ -58,13 +58,16 @@ def project_overview_for_beat_generation(overview: StoryOverview) -> BeatOvervie
         tone=overview.tone,
         stakes=overview.stakes,
         ending_shape=overview.ending_shape,
+        ending_shape_note=overview.ending_shape_note,
         move_bias=list(overview.move_bias),
+        move_bias_note=overview.move_bias_note,
         npc_roster=[
             BeatOverviewNPCContext(
                 name=npc.name,
                 role=npc.role,
                 red_line=npc.red_line,
                 conflict_tags=list(npc.conflict_tags),
+                pressure_signature=npc.pressure_signature,
             )
             for npc in overview.npc_roster
         ],

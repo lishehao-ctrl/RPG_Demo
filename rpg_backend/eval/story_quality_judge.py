@@ -6,10 +6,12 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from rpg_backend.config.settings import get_settings
+from rpg_backend.config.settings import Settings, get_settings
 from rpg_backend.eval.story_quality_schema import StoryQualityJudgeResult
 from rpg_backend.llm.base import LLMProviderConfigError
 from rpg_backend.llm.factory import get_responses_agent_bundle
+from rpg_backend.llm.json_gateway import JsonGatewayError, ResponsesJsonGateway
+from rpg_backend.llm.task_specs import build_responses_task_spec_bundle
 
 
 @dataclass
@@ -30,13 +32,15 @@ class StoryQualityJudgeError(RuntimeError):
 class StoryQualityJudge:
     """LLM-based subjective judge for generated story quality."""
 
-    def __init__(self, *, model_override: str | None = None) -> None:
-        settings = get_settings()
+    def __init__(self, *, model_override: str | None = None, settings: Settings | None = None) -> None:
+        resolved_settings = settings or get_settings()
         self.bundle = get_responses_agent_bundle()
+        self.task_spec = self.bundle.task_specs.story_quality_judge
+        self._json_gateway = ResponsesJsonGateway(transport=self.bundle.author_agent.transport)
         self.model = (model_override or "").strip() or self.bundle.model
-        self.timeout_seconds = float(settings.responses_timeout_seconds)
+        self.timeout_seconds = float(resolved_settings.responses_timeout_seconds)
         self.temperature = 0.1
-        self.enable_thinking = bool(settings.responses_enable_thinking_story_quality_judge)
+        self.max_retries = 1
 
         if not self.model:
             raise StoryQualityJudgeError(
@@ -65,13 +69,10 @@ class StoryQualityJudge:
         transcript_summary: dict[str, Any],
         metrics: dict[str, Any],
     ) -> StoryQualityJudgeDecision:
-        developer_prompt = (
-            "You are a strict evaluator for interactive narrative packs. "
-            "Return strict JSON only. Score each axis from 0 to 10."
-        )
+        task_spec = getattr(self, "task_spec", None) or build_responses_task_spec_bundle().story_quality_judge
         user_prompt = json.dumps(
             {
-                "task": "judge_story_quality",
+                "task": task_spec.task_name,
                 "prompt_text": prompt_text,
                 "expected_tone": expected_tone or "",
                 "pack_summary": pack_summary,
@@ -93,24 +94,23 @@ class StoryQualityJudge:
         )
 
         try:
-            result = await self.bundle.author_agent.transport.create(
+            result = await self._json_gateway.call_json_object(
                 model=self.model,
-                input=[
-                    {
-                        "role": "developer",
-                        "content": [{"type": "input_text", "text": developer_prompt}],
-                    },
-                    {
-                        "role": "user",
-                        "content": [{"type": "input_text", "text": user_prompt}],
-                    },
-                ],
-                previous_response_id=None,
-                timeout=float(self.timeout_seconds),
-                extra_body={"enable_thinking": self.enable_thinking},
+                system_prompt=task_spec.developer_prompt,
+                user_prompt=user_prompt,
+                temperature=self.temperature,
+                timeout_seconds=float(self.timeout_seconds),
+                enable_thinking=task_spec.enable_thinking,
             )
         except LLMProviderConfigError:
             raise
+        except JsonGatewayError as exc:
+            error_type = "judge_invalid_json" if exc.error_code == "json_task_invalid_response" else "judge_failed"
+            raise StoryQualityJudgeError(
+                error_type=error_type,
+                message=str(exc),
+                notes=[f"error_code={exc.error_code}", f"attempts={exc.attempts}"],
+            ) from exc
         except Exception as exc:  # noqa: BLE001
             raise StoryQualityJudgeError(
                 error_type="judge_failed",
@@ -118,25 +118,14 @@ class StoryQualityJudge:
                 notes=["judge responses call failed"],
             ) from exc
 
-        try:
-            payload = json.loads(result.output_text)
-        except Exception as exc:  # noqa: BLE001
-            raise StoryQualityJudgeError(
-                error_type="judge_invalid_json",
-                message=str(exc),
-                notes=["judge output is not valid JSON"],
-            ) from exc
-
-        if not isinstance(payload, dict):
-            raise StoryQualityJudgeError(
-                error_type="judge_invalid_json",
-                message="judge output is not a JSON object",
-            )
-
-        validated = self.parse_result_payload(payload)
+        validated = self.parse_result_payload(result.payload)
         return StoryQualityJudgeDecision(
             result=validated,
             model=self.model,
-            attempts=1,
-            notes=[f"judge_model={self.model}", "judge_attempts=1", f"response_id={result.response_id or ''}"],
+            attempts=int(result.attempts),
+            notes=[
+                f"judge_model={self.model}",
+                f"judge_attempts={int(result.attempts)}",
+                f"response_id={result.response_id or ''}",
+            ],
         )

@@ -46,7 +46,7 @@ def _compact_last_accepted_beat(payload: dict[str, Any] | None) -> dict[str, Any
 def _compact_overview_context_payload(payload: dict[str, Any]) -> dict[str, Any]:
     compact: dict[str, Any] = {}
 
-    for key in ("premise", "stakes", "tone", "ending_shape"):
+    for key in ("premise", "stakes", "tone", "ending_shape", "ending_shape_note", "move_bias_note"):
         value = payload.get(key)
         if value is not None:
             compact[key] = value
@@ -64,7 +64,7 @@ def _compact_overview_context_payload(payload: dict[str, Any]) -> dict[str, Any]
         compact["npc_roster"] = [
             {
                 key: npc.get(key)
-                for key in ("name", "role", "red_line", "conflict_tags")
+                for key in ("name", "role", "red_line", "conflict_tags", "pressure_signature")
                 if key in npc
             }
             for npc in npc_roster
@@ -161,12 +161,16 @@ class StoryOverviewChain(_JsonSchemaChain):
             "- npc_count must be between 3 and 5 inclusive.\n"
             "- npc_roster length must equal npc_count.\n"
             "- ending_shape must be one of triumph, pyrrhic, uncertain, sacrifice.\n"
+            "- ending_shape_note must briefly explain the emotional flavor and tradeoff implied by ending_shape.\n"
             "- move_bias values must come from the move_bias enum only.\n"
+            "- move_bias_note must explain how the selected move_bias should feel in play without replacing the enum values.\n"
             "- npc_roster[*].conflict_tags must use only the npc conflict tag enum values below.\n"
+            "- npc_roster[*].pressure_signature must be a short free-text tension cue that complements conflict_tags instead of replacing them.\n"
             "- npc conflict tags are NOT move_bias values. Never use social, technical, stealth, investigate, support, resource, conflict, or mobility in npc_roster[*].conflict_tags.\n\n"
             "# Soft Goals\n"
             "- Design a cast that can recur across multiple beats; prefer durable pressure relationships over disposable one-scene characters.\n"
             "- Give every NPC a sharp enough role and red line that later beat generation can keep them distinct without extra exposition.\n"
+            "- Use ending_shape_note, move_bias_note, and pressure_signature to carry story-specific nuance while keeping ending_shape, move_bias, and conflict_tags machine-stable.\n"
             "- Write scene_constraints as playable pressure lenses, not decorative lore fragments.\n\n"
             "# NPC Conflict Tags\n"
             f"{catalog_markdown}\n\n"
@@ -239,6 +243,7 @@ class BeatGenerationChain(_JsonSchemaChain):
             "Read the projected overview, the current beat blueprint, the lightweight last accepted beat summary if present, and the structured prefix summary for completed beat order.\n"
             "Use the structured author_memory as the primary continuity source of truth for recent beats, active NPCs, and unresolved threads.\n"
             "Treat last_accepted_beat as a small recent-detail hint only, not as the full serialized prior beat.\n"
+            "Use ending_shape_note, move_bias_note, and each NPC pressure_signature to add nuance without drifting away from the enum fields.\n"
             "The new beat must continue those exact details; do not contradict prior beats.\n"
             "Do NOT output any text outside JSON.\n\n"
             "# Hard Constraints\n"

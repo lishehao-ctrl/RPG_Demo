@@ -43,13 +43,15 @@ def _overview() -> StoryOverview:
             "target_minutes": 10,
             "npc_count": 4,
             "ending_shape": "pyrrhic",
+            "ending_shape_note": "The city survives the night, but the cost is visible in trust, infrastructure, and who still has standing by dawn.",
             "npc_roster": [
-                {"name": "Mara", "role": "engineer", "motivation": "stabilize", "red_line": "No false telemetry.", "conflict_tags": ["anti_noise"]},
-                {"name": "Rook", "role": "security", "motivation": "protect", "red_line": "No civilian abandonment.", "conflict_tags": ["anti_speed"]},
-                {"name": "Sera", "role": "analyst", "motivation": "preserve evidence", "red_line": "No telemetry wipe.", "conflict_tags": ["anti_noise"]},
-                {"name": "Vale", "role": "director", "motivation": "retain control", "red_line": "No legitimacy collapse.", "conflict_tags": ["anti_resource_burn"]},
+                {"name": "Mara", "role": "engineer", "motivation": "stabilize", "red_line": "No false telemetry.", "conflict_tags": ["anti_noise"], "pressure_signature": "Keeps forcing the room back to exact readings when everyone else starts improvising."},
+                {"name": "Rook", "role": "security", "motivation": "protect", "red_line": "No civilian abandonment.", "conflict_tags": ["anti_speed"], "pressure_signature": "Escalates fast whenever urgency starts being used to justify collateral damage."},
+                {"name": "Sera", "role": "analyst", "motivation": "preserve evidence", "red_line": "No telemetry wipe.", "conflict_tags": ["anti_noise"], "pressure_signature": "Worries about corrupted records even in the middle of the immediate crisis."},
+                {"name": "Vale", "role": "director", "motivation": "retain control", "red_line": "No legitimacy collapse.", "conflict_tags": ["anti_resource_burn"], "pressure_signature": "Frames every expensive concession as a threat to long-term authority."},
             ],
             "move_bias": ["technical", "investigate", "social"],
+            "move_bias_note": "The story should prefer diagnosis, leverage, and information control over simple force or stealth.",
             "scene_constraints": ["One", "Two", "Three", "Four"],
         }
     )
@@ -386,7 +388,9 @@ def test_direct_beat_generation_chain_payload_uses_last_accepted_beat_and_struct
         "stakes",
         "tone",
         "ending_shape",
+        "ending_shape_note",
         "move_bias",
+        "move_bias_note",
         "npc_roster",
         "scene_constraints",
     }
@@ -407,6 +411,7 @@ def test_direct_beat_generation_chain_payload_uses_last_accepted_beat_and_struct
     assert "# Hard Constraints" in captured["system_prompt"]
     assert "always_available_moves exactly as" in captured["system_prompt"]
     assert "Use exactly three local moves" in captured["system_prompt"]
+    assert "pressure_signature" in captured["system_prompt"]
 
 
 def test_direct_beat_lint_rejects_wrong_global_move_set() -> None:
@@ -448,6 +453,21 @@ def test_assembled_direct_pack_preserves_scene_reachability() -> None:
     report = lint_story_pack(pack)
 
     assert not any("unreachable scenes from entry" in err for err in report.errors), report.errors
+
+
+def test_assembled_direct_pack_preserves_enum_notes_and_pressure_signatures() -> None:
+    overview = _overview()
+    blueprints = plan_beat_blueprints_from_overview(overview)
+    pack = assemble_story_pack(
+        story_id="story-1",
+        overview=overview,
+        beat_blueprints=blueprints,
+        beat_drafts=[_beat_draft(blueprint=blueprints[0])],
+    )
+
+    assert pack["ending_shape_note"] == overview.ending_shape_note
+    assert pack["move_bias_note"] == overview.move_bias_note
+    assert pack["npc_profiles"][0]["pressure_signature"] == overview.npc_roster[0].pressure_signature
 
 
 def test_outcome_builder_matches_shared_palette_logic() -> None:

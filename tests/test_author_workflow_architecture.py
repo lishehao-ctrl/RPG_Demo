@@ -57,13 +57,15 @@ def _sample_overview() -> StoryOverview:
             "target_minutes": 10,
             "npc_count": 4,
             "ending_shape": "pyrrhic",
+            "ending_shape_note": "The district gets through the crisis, but authority and infrastructure come out visibly damaged.",
             "npc_roster": [
-                {"name": "Mara", "role": "engineer", "motivation": "stabilize", "red_line": "No false telemetry.", "conflict_tags": ["anti_noise"]},
-                {"name": "Rook", "role": "security", "motivation": "protect", "red_line": "No civilian abandonment.", "conflict_tags": ["anti_speed"]},
-                {"name": "Sera", "role": "analyst", "motivation": "preserve evidence", "red_line": "No telemetry wipe.", "conflict_tags": ["anti_noise"]},
-                {"name": "Vale", "role": "director", "motivation": "retain control", "red_line": "No legitimacy collapse.", "conflict_tags": ["anti_resource_burn"]},
+                {"name": "Mara", "role": "engineer", "motivation": "stabilize", "red_line": "No false telemetry.", "conflict_tags": ["anti_noise"], "pressure_signature": "Demands exactness and turns biting when people round off bad data."},
+                {"name": "Rook", "role": "security", "motivation": "protect", "red_line": "No civilian abandonment.", "conflict_tags": ["anti_speed"], "pressure_signature": "Pushes back hard whenever speed threatens orderly evacuation."},
+                {"name": "Sera", "role": "analyst", "motivation": "preserve evidence", "red_line": "No telemetry wipe.", "conflict_tags": ["anti_noise"], "pressure_signature": "Treats evidence loss as a moral failure, not just an operational one."},
+                {"name": "Vale", "role": "director", "motivation": "retain control", "red_line": "No legitimacy collapse.", "conflict_tags": ["anti_resource_burn"], "pressure_signature": "Sees every emergency expense as a political weakness someone else will exploit."},
             ],
             "move_bias": ["technical", "investigate", "social"],
+            "move_bias_note": "The core motion should come from diagnosis, inquiry, and negotiated cooperation under stress.",
             "scene_constraints": ["One", "Two", "Three", "Four"],
         }
     )
@@ -297,6 +299,37 @@ def test_workflow_split_modules_exist() -> None:
     missing = [path for path in expected if not path.exists()]
     assert not missing, "missing required workflow split modules:\n" + "\n".join(
         sorted(path.relative_to(REPO_ROOT).as_posix() for path in missing)
+    )
+
+
+def test_legacy_outline_normalizer_module_is_removed_from_active_backend() -> None:
+    assert not (REPO_ROOT / "rpg_backend" / "generator" / "author_workflow_normalizer.py").exists()
+
+
+def test_active_backend_runtime_has_no_outline_materialize_imports() -> None:
+    scan_paths = [
+        REPO_ROOT / "rpg_backend" / "application" / "author_runs" / "workflow_nodes.py",
+        REPO_ROOT / "rpg_backend" / "generator" / "author_workflow_models.py",
+        REPO_ROOT / "rpg_backend" / "generator" / "author_workflow_chains.py",
+        REPO_ROOT / "README.md",
+        REPO_ROOT / "docs" / "runtime_status.md",
+    ]
+    forbidden_markers = {
+        "BeatOutline",
+        "materialize_beat_outline",
+        "compile_outline",
+        "outline -> materialize",
+        "overview/outline",
+    }
+    violations: list[str] = []
+    for path in scan_paths:
+        content = path.read_text(encoding="utf-8")
+        for marker in forbidden_markers:
+            if marker in content:
+                violations.append(f"{path.relative_to(REPO_ROOT).as_posix()}: '{marker}'")
+
+    assert not violations, "outline/materialize legacy markers found in active backend runtime paths:\n" + "\n".join(
+        sorted(violations)
     )
 
 

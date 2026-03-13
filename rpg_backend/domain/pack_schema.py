@@ -137,6 +137,7 @@ class NPCProfile(BaseModel):
     name: str = Field(min_length=1)
     red_line: str = Field(min_length=1, max_length=160)
     conflict_tags: list[NPCConflictTag] = Field(min_length=1, max_length=3)
+    pressure_signature: str | None = Field(default=None, max_length=220)
 
 
 class OpeningGuidance(BaseModel):
@@ -176,6 +177,8 @@ class StoryPack(BaseModel):
     story_id: str
     title: str
     description: str
+    ending_shape_note: str | None = Field(default=None, max_length=220)
+    move_bias_note: str | None = Field(default=None, max_length=220)
     npcs: list[str] = Field(min_length=3, max_length=5)
     npc_profiles: list[NPCProfile] = Field(min_length=3, max_length=5)
     beats: list[Beat] = Field(min_length=1)

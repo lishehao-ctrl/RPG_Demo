@@ -12,13 +12,10 @@ from rpg_backend.infrastructure.repositories.response_sessions_async import (
     get_response_session_cursor,
     upsert_response_session_cursor,
 )
+from rpg_backend.llm.task_specs import AUTHOR_BEAT_CHANNEL, AUTHOR_OVERVIEW_CHANNEL, PLAY_CHANNEL
 
 PLAY_SCOPE_TYPE = "play_session"
 AUTHOR_SCOPE_TYPE = "author_run"
-
-PLAY_CHANNEL = "play_agent"
-AUTHOR_OVERVIEW_CHANNEL = "author_overview"
-AUTHOR_BEAT_CHANNEL = "author_beat"
 
 
 @dataclass(frozen=True)
@@ -118,6 +115,9 @@ class ResponseSessionStore:
         invoke,
     ) -> TResponseIdResult:
         cursor = await self.get_cursor(scope_type=scope_type, scope_id=scope_id, channel=channel)
+        if cursor is not None and cursor.model != model:
+            await self.clear_cursor(scope_type=scope_type, scope_id=scope_id, channel=channel)
+            cursor = None
         previous_response_id = cursor.previous_response_id if cursor else None
 
         try:

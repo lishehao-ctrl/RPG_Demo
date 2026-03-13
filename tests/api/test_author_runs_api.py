@@ -37,6 +37,7 @@ def _sample_overview() -> StoryOverview:
             "target_minutes": 10,
             "npc_count": 4,
             "ending_shape": "pyrrhic",
+            "ending_shape_note": "The system can be stabilized, but only at a cost that leaves the command structure visibly diminished by dawn.",
             "npc_roster": [
                 {
                     "name": "Mara",
@@ -44,6 +45,7 @@ def _sample_overview() -> StoryOverview:
                     "motivation": "prevent systemic collapse",
                     "red_line": "Never cut hospital access to stabilize industry.",
                     "conflict_tags": ["anti_noise"],
+                    "pressure_signature": "Keeps snapping the team back to exact readings whenever panic turns sloppy.",
                 },
                 {
                     "name": "Rook",
@@ -51,6 +53,7 @@ def _sample_overview() -> StoryOverview:
                     "motivation": "protect civilians",
                     "red_line": "No civilian corridor can be abandoned for pace.",
                     "conflict_tags": ["anti_speed"],
+                    "pressure_signature": "Reads every rushed shortcut through the lens of preventable civilian harm.",
                 },
                 {
                     "name": "Sera",
@@ -58,6 +61,7 @@ def _sample_overview() -> StoryOverview:
                     "motivation": "preserve evidence",
                     "red_line": "No telemetry wipe even under command pressure.",
                     "conflict_tags": ["anti_noise"],
+                    "pressure_signature": "Refuses to let the crisis erase the forensic trail that explains who failed first.",
                 },
                 {
                     "name": "Director Vale",
@@ -65,9 +69,11 @@ def _sample_overview() -> StoryOverview:
                     "motivation": "retain control",
                     "red_line": "Public command legitimacy cannot collapse.",
                     "conflict_tags": ["anti_resource_burn"],
+                    "pressure_signature": "Treats every expensive concession as a direct threat to command legitimacy.",
                 },
             ],
             "move_bias": ["technical", "investigate", "social"],
+            "move_bias_note": "Most progress should come from diagnosis, questioning, and leverage rather than brute escalation.",
             "scene_constraints": [
                 "Open with concrete damage and immediate objective framing.",
                 "Escalate pressure with checkpoints and contradictory orders.",
@@ -342,6 +348,43 @@ class _RetryingBeatChain:
         )
 
 
+class _BeatLintRetryChain:
+    calls: list[dict[str, object]] = []
+    attempts_by_beat: dict[str, int] = {}
+
+    async def compile_beat(self, *, story_id: str, overview_context: dict | object, blueprint: dict, last_accepted_beat: dict | None, prefix_summary: dict | object, author_memory: dict | object | None = None, lint_feedback: list[str] | None = None, timeout_seconds: float | None = None) -> BeatDraft:
+        del story_id, overview_context, prefix_summary, author_memory, timeout_seconds
+        beat_id = str(blueprint["beat_id"])
+        attempt = self.attempts_by_beat.get(beat_id, 0) + 1
+        self.attempts_by_beat[beat_id] = attempt
+        self.calls.append(
+            {
+                "beat_id": beat_id,
+                "attempt": attempt,
+                "last_accepted_beat_id": (
+                    str(last_accepted_beat.get("beat_id"))
+                    if isinstance(last_accepted_beat, dict) and last_accepted_beat.get("beat_id")
+                    else None
+                ),
+                "lint_feedback": list(lint_feedback or []),
+            }
+        )
+
+        overview = _sample_overview()
+        beat_index = int(beat_id[1:]) - 1
+        draft = _make_beat_draft(
+            overview=overview,
+            blueprint=blueprint,
+            beat_index=beat_index,
+        )
+        if beat_id == "b2" and attempt == 1:
+            payload = draft.model_dump(mode="json")
+            for scene in payload["scenes"]:
+                scene["always_available_moves"] = [GLOBAL_CLARIFY_MOVE_ID, GLOBAL_LOOK_MOVE_ID]
+            return BeatDraft.model_validate(payload)
+        return draft
+
+
 def test_create_author_run_and_fetch_review_ready_story(client, monkeypatch) -> None:
     _install_fake_workflow(monkeypatch)
 
@@ -540,6 +583,43 @@ def test_author_workflow_retries_direct_beat_until_third_attempt(client, monkeyp
     ]
     assert len(retry_events) == 2
     assert all(event["payload"]["reason"] == "prompt_compile_failed" for event in retry_events)
+
+
+def test_author_workflow_retries_only_current_beat_after_lint_failure(client, monkeypatch) -> None:
+    _BeatLintRetryChain.calls = []
+    _BeatLintRetryChain.attempts_by_beat = {}
+    two_blueprints = author_workflow_nodes_module.plan_beat_blueprints_from_overview(_sample_overview())[:2]
+    monkeypatch.setattr(author_workflow_service, "overview_chain_factory", _FakeOverviewChain)
+    monkeypatch.setattr(author_workflow_service, "beat_chain_factory", _BeatLintRetryChain)
+    monkeypatch.setattr(author_workflow_service, "policy_factory", lambda: AuthorWorkflowPolicy(max_attempts=3, timeout_seconds=20.0))
+    monkeypatch.setattr(author_workflow_service, "scheduler", _InlineScheduler())
+    monkeypatch.setattr(author_workflow_nodes_module, "plan_beat_blueprints_from_overview", lambda overview: two_blueprints)
+    monkeypatch.setattr(author_workflow_nodes_module, "check_beat_blueprints", lambda blueprints: [])
+
+    created = client.post(author_runs_path(), json={"raw_brief": "Generate a tense reactor incident story."})
+    assert created.status_code == 202, created.text
+    run_id = created.json()["run_id"]
+
+    run_body = client.get(author_run_path(run_id)).json()
+    assert run_body["status"] == AuthorWorkflowStatus.REVIEW_READY
+    assert [call["beat_id"] for call in _BeatLintRetryChain.calls] == ["b1", "b2", "b2"]
+    assert [call["last_accepted_beat_id"] for call in _BeatLintRetryChain.calls] == [None, "b1", "b1"]
+    assert _BeatLintRetryChain.calls[1]["lint_feedback"] == []
+    assert _BeatLintRetryChain.calls[2]["lint_feedback"]
+    assert "fixed global always_available_moves" in " ".join(_BeatLintRetryChain.calls[2]["lint_feedback"])
+
+    accepted = [item for item in run_body["artifacts"] if item["artifact_type"] == AuthorWorkflowArtifactType.ACCEPTED_BEAT_DRAFT]
+    assert len(accepted) == 2
+    assert {item["artifact_key"] for item in accepted} == {"b1", "b2"}
+
+    events = client.get(author_run_events_path(run_id)).json()["events"]
+    generate_beat_starts = [
+        event
+        for event in events
+        if event["node_name"] == AuthorWorkflowNode.GENERATE_BEAT
+        and event["event_type"] == AuthorWorkflowEventType.NODE_STARTED
+    ]
+    assert len(generate_beat_starts) == 3
 
 
 def test_author_workflow_final_lint_failure_does_not_enter_repair(client, monkeypatch) -> None:

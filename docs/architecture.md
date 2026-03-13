@@ -40,20 +40,18 @@ Author Mode keeps LangGraph topology:
 
 - `generate_story_overview`
 - `plan_beats`
-- `generate_beat_outline`
-- `materialize_beat`
+- `generate_beat`
 - `beat_lint`
 - `assemble_story_pack`
 - `normalize_story_pack`
 - `final_lint`
 - `review_ready | workflow_failed`
 
-LLM nodes (`generate_story_overview`, `generate_beat_outline`) both use `AuthorAgent` + Responses transport.
+LLM nodes (`generate_story_overview`, `generate_beat`) both use `AuthorAgent` + Responses transport.
 
 Deterministic nodes remain deterministic:
 
 - `plan_beats`
-- `materialize`
 - `lint`
 - `normalize`
 
@@ -69,7 +67,7 @@ Provider cursor reuse is persisted in table `response_session_cursors`:
 Channels:
 
 - Play: `play_agent`
-- Author: `author_overview`, `author_outline`
+- Author: `author_overview`, `author_beat`
 
 Cursor invalidation behavior:
 
@@ -85,7 +83,10 @@ Only active LLM config:
 - `APP_RESPONSES_API_KEY`
 - `APP_RESPONSES_MODEL`
 - `APP_RESPONSES_TIMEOUT_SECONDS` (`20.0`)
-- `APP_RESPONSES_ENABLE_THINKING` (`false`)
+- `APP_RESPONSES_ENABLE_THINKING_PLAY`
+- `APP_RESPONSES_ENABLE_THINKING_AUTHOR_OVERVIEW`
+- `APP_RESPONSES_ENABLE_THINKING_AUTHOR_BEAT`
+- `APP_RESPONSES_ENABLE_THINKING_STORY_QUALITY_JUDGE`
 
 No active multi-model route/narration/generator split.
 

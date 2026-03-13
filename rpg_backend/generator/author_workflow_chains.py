@@ -6,10 +6,15 @@ from typing import Any
 from pydantic import ValidationError
 
 from rpg_backend.domain.conflict_tags import NPC_CONFLICT_TAG_CATALOG
+from rpg_backend.domain.constants import (
+    GLOBAL_CLARIFY_MOVE_ID,
+    GLOBAL_HELP_ME_PROGRESS_MOVE_ID,
+    GLOBAL_LOOK_MOVE_ID,
+)
 from rpg_backend.generator.author_workflow_errors import PromptCompileError
 from rpg_backend.generator.author_workflow_models import (
     AuthorMemory,
-    BeatOutlineLLM,
+    BeatDraft,
     BeatOverviewContext,
     BeatPrefixSummary,
     StoryOverview,
@@ -161,7 +166,7 @@ class StoryOverviewChain(_JsonSchemaChain):
             "- npc conflict tags are NOT move_bias values. Never use social, technical, stealth, investigate, support, resource, conflict, or mobility in npc_roster[*].conflict_tags.\n\n"
             "# Soft Goals\n"
             "- Design a cast that can recur across multiple beats; prefer durable pressure relationships over disposable one-scene characters.\n"
-            "- Give every NPC a sharp enough role and red line that later deterministic materialization can keep them distinct without extra exposition.\n"
+            "- Give every NPC a sharp enough role and red line that later beat generation can keep them distinct without extra exposition.\n"
             "- Write scene_constraints as playable pressure lenses, not decorative lore fragments.\n\n"
             "# NPC Conflict Tags\n"
             f"{catalog_markdown}\n\n"
@@ -204,9 +209,9 @@ class BeatGenerationChain(_JsonSchemaChain):
         author_agent: AuthorAgent | None = None,
     ) -> None:
         super().__init__(policy=policy, author_agent=author_agent)
-        self.last_beat_outline_llm: BeatOutlineLLM | None = None
+        self.last_beat_draft_llm: BeatDraft | None = None
 
-    async def compile_outline(
+    async def compile_beat(
         self,
         *,
         story_id: str,
@@ -218,28 +223,40 @@ class BeatGenerationChain(_JsonSchemaChain):
         lint_feedback: list[str] | None = None,
         timeout_seconds: float | None = None,
         run_id: str | None = None,
-    ) -> BeatOutlineLLM:
+    ) -> BeatDraft:
         effective_timeout_seconds = float(timeout_seconds or self.timeout_seconds)
+        beat_id = str(blueprint.get("beat_id") or "beat")
+        entry_scene_id = str(blueprint.get("entry_scene_id") or f"{beat_id}.sc1")
+        move_ids = [f"{beat_id}.m1", f"{beat_id}.m2", f"{beat_id}.m3"]
+        global_move_ids = [
+            GLOBAL_CLARIFY_MOVE_ID,
+            GLOBAL_LOOK_MOVE_ID,
+            GLOBAL_HELP_ME_PROGRESS_MOVE_ID,
+        ]
         system_prompt = (
             "# Role & Intent\n"
-            "Generate one strict BeatOutlineLLM JSON object for the current beat blueprint.\n"
+            "Generate one strict BeatDraft JSON object for the current beat blueprint.\n"
             "Read the projected overview, the current beat blueprint, the lightweight last accepted beat summary if present, and the structured prefix summary for completed beat order.\n"
             "Use the structured author_memory as the primary continuity source of truth for recent beats, active NPCs, and unresolved threads.\n"
             "Treat last_accepted_beat as a small recent-detail hint only, not as the full serialized prior beat.\n"
             "The new beat must continue those exact details; do not contradict prior beats.\n"
             "Do NOT output any text outside JSON.\n\n"
             "# Hard Constraints\n"
-            "- Do NOT output beat_id, title, objective, conflict, required_event, entry_scene_id, scene ids, move ids, outcome ids, args_schema, exit_conditions, move templates, or strategy-slot choices.\n"
-            "- Output only scene_plans, move_surfaces, present_npcs, and events_produced.\n"
-            "- move_surfaces must contain exactly 3 entries in this order: [fast_dirty surface, steady_slow surface, political_safe_resource_heavy surface].\n"
-            "- Each move_surfaces entry may only define label, intents, synonyms, and roleplay_examples. The backend will inject one executable move for each style deterministically.\n"
-            "- roleplay_examples must be short first-person things a player might actually type, such as 'I cut the feeder and reroute it by hand.'\n"
-            "- Labels must be concrete action choices a player would click. Bad labels: 'Fast Dirty Surface', 'Steady Slow Surface'. Good labels: 'Cut the feeder and reroute it', 'Stabilize the relay step by step'.\n"
-            "- Keep the beat compact but not brittle: usually 2 scenes, allow 1-3 when needed.\n\n"
+            "- The output must be a full BeatDraft and must exactly preserve blueprint values for beat_id, title, objective, conflict, required_event, and entry_scene_id.\n"
+            f"- The first scene id must be '{entry_scene_id}'. Additional scenes, if any, must use sequential ids like '{beat_id}.sc2', '{beat_id}.sc3', with no gaps.\n"
+            f"- Use exactly three local moves with ids {move_ids}. Their strategy_style values must be fast_dirty, steady_slow, and political_safe_resource_heavy in that order.\n"
+            "- Every scene must enable those same three local move ids.\n"
+            f"- Every scene must use always_available_moves exactly as {global_move_ids}.\n"
+            "- Each move must include concrete player-facing label, intents, and synonyms. Labels must be concrete action choices a player would click.\n"
+            "- args_schema should usually be an empty object unless a short freeform argument is clearly required.\n"
+            "- Each move must include success, partial, and fail_forward outcomes with ids '<move_id>.success', '<move_id>.partial', and '<move_id>.fail_forward'.\n"
+            "- outcome next_scene_id values may only point to scenes inside this beat or be null.\n"
+            "- Keep the beat compact but playable: usually 1-3 scenes, no cross-beat scene references, no future-beat prewrites.\n"
+            "- events_produced should include the required_event and may include a small number of additional locally earned events.\n\n"
             "# Soft Goals\n"
             "- Prefer at least two active NPCs in the beat unless deliberate isolation is dramatically better.\n"
             "- Reuse recent NPCs and unresolved threads from author_memory when that strengthens continuity.\n"
-            "- Make the three move surfaces feel genuinely distinct in risk, tempo, and political cost.\n"
+            "- Make the three moves feel genuinely distinct in risk, tempo, and political cost.\n"
             "- Keep the beat lean enough for the blueprint step budget; avoid scene bloat."
         )
         payload = {
@@ -250,7 +267,14 @@ class BeatGenerationChain(_JsonSchemaChain):
             "prefix_summary": prefix_summary.model_dump(mode="json"),
             "author_memory": author_memory.model_dump(mode="json") if author_memory is not None else None,
             "lint_feedback": list(lint_feedback or []),
-            "output_schema": BeatOutlineLLM.model_json_schema(),
+            "fixed_global_moves": global_move_ids,
+            "id_rules": {
+                "entry_scene_id": entry_scene_id,
+                "additional_scene_pattern": f"{beat_id}.scN",
+                "move_ids": move_ids,
+                "outcome_id_pattern": "<move_id>.<success|partial|fail_forward>",
+            },
+            "output_schema": BeatDraft.model_json_schema(),
         }
 
         invoke_kwargs: dict[str, Any] = {
@@ -266,18 +290,18 @@ class BeatGenerationChain(_JsonSchemaChain):
             raise PromptCompileError(
                 error_code="prompt_compile_failed",
                 errors=[str(exc)],
-                notes=["beat outline responses execution failed"],
+                notes=["beat draft responses execution failed"],
             ) from exc
 
         try:
-            outline = BeatOutlineLLM.model_validate(result.payload)
-            self.last_beat_outline_llm = outline
-            return outline
+            draft = BeatDraft.model_validate(result.payload)
+            self.last_beat_draft_llm = draft
+            return draft
         except Exception as exc:  # noqa: BLE001
             raise PromptCompileError(
                 error_code="beat_invalid",
                 errors=self._build_validation_feedback(exc),
-                notes=["beat outline schema validation failed"],
+                notes=["beat draft schema validation failed"],
             ) from exc
 
     async def _invoke_chain(
@@ -291,8 +315,8 @@ class BeatGenerationChain(_JsonSchemaChain):
         payload = dict(user_payload)
         payload["instructions"] = system_prompt
         story_id = str(payload.get("story_id") or "story")
-        return await self.author_agent.generate_outline(
-            run_id=run_id or f"author_outline_stateless:{story_id}",
+        return await self.author_agent.generate_beat(
+            run_id=run_id or f"author_beat_stateless:{story_id}",
             payload=payload,
             timeout_seconds=timeout_seconds,
         )

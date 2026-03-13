@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from rpg_backend.domain.constants import (
+    GLOBAL_CLARIFY_MOVE_ID,
+    GLOBAL_HELP_ME_PROGRESS_MOVE_ID,
+    GLOBAL_LOOK_MOVE_ID,
+)
 from rpg_backend.generator.author_workflow_models import AuthorMemory, BeatDraft, BeatOverviewContext, BeatPrefixSummary, StoryOverview
 from rpg_backend.generator.author_workflow_planner import check_beat_blueprints, plan_beat_blueprints_from_overview
 from rpg_backend.generator.author_workflow_validators import (
@@ -51,7 +56,11 @@ def _valid_beat_draft(blueprint) -> BeatDraft:
                     "scene_seed": blueprint.scene_intent,
                     "present_npcs": ["Mara", "Rook"],
                     "enabled_moves": [f"{blueprint.beat_id}.a", f"{blueprint.beat_id}.b", f"{blueprint.beat_id}.c"],
-                    "always_available_moves": ["global.clarify", "global.look"],
+                    "always_available_moves": [
+                        GLOBAL_CLARIFY_MOVE_ID,
+                        GLOBAL_LOOK_MOVE_ID,
+                        GLOBAL_HELP_ME_PROGRESS_MOVE_ID,
+                    ],
                     "exit_conditions": [],
                     "is_terminal": False,
                 }

@@ -14,7 +14,7 @@ from rpg_backend.application.author_runs.workflow_vocabulary import (
 from rpg_backend.domain.constants import GLOBAL_CLARIFY_MOVE_ID, GLOBAL_HELP_ME_PROGRESS_MOVE_ID, GLOBAL_LOOK_MOVE_ID
 from rpg_backend.domain.linter import LintReport
 from rpg_backend.generator.author_workflow_errors import PromptCompileError
-from rpg_backend.generator.author_workflow_models import BeatDraft, BeatOutlineLLM, StoryOverview
+from rpg_backend.generator.author_workflow_models import BeatDraft, StoryOverview
 from rpg_backend.generator.author_workflow_policy import AuthorWorkflowPolicy
 from tests.helpers.route_paths import (
     author_run_events_path,
@@ -222,7 +222,11 @@ def _make_beat_draft(*, overview: StoryOverview, blueprint, beat_index: int) -> 
                     "scene_seed": f"{blueprint['scene_intent']} Opening move.",
                     "present_npcs": npc_pair,
                     "enabled_moves": move_ids,
-                    "always_available_moves": [GLOBAL_CLARIFY_MOVE_ID, GLOBAL_LOOK_MOVE_ID],
+                    "always_available_moves": [
+                        GLOBAL_CLARIFY_MOVE_ID,
+                        GLOBAL_LOOK_MOVE_ID,
+                        GLOBAL_HELP_ME_PROGRESS_MOVE_ID,
+                    ],
                     "exit_conditions": [
                         {
                             "id": f"{blueprint['beat_id']}.advance",
@@ -240,7 +244,11 @@ def _make_beat_draft(*, overview: StoryOverview, blueprint, beat_index: int) -> 
                     "scene_seed": f"{blueprint['scene_intent']} Consequence frame.",
                     "present_npcs": npc_pair,
                     "enabled_moves": move_ids,
-                    "always_available_moves": [GLOBAL_CLARIFY_MOVE_ID, GLOBAL_HELP_ME_PROGRESS_MOVE_ID],
+                    "always_available_moves": [
+                        GLOBAL_CLARIFY_MOVE_ID,
+                        GLOBAL_LOOK_MOVE_ID,
+                        GLOBAL_HELP_ME_PROGRESS_MOVE_ID,
+                    ],
                     "exit_conditions": [],
                     "is_terminal": False,
                 },
@@ -257,57 +265,15 @@ class _FakeOverviewChain:
 
 
 class _FakeBeatChain:
-    async def compile_outline(self, *, story_id: str, overview_context: dict | object, blueprint: dict, last_accepted_beat: dict | None, prefix_summary: dict | object, author_memory: dict | object | None = None, lint_feedback: list[str] | None = None, timeout_seconds: float | None = None) -> BeatOutlineLLM:
-        del story_id, last_accepted_beat, prefix_summary, author_memory, lint_feedback, timeout_seconds
+    async def compile_beat(self, *, story_id: str, overview_context: dict | object, blueprint: dict, last_accepted_beat: dict | None, prefix_summary: dict | object, author_memory: dict | object | None = None, lint_feedback: list[str] | None = None, timeout_seconds: float | None = None) -> BeatDraft:
+        del story_id, overview_context, last_accepted_beat, prefix_summary, author_memory, lint_feedback, timeout_seconds
         beat_index = int(str(blueprint["beat_id"])[1:]) - 1
         overview = _sample_overview()
-        npc_pair = [
-            overview.npc_roster[beat_index % len(overview.npc_roster)].name,
-            overview.npc_roster[(beat_index + 1) % len(overview.npc_roster)].name,
-        ]
-        self.last_beat_outline_llm = BeatOutlineLLM.model_validate(
-            {
-                "present_npcs": npc_pair,
-                "events_produced": [blueprint["required_event"]],
-                "scene_plans": [
-                    {
-                        "scene_seed": blueprint["scene_intent"],
-                        "present_npcs": npc_pair,
-                        "is_terminal": False,
-                    }
-                ],
-                "move_surfaces": [
-                    {
-                        "label": "Push fast through the breach",
-                        "intents": ["rush ahead"],
-                        "synonyms": ["rush"],
-                        "roleplay_examples": [
-                            "I shove through the breach and cut the delay.",
-                            "I force the line open before panic spreads.",
-                        ],
-                    },
-                    {
-                        "label": "Stabilize the corridor carefully",
-                        "intents": ["move carefully"],
-                        "synonyms": ["steady"],
-                        "roleplay_examples": [
-                            "I stabilize the corridor one relay at a time.",
-                            "I slow the team down and do this carefully.",
-                        ],
-                    },
-                    {
-                        "label": "Take the official safe route",
-                        "intents": ["take the careful official route"],
-                        "synonyms": ["official"],
-                        "roleplay_examples": [
-                            "I follow the official route and protect the critical grid.",
-                            "I spend what we must, but keep the process clean.",
-                        ],
-                    },
-                ],
-            }
+        return _make_beat_draft(
+            overview=overview,
+            blueprint=blueprint,
+            beat_index=beat_index,
         )
-        return self.last_beat_outline_llm
 
 
 class _InlineScheduler:
@@ -327,13 +293,13 @@ def _install_fake_workflow(monkeypatch, *, policy: AuthorWorkflowPolicy | None =
 
 
 class _FailingBeatChain:
-    async def compile_outline(self, *, story_id: str, overview_context: dict | object, blueprint: dict, last_accepted_beat: dict | None, prefix_summary: dict | object, author_memory: dict | object | None = None, lint_feedback: list[str] | None = None, timeout_seconds: float | None = None) -> BeatOutlineLLM:
+    async def compile_beat(self, *, story_id: str, overview_context: dict | object, blueprint: dict, last_accepted_beat: dict | None, prefix_summary: dict | object, author_memory: dict | object | None = None, lint_feedback: list[str] | None = None, timeout_seconds: float | None = None) -> BeatDraft:
         del story_id, overview_context, blueprint, last_accepted_beat, prefix_summary, author_memory, lint_feedback, timeout_seconds
         raise RuntimeError("beat generation exploded")
 
 
 class _InvalidBeatChain:
-    async def compile_outline(self, *, story_id: str, overview_context: dict | object, blueprint: dict, last_accepted_beat: dict | None, prefix_summary: dict | object, author_memory: dict | object | None = None, lint_feedback: list[str] | None = None, timeout_seconds: float | None = None) -> BeatOutlineLLM:
+    async def compile_beat(self, *, story_id: str, overview_context: dict | object, blueprint: dict, last_accepted_beat: dict | None, prefix_summary: dict | object, author_memory: dict | object | None = None, lint_feedback: list[str] | None = None, timeout_seconds: float | None = None) -> BeatDraft:
         del story_id, overview_context, blueprint, last_accepted_beat, prefix_summary, author_memory, lint_feedback, timeout_seconds
         raise PromptCompileError(
             error_code="beat_invalid",
@@ -356,7 +322,7 @@ class _RetryingOverviewChain:
 class _RetryingBeatChain:
     attempts = 0
 
-    async def compile_outline(self, *, story_id: str, overview_context: dict | object, blueprint: dict, last_accepted_beat: dict | None, prefix_summary: dict | object, author_memory: dict | object | None = None, lint_feedback: list[str] | None = None, timeout_seconds: float | None = None) -> BeatOutlineLLM:
+    async def compile_beat(self, *, story_id: str, overview_context: dict | object, blueprint: dict, last_accepted_beat: dict | None, prefix_summary: dict | object, author_memory: dict | object | None = None, lint_feedback: list[str] | None = None, timeout_seconds: float | None = None) -> BeatDraft:
         _RetryingBeatChain.attempts += 1
         if _RetryingBeatChain.attempts < 3:
             raise PromptCompileError(
@@ -364,7 +330,7 @@ class _RetryingBeatChain:
                 errors=["temporary gateway failure"],
                 notes=["retry in graph"],
             )
-        return await _FakeBeatChain().compile_outline(
+        return await _FakeBeatChain().compile_beat(
             story_id=story_id,
             overview_context=overview_context,
             blueprint=blueprint,
@@ -398,17 +364,16 @@ def test_create_author_run_and_fetch_review_ready_story(client, monkeypatch) -> 
     assert AuthorWorkflowArtifactType.OVERVIEW in artifact_types
     assert AuthorWorkflowArtifactType.BEAT_BLUEPRINTS in artifact_types
     assert AuthorWorkflowArtifactType.BEAT_OVERVIEW_CONTEXT in artifact_types
-    assert AuthorWorkflowArtifactType.CURRENT_BEAT_OUTLINE in artifact_types
     assert AuthorWorkflowArtifactType.CURRENT_BEAT_DRAFT in artifact_types
     assert AuthorWorkflowArtifactType.AUTHOR_MEMORY in artifact_types
     assert AuthorWorkflowArtifactType.STORY_PACK in artifact_types
     assert AuthorWorkflowArtifactType.STORY_PACK_NORMALIZATION in artifact_types
     assert AuthorWorkflowArtifactType.FINAL_LINT in artifact_types
-    current_outline = next(
-        item for item in run_body["artifacts"] if item["artifact_type"] == AuthorWorkflowArtifactType.CURRENT_BEAT_OUTLINE
+    current_draft = next(
+        item for item in run_body["artifacts"] if item["artifact_type"] == AuthorWorkflowArtifactType.CURRENT_BEAT_DRAFT
     )
-    assert "scene_plans" in current_outline["payload"]
-    assert "move_surfaces" in current_outline["payload"]
+    assert "scenes" in current_draft["payload"]
+    assert "moves" in current_draft["payload"]
     assert sum(1 for item in run_body["artifacts"] if item["artifact_type"] == AuthorWorkflowArtifactType.ACCEPTED_BEAT_DRAFT) == 4
 
     events_response = client.get(author_run_events_path(run_id))
@@ -471,15 +436,15 @@ def test_failed_author_run_records_actual_failing_node(client, monkeypatch) -> N
     assert run_response.status_code == 200
     run_body = run_response.json()
     assert run_body["status"] == AuthorWorkflowStatus.FAILED
-    assert run_body["current_node"] == AuthorWorkflowNode.GENERATE_BEAT_OUTLINE
+    assert run_body["current_node"] == AuthorWorkflowNode.GENERATE_BEAT
     events = client.get(author_run_events_path(run_id)).json()["events"]
     assert any(
-        event["node_name"] == AuthorWorkflowNode.GENERATE_BEAT_OUTLINE
+        event["node_name"] == AuthorWorkflowNode.GENERATE_BEAT
         and event["event_type"] == AuthorWorkflowEventType.NODE_STARTED
         for event in events
     )
     assert any(
-        event["node_name"] == AuthorWorkflowNode.GENERATE_BEAT_OUTLINE
+        event["node_name"] == AuthorWorkflowNode.GENERATE_BEAT
         and event["event_type"] == AuthorWorkflowEventType.RUN_EXCEPTION
         for event in events
     )
@@ -499,7 +464,7 @@ def test_failed_author_run_exposes_prompt_compile_error_code(client, monkeypatch
     assert run_response.status_code == 200
     run_body = run_response.json()
     assert run_body["status"] == AuthorWorkflowStatus.FAILED
-    assert run_body["current_node"] == AuthorWorkflowNode.GENERATE_BEAT_OUTLINE
+    assert run_body["current_node"] == AuthorWorkflowNode.GENERATE_BEAT
     assert run_body["error_code"] == "beat_invalid"
     assert "always_available_moves" in run_body["error_message"]
     workflow_errors = [item for item in run_body["artifacts"] if item["artifact_type"] == AuthorWorkflowArtifactType.WORKFLOW_ERROR]
@@ -548,7 +513,7 @@ def test_author_workflow_retries_timed_out_node_per_attempt(client, monkeypatch)
     assert retry_events[0]["payload"]["timeout_seconds"] == 0.01
 
 
-def test_author_workflow_retries_beat_outline_until_third_attempt(client, monkeypatch) -> None:
+def test_author_workflow_retries_direct_beat_until_third_attempt(client, monkeypatch) -> None:
     _RetryingBeatChain.attempts = 0
     single_blueprint = author_workflow_nodes_module.plan_beat_blueprints_from_overview(_sample_overview())[-1:]
     monkeypatch.setattr(author_workflow_service, "overview_chain_factory", _FakeOverviewChain)
@@ -570,7 +535,7 @@ def test_author_workflow_retries_beat_outline_until_third_attempt(client, monkey
     retry_events = [
         event
         for event in events
-        if event["node_name"] == AuthorWorkflowNode.GENERATE_BEAT_OUTLINE
+        if event["node_name"] == AuthorWorkflowNode.GENERATE_BEAT
         and event["event_type"] == AuthorWorkflowEventType.NODE_RETRY
     ]
     assert len(retry_events) == 2

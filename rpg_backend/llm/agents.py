@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from rpg_backend.llm.response_sessions import (
-    AUTHOR_OUTLINE_CHANNEL,
+    AUTHOR_BEAT_CHANNEL,
     AUTHOR_OVERVIEW_CHANNEL,
     AUTHOR_SCOPE_TYPE,
     PLAY_CHANNEL,
@@ -212,13 +212,15 @@ class AuthorAgent:
         session_store: ResponseSessionStore,
         model: str,
         timeout_seconds: float,
-        enable_thinking: bool,
+        overview_enable_thinking: bool,
+        beat_enable_thinking: bool,
     ) -> None:
         self.transport = transport
         self.session_store = session_store
         self.model = str(model)
         self.timeout_seconds = float(timeout_seconds)
-        self.enable_thinking = bool(enable_thinking)
+        self.overview_enable_thinking = bool(overview_enable_thinking)
+        self.beat_enable_thinking = bool(beat_enable_thinking)
 
     async def _invoke_structured(
         self,
@@ -227,6 +229,7 @@ class AuthorAgent:
         channel: str,
         developer_prompt: str,
         user_payload: dict[str, Any],
+        enable_thinking: bool,
         timeout_seconds: float | None = None,
     ) -> AuthorStructuredResult:
         user_text = json.dumps(user_payload, ensure_ascii=False, sort_keys=True)
@@ -240,7 +243,7 @@ class AuthorAgent:
                 ],
                 previous_response_id=previous_response_id,
                 timeout=float(timeout_seconds or self.timeout_seconds),
-                extra_body={"enable_thinking": self.enable_thinking},
+                extra_body={"enable_thinking": enable_thinking},
             )
 
         result = await self.session_store.call_with_cursor(
@@ -277,10 +280,11 @@ class AuthorAgent:
                 "raw_brief": raw_brief,
                 "output_schema": output_schema,
             },
+            enable_thinking=self.overview_enable_thinking,
             timeout_seconds=timeout_seconds,
         )
 
-    async def generate_outline(
+    async def generate_beat(
         self,
         *,
         run_id: str,
@@ -288,15 +292,16 @@ class AuthorAgent:
         timeout_seconds: float | None = None,
     ) -> AuthorStructuredResult:
         developer_prompt = (
-            "You are the Author Agent. Compile one BeatOutlineLLM JSON object. "
+            "You are the Author Agent. Compile one BeatDraft JSON object. "
             "Return strict JSON only. No prose, no markdown fences."
         )
         request_payload = dict(payload)
-        request_payload["task"] = "generate_outline"
+        request_payload["task"] = "generate_beat"
         return await self._invoke_structured(
             run_id=run_id,
-            channel=AUTHOR_OUTLINE_CHANNEL,
+            channel=AUTHOR_BEAT_CHANNEL,
             developer_prompt=developer_prompt,
             user_payload=request_payload,
+            enable_thinking=self.beat_enable_thinking,
             timeout_seconds=timeout_seconds,
         )

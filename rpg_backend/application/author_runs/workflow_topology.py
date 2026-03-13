@@ -11,16 +11,14 @@ WORKFLOW_CONDITIONAL_ROUTES: dict[str, set[str]] = {
     },
     AuthorWorkflowNode.PLAN_BEATS: {
         AuthorWorkflowNode.PLAN_BEATS,
-        AuthorWorkflowNode.GENERATE_BEAT_OUTLINE,
+        AuthorWorkflowNode.GENERATE_BEAT,
         AuthorWorkflowNode.WORKFLOW_FAILED,
     },
-    AuthorWorkflowNode.MATERIALIZE_BEAT: {
-        AuthorWorkflowNode.GENERATE_BEAT_OUTLINE,
+    AuthorWorkflowNode.GENERATE_BEAT: {
         AuthorWorkflowNode.BEAT_LINT,
-        AuthorWorkflowNode.WORKFLOW_FAILED,
     },
     AuthorWorkflowNode.BEAT_LINT: {
-        AuthorWorkflowNode.GENERATE_BEAT_OUTLINE,
+        AuthorWorkflowNode.GENERATE_BEAT,
         AuthorWorkflowNode.ASSEMBLE_STORY_PACK,
         AuthorWorkflowNode.WORKFLOW_FAILED,
     },
@@ -32,7 +30,6 @@ WORKFLOW_CONDITIONAL_ROUTES: dict[str, set[str]] = {
 
 
 WORKFLOW_LINEAR_EDGES: tuple[tuple[str, str], ...] = (
-    (AuthorWorkflowNode.GENERATE_BEAT_OUTLINE, AuthorWorkflowNode.MATERIALIZE_BEAT),
     (AuthorWorkflowNode.ASSEMBLE_STORY_PACK, AuthorWorkflowNode.NORMALIZE_STORY_PACK),
     (AuthorWorkflowNode.NORMALIZE_STORY_PACK, AuthorWorkflowNode.FINAL_LINT),
 )

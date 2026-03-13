@@ -11,7 +11,7 @@ from rpg_backend.application.author_runs.beat_context_builder import (
 from rpg_backend.application.author_runs.workflow_retry import AuthorWorkflowNodeHandler
 from rpg_backend.application.author_runs.workflow_state import (
     AuthorWorkflowState,
-    build_beat_outline_update,
+    build_beat_generation_update,
     build_beat_phase_seed_update,
     build_beat_plan_update,
     build_overview_generation_update,
@@ -23,7 +23,6 @@ from rpg_backend.domain.linter import lint_story_pack
 from rpg_backend.domain.story_pack_normalizer import try_normalize_story_pack_payload
 from rpg_backend.generator.author_workflow_assembler import assemble_story_pack
 from rpg_backend.generator.author_workflow_chains import BeatGenerationChain, StoryOverviewChain
-from rpg_backend.generator.author_workflow_normalizer import materialize_beat_outline
 from rpg_backend.generator.author_workflow_planner import (
     check_beat_blueprints,
     plan_beat_blueprints_from_overview,
@@ -93,7 +92,7 @@ def build_workflow_nodes(
         update.update(build_beat_phase_seed_update())
         return update
 
-    async def generate_beat_outline(state: AuthorWorkflowState) -> dict[str, Any]:
+    async def generate_beat(state: AuthorWorkflowState) -> dict[str, Any]:
         beat_phase = get_beat_phase(state)
         beat_index = beat_phase.index
         context = beat_context_builder(
@@ -101,7 +100,7 @@ def build_workflow_nodes(
             prior_beats=beat_phase.drafts,
         )
         chain = _build_chain(beat_chain_factory, policy=policy)
-        outline_kwargs: dict[str, Any] = {
+        beat_kwargs: dict[str, Any] = {
             "story_id": state["story_id"],
             "overview_context": context.overview_context,
             "blueprint": state["beat_blueprints"][beat_index].model_dump(mode="json"),
@@ -111,40 +110,17 @@ def build_workflow_nodes(
             "lint_feedback": list(state.get("beat_lint_errors") or []),
             "timeout_seconds": policy.timeout_seconds,
         }
-        if _accepts_kwarg(chain.compile_outline, "run_id"):
-            outline_kwargs["run_id"] = state["run_id"]
-        outline = await chain.compile_outline(**outline_kwargs)
-        return build_beat_outline_update(
+        if _accepts_kwarg(chain.compile_beat, "run_id"):
+            beat_kwargs["run_id"] = state["run_id"]
+        draft = await chain.compile_beat(**beat_kwargs)
+        return build_beat_generation_update(
             overview_context=context.overview_context,
-            outline=outline,
+            draft=draft,
             prefix_summary=context.prefix_summary,
             author_memory=context.author_memory,
             prior_attempts=beat_phase.attempts,
+            current_beat_index=beat_index,
         )
-
-    def materialize_beat(state: AuthorWorkflowState) -> dict[str, Any]:
-        beat_index = int(state.get("current_beat_index", 0))
-        outline = state.get("current_beat_outline")
-        if outline is None:
-            return {
-                "current_beat_draft": None,
-                "beat_materialization_errors": ["current beat outline missing"],
-            }
-        try:
-            draft = materialize_beat_outline(
-                overview_context=state.get("beat_overview_context"),
-                blueprint=state["beat_blueprints"][beat_index],
-                outline=outline,
-            )
-        except Exception as exc:  # noqa: BLE001
-            return {
-                "current_beat_draft": None,
-                "beat_materialization_errors": [str(exc)],
-            }
-        return {
-            "current_beat_draft": draft,
-            "beat_materialization_errors": [],
-        }
 
     def beat_lint(state: AuthorWorkflowState) -> dict[str, Any]:
         beat_phase = get_beat_phase(state)
@@ -174,7 +150,6 @@ def build_workflow_nodes(
                     "current_beat_index": beat_index + 1,
                     "current_beat_attempts": 0,
                     "beat_overview_context": None,
-                    "current_beat_outline": None,
                     "current_beat_draft": None,
                     "prefix_summary": accepted_context.prefix_summary,
                     "author_memory": accepted_context.author_memory,
@@ -213,8 +188,7 @@ def build_workflow_nodes(
     return {
         AuthorWorkflowNode.GENERATE_STORY_OVERVIEW: generate_story_overview,
         AuthorWorkflowNode.PLAN_BEATS: plan_beats,
-        AuthorWorkflowNode.GENERATE_BEAT_OUTLINE: generate_beat_outline,
-        AuthorWorkflowNode.MATERIALIZE_BEAT: materialize_beat,
+        AuthorWorkflowNode.GENERATE_BEAT: generate_beat,
         AuthorWorkflowNode.BEAT_LINT: beat_lint,
         AuthorWorkflowNode.ASSEMBLE_STORY_PACK: assemble_story_pack_node,
         AuthorWorkflowNode.NORMALIZE_STORY_PACK: normalize_story_pack,

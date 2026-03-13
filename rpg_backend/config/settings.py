@@ -24,7 +24,10 @@ class Settings(BaseSettings):
     responses_api_key: str | None = None
     responses_model: str | None = None
     responses_timeout_seconds: float = Field(default=20.0, gt=0)
-    responses_enable_thinking: bool = False
+    responses_enable_thinking_play: bool = False
+    responses_enable_thinking_author_overview: bool = False
+    responses_enable_thinking_author_beat: bool = True
+    responses_enable_thinking_story_quality_judge: bool = False
     obs_log_level: str = "INFO"
     obs_request_id_header: str = "X-Request-ID"
     obs_redact_input_text: bool = True

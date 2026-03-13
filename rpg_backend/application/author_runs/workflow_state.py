@@ -10,7 +10,6 @@ from rpg_backend.generator.author_workflow_models import (
     AuthorMemory,
     BeatBlueprint,
     BeatDraft,
-    BeatOutlineLLM,
     BeatOverviewContext,
     BeatPrefixSummary,
     StoryOverview,
@@ -31,10 +30,9 @@ class AuthorWorkflowState(TypedDict, total=False):
     current_beat_index: int
     current_beat_attempts: int
     beat_overview_context: BeatOverviewContext | None
-    current_beat_outline: BeatOutlineLLM | None
     current_beat_draft: BeatDraft | None
     beat_drafts: list[BeatDraft]
-    beat_materialization_errors: list[str]
+    beat_generation_errors: list[str]
     beat_lint_errors: list[str]
     beat_lint_warnings: list[str]
     prefix_summary: BeatPrefixSummary
@@ -58,7 +56,7 @@ class BeatPhaseState:
     attempts: int
     drafts: list[BeatDraft]
     lint_errors: list[str]
-    materialization_errors: list[str]
+    generation_errors: list[str]
 
 
 @dataclass(frozen=True)
@@ -80,7 +78,7 @@ def get_beat_phase(state: AuthorWorkflowState) -> BeatPhaseState:
         attempts=int(state.get("current_beat_attempts", 0)),
         drafts=list(state.get("beat_drafts") or []),
         lint_errors=list(state.get("beat_lint_errors") or []),
-        materialization_errors=list(state.get("beat_materialization_errors") or []),
+        generation_errors=list(state.get("beat_generation_errors") or []),
     )
 
 
@@ -124,26 +122,28 @@ def build_beat_phase_seed_update() -> dict[str, Any]:
         "current_beat_index": 0,
         "current_beat_attempts": 0,
         "beat_drafts": [],
-        "beat_materialization_errors": [],
+        "beat_generation_errors": [],
+        "current_beat_draft": None,
         "prefix_summary": build_structured_prefix_summary([]),
         "author_memory": build_author_memory([]),
     }
 
 
-def build_beat_outline_update(
+def build_beat_generation_update(
     *,
     overview_context: BeatOverviewContext,
-    outline: BeatOutlineLLM,
+    draft: BeatDraft,
     prefix_summary: BeatPrefixSummary,
     author_memory: AuthorMemory,
     prior_attempts: int,
+    current_beat_index: int,
 ) -> dict[str, Any]:
     return {
+        "current_beat_index": current_beat_index,
         "beat_overview_context": overview_context,
-        "current_beat_outline": outline,
-        "current_beat_draft": None,
+        "current_beat_draft": draft,
         "current_beat_attempts": prior_attempts + 1,
-        "beat_materialization_errors": [],
+        "beat_generation_errors": [],
         "prefix_summary": prefix_summary,
         "author_memory": author_memory,
         "beat_lint_errors": [],
@@ -161,8 +161,8 @@ def build_initial_author_workflow_state(*, story_id: str, run_id: str, raw_brief
         "current_beat_index": 0,
         "current_beat_attempts": 0,
         "beat_drafts": [],
-        "beat_materialization_errors": [],
-        "current_beat_outline": None,
+        "beat_generation_errors": [],
+        "current_beat_draft": None,
         "prefix_summary": build_structured_prefix_summary([]),
         "author_memory": build_author_memory([]),
         "story_pack_normalization_errors": [],
@@ -175,7 +175,7 @@ def resolve_workflow_failure_errors(final_state: AuthorWorkflowState) -> list[st
         final_state.get("final_lint_errors")
         or final_state.get("story_pack_normalization_errors")
         or final_state.get("beat_lint_errors")
-        or final_state.get("beat_materialization_errors")
+        or final_state.get("beat_generation_errors")
         or final_state.get("overview_errors")
         or final_state.get("beat_plan_errors")
         or ["workflow failed"]

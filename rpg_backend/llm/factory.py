@@ -18,17 +18,19 @@ class ResponsesAgentBundle:
 
 
 _cached_bundle: ResponsesAgentBundle | None = None
-_cached_signature: tuple[str, str, str, float, bool] | None = None
+_cached_signature: tuple[str, str, str, float, bool, bool, bool] | None = None
 
 
-def _settings_signature() -> tuple[str, str, str, float, bool]:
+def _settings_signature() -> tuple[str, str, str, float, bool, bool, bool]:
     settings = get_settings()
     return (
         (settings.responses_base_url or "").strip(),
         (settings.responses_api_key or "").strip(),
         (settings.responses_model or "").strip(),
         float(settings.responses_timeout_seconds),
-        bool(settings.responses_enable_thinking),
+        bool(settings.responses_enable_thinking_play),
+        bool(settings.responses_enable_thinking_author_overview),
+        bool(settings.responses_enable_thinking_author_beat),
     )
 
 
@@ -47,7 +49,9 @@ def _build_bundle() -> ResponsesAgentBundle:
         raise LLMProviderConfigError("responses provider misconfigured: APP_RESPONSES_MODEL is required")
 
     timeout_seconds = float(settings.responses_timeout_seconds)
-    enable_thinking = bool(settings.responses_enable_thinking)
+    play_enable_thinking = bool(settings.responses_enable_thinking_play)
+    author_overview_enable_thinking = bool(settings.responses_enable_thinking_author_overview)
+    author_beat_enable_thinking = bool(settings.responses_enable_thinking_author_beat)
     transport = ResponsesTransport(
         base_url=base_url,
         api_key=api_key,
@@ -61,14 +65,15 @@ def _build_bundle() -> ResponsesAgentBundle:
         session_store=session_store,
         model=model,
         timeout_seconds=timeout_seconds,
-        enable_thinking=enable_thinking,
+        enable_thinking=play_enable_thinking,
     )
     author_agent = AuthorAgent(
         transport=transport,
         session_store=session_store,
         model=model,
         timeout_seconds=timeout_seconds,
-        enable_thinking=enable_thinking,
+        overview_enable_thinking=author_overview_enable_thinking,
+        beat_enable_thinking=author_beat_enable_thinking,
     )
 
     return ResponsesAgentBundle(

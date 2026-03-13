@@ -18,8 +18,13 @@ from rpg_backend.application.author_runs.workflow_vocabulary import (
     AuthorWorkflowNode,
     AuthorWorkflowStatus,
 )
+from rpg_backend.domain.constants import (
+    GLOBAL_CLARIFY_MOVE_ID,
+    GLOBAL_HELP_ME_PROGRESS_MOVE_ID,
+    GLOBAL_LOOK_MOVE_ID,
+)
 from rpg_backend.generator.author_workflow_errors import PromptCompileError
-from rpg_backend.generator.author_workflow_models import BeatOutlineLLM, StoryOverview
+from rpg_backend.generator.author_workflow_models import BeatDraft, StoryOverview
 from rpg_backend.generator.author_workflow_policy import AuthorWorkflowPolicy, get_author_workflow_policy
 
 
@@ -80,7 +85,7 @@ class _RetryingOverviewChain:
 
 
 class _FakeBeatChain:
-    async def compile_outline(
+    async def compile_beat(
         self,
         *,
         story_id: str,
@@ -91,45 +96,152 @@ class _FakeBeatChain:
         author_memory: dict | object | None = None,
         lint_feedback: list[str] | None = None,
         timeout_seconds: float | None = None,
-    ) -> BeatOutlineLLM:
+    ) -> BeatDraft:
         del story_id, overview_context, last_accepted_beat, prefix_summary, author_memory, lint_feedback, timeout_seconds
-        return BeatOutlineLLM.model_validate(
+        move_ids = [
+            f"{blueprint['beat_id']}.m1",
+            f"{blueprint['beat_id']}.m2",
+            f"{blueprint['beat_id']}.m3",
+        ]
+        return BeatDraft.model_validate(
             {
+                "beat_id": blueprint["beat_id"],
+                "title": blueprint["title"],
+                "objective": blueprint["objective"],
+                "conflict": blueprint["conflict"],
+                "required_event": blueprint["required_event"],
+                "entry_scene_id": blueprint["entry_scene_id"],
                 "present_npcs": ["Mara", "Rook"],
                 "events_produced": [blueprint["required_event"]],
-                "scene_plans": [
+                "scenes": [
                     {
+                        "id": blueprint["entry_scene_id"],
+                        "beat_id": blueprint["beat_id"],
                         "scene_seed": blueprint["scene_intent"],
                         "present_npcs": ["Mara", "Rook"],
+                        "enabled_moves": move_ids,
+                        "always_available_moves": [
+                            GLOBAL_CLARIFY_MOVE_ID,
+                            GLOBAL_LOOK_MOVE_ID,
+                            GLOBAL_HELP_ME_PROGRESS_MOVE_ID,
+                        ],
+                        "exit_conditions": [],
                         "is_terminal": False,
                     }
                 ],
-                "move_surfaces": [
+                "moves": [
                     {
+                        "id": move_ids[0],
                         "label": "Push fast through the breach",
+                        "strategy_style": "fast_dirty",
                         "intents": ["rush ahead"],
                         "synonyms": ["rush"],
-                        "roleplay_examples": [
-                            "I shove through the breach and cut the delay.",
-                            "I force the line open before panic spreads.",
+                        "args_schema": {},
+                        "outcomes": [
+                            {
+                                "id": f"{move_ids[0]}.success",
+                                "result": "success",
+                                "preconditions": [],
+                                "effects": [],
+                                "next_scene_id": None,
+                                "narration_slots": {
+                                    "npc_reaction": "They push through the breach.",
+                                    "world_shift": "The breach gives way.",
+                                    "clue_delta": "You spot the weak relay.",
+                                    "cost_delta": "The surge gets louder.",
+                                    "next_hook": "Someone shouts from deeper in the core.",
+                                },
+                            },
+                            {
+                                "id": f"{move_ids[0]}.fail_forward",
+                                "result": "fail_forward",
+                                "preconditions": [],
+                                "effects": [],
+                                "next_scene_id": None,
+                                "narration_slots": {
+                                    "npc_reaction": "They flinch but follow.",
+                                    "world_shift": "The room gets harsher.",
+                                    "clue_delta": "You still learn where the breach leads.",
+                                    "cost_delta": "You lose more margin.",
+                                    "next_hook": "The next choice arrives fast.",
+                                },
+                            },
                         ],
                     },
                     {
+                        "id": move_ids[1],
                         "label": "Stabilize the corridor carefully",
+                        "strategy_style": "steady_slow",
                         "intents": ["move carefully"],
                         "synonyms": ["steady"],
-                        "roleplay_examples": [
-                            "I stabilize the corridor one relay at a time.",
-                            "I slow the team down and do this carefully.",
+                        "args_schema": {},
+                        "outcomes": [
+                            {
+                                "id": f"{move_ids[1]}.success",
+                                "result": "success",
+                                "preconditions": [],
+                                "effects": [],
+                                "next_scene_id": None,
+                                "narration_slots": {
+                                    "npc_reaction": "They match your careful pace.",
+                                    "world_shift": "The corridor steadies.",
+                                    "clue_delta": "The failure pattern comes into focus.",
+                                    "cost_delta": "Time keeps slipping.",
+                                    "next_hook": "A harder tradeoff waits ahead.",
+                                },
+                            },
+                            {
+                                "id": f"{move_ids[1]}.fail_forward",
+                                "result": "fail_forward",
+                                "preconditions": [],
+                                "effects": [],
+                                "next_scene_id": None,
+                                "narration_slots": {
+                                    "npc_reaction": "They hesitate, then commit.",
+                                    "world_shift": "The corridor remains unstable.",
+                                    "clue_delta": "You get a partial readout.",
+                                    "cost_delta": "Pressure builds on the team.",
+                                    "next_hook": "You still have to choose a side.",
+                                },
+                            },
                         ],
                     },
                     {
+                        "id": move_ids[2],
                         "label": "Take the official safe route",
+                        "strategy_style": "political_safe_resource_heavy",
                         "intents": ["take the careful official route"],
                         "synonyms": ["official"],
-                        "roleplay_examples": [
-                            "I follow the official route and protect the critical grid.",
-                            "I spend what we must, but keep the process clean.",
+                        "args_schema": {},
+                        "outcomes": [
+                            {
+                                "id": f"{move_ids[2]}.success",
+                                "result": "success",
+                                "preconditions": [],
+                                "effects": [],
+                                "next_scene_id": None,
+                                "narration_slots": {
+                                    "npc_reaction": "They accept the official cover.",
+                                    "world_shift": "Resources shift into the corridor.",
+                                    "clue_delta": "The command picture sharpens.",
+                                    "cost_delta": "The reserves thin out.",
+                                    "next_hook": "The official path creates a new debt.",
+                                },
+                            },
+                            {
+                                "id": f"{move_ids[2]}.fail_forward",
+                                "result": "fail_forward",
+                                "preconditions": [],
+                                "effects": [],
+                                "next_scene_id": None,
+                                "narration_slots": {
+                                    "npc_reaction": "They wince at the political price.",
+                                    "world_shift": "The system absorbs a costly delay.",
+                                    "clue_delta": "You keep legitimacy but lose slack.",
+                                    "cost_delta": "The resource burn is obvious.",
+                                    "next_hook": "The next beat inherits the bill.",
+                                },
+                            },
                         ],
                     },
                 ],

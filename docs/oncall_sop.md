@@ -71,7 +71,7 @@ Likely causes:
 Mitigations:
 1. Verify credentials, base URL, and model config in environment.
 2. Raise timeout guard if failures are dominated by provider timeouts (`APP_RESPONSES_TIMEOUT_SECONDS`).
-3. Temporarily disable reasoning (`APP_RESPONSES_ENABLE_THINKING=false`) if provider-side overhead spikes.
+3. Check whether the spike is concentrated in a route with thinking enabled, especially Author beat generation.
 4. Roll back latest runtime prompt/config release if failures correlate with recent deploy.
 
 Exit criteria:
@@ -132,7 +132,7 @@ Exit criteria:
 ## Standard Mitigation Levers
 
 1. Validate Responses env and secret injection.
-2. Tune Responses timeout and thinking toggle.
+2. Tune Responses timeout and the per-route thinking toggles.
 3. Reduce load via traffic shaping if provider incident is ongoing.
 4. Roll back latest backend version/config.
 

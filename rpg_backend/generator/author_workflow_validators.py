@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from rpg_backend.domain.constants import (
+    GLOBAL_CLARIFY_MOVE_ID,
+    GLOBAL_HELP_ME_PROGRESS_MOVE_ID,
+    GLOBAL_LOOK_MOVE_ID,
+)
 from rpg_backend.generator.author_workflow_models import (
     AuthorMemory,
     AuthorMemoryBeatSummary,
@@ -12,6 +17,13 @@ from rpg_backend.generator.author_workflow_models import (
     BeatPrefixSummary,
     StoryOverview,
 )
+
+
+_FIXED_GLOBAL_MOVES = [
+    GLOBAL_CLARIFY_MOVE_ID,
+    GLOBAL_LOOK_MOVE_ID,
+    GLOBAL_HELP_ME_PROGRESS_MOVE_ID,
+]
 
 def check_story_overview(overview: StoryOverview) -> list[str]:
     errors: list[str] = []
@@ -144,6 +156,8 @@ def lint_beat_draft(
             errors.append(f"scene '{scene.id}' enabled_moves must contain 3-5 moves")
         if any(move_id not in move_ids for move_id in scene.enabled_moves):
             errors.append(f"scene '{scene.id}' references missing local move ids")
+        if list(scene.always_available_moves) != _FIXED_GLOBAL_MOVES:
+            errors.append(f"scene '{scene.id}' must use the fixed global always_available_moves")
         if any(npc not in allowed_npcs for npc in scene.present_npcs):
             errors.append(f"scene '{scene.id}' references unknown npc")
         for cond in scene.exit_conditions:

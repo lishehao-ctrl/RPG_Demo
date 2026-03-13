@@ -18,7 +18,7 @@ AUTHOR_SCOPE_TYPE = "author_run"
 
 PLAY_CHANNEL = "play_agent"
 AUTHOR_OVERVIEW_CHANNEL = "author_overview"
-AUTHOR_OUTLINE_CHANNEL = "author_outline"
+AUTHOR_BEAT_CHANNEL = "author_beat"
 
 
 @dataclass(frozen=True)

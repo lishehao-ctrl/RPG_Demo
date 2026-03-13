@@ -29,7 +29,10 @@ Use only these active env vars:
 - `APP_RESPONSES_API_KEY`
 - `APP_RESPONSES_MODEL`
 - `APP_RESPONSES_TIMEOUT_SECONDS` (default `20.0`)
-- `APP_RESPONSES_ENABLE_THINKING` (default `false`)
+- `APP_RESPONSES_ENABLE_THINKING_PLAY` (default `false`)
+- `APP_RESPONSES_ENABLE_THINKING_AUTHOR_OVERVIEW` (default `false`)
+- `APP_RESPONSES_ENABLE_THINKING_AUTHOR_BEAT` (default `true`)
+- `APP_RESPONSES_ENABLE_THINKING_STORY_QUALITY_JUDGE` (default `false`)
 
 Reference template: [`/Users/lishehao/Desktop/Project/RPG_Demo/.env.llm.example`](/Users/lishehao/Desktop/Project/RPG_Demo/.env.llm.example)
 
@@ -61,4 +64,3 @@ Public response shape for play/author remains stable; admin/dev telemetry fields
 Implementation contract for this migration:
 
 - [`/Users/lishehao/Desktop/Project/RPG_Demo/responses_single_agent_migration_spec.md`](/Users/lishehao/Desktop/Project/RPG_Demo/responses_single_agent_migration_spec.md)
-

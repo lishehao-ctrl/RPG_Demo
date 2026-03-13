@@ -32,13 +32,12 @@ Author workflow is a single playable-first path:
 
 1. `generate_story_overview`
 2. `plan_beats`
-3. `generate_beat_outline`
-4. `materialize_beat`
-5. `beat_lint`
-6. `assemble_story_pack`
-7. `normalize_story_pack`
-8. `final_lint`
-9. `review_ready`
+3. `generate_beat`
+4. `beat_lint`
+5. `assemble_story_pack`
+6. `normalize_story_pack`
+7. `final_lint`
+8. `review_ready`
 
 Retry and timeout policy is unified across this workflow:
 
@@ -112,6 +111,7 @@ A beat draft must satisfy:
 - scene ids and move ids must not collide with prior beats
 - `required_event` must not collide with prior beats
 - `entry_scene_id` must exist inside the beat
+- each scene must use the fixed global `always_available_moves`
 - each scene must reference only local moves
 - scene exit links must stay inside the beat
 - each move must include both `success` and `fail_forward`

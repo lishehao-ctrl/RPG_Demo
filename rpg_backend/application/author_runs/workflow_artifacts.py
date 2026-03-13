@@ -62,16 +62,6 @@ def build_persisted_artifacts_for_update(update: dict[str, Any]) -> list[Persist
                 artifact_payload_from_state(update["beat_overview_context"]),
             )
         )
-    if "current_beat_outline" in update and update["current_beat_outline"] is not None:
-        beat = update.get("current_beat_draft")
-        beat_id = beat.beat_id if hasattr(beat, "beat_id") else str(update.get("current_beat_index", ""))
-        artifacts.append(
-            PersistedArtifact(
-                AuthorWorkflowArtifactType.CURRENT_BEAT_OUTLINE,
-                beat_id,
-                artifact_payload_from_state(update["current_beat_outline"]),
-            )
-        )
     if "current_beat_draft" in update and update["current_beat_draft"] is not None:
         beat = update["current_beat_draft"]
         beat_id = beat.beat_id if hasattr(beat, "beat_id") else str(update.get("current_beat_index", ""))
@@ -91,14 +81,6 @@ def build_persisted_artifacts_for_update(update: dict[str, Any]) -> list[Persist
                     artifact_payload_from_state(beat),
                 )
             )
-    if "beat_materialization_errors" in update:
-        artifacts.append(
-            PersistedArtifact(
-                AuthorWorkflowArtifactType.BEAT_MATERIALIZATION,
-                str(update.get("current_beat_index", "")),
-                {"errors": list(update.get("beat_materialization_errors") or [])},
-            )
-        )
     if "beat_lint_errors" in update or "beat_lint_warnings" in update:
         artifacts.append(
             PersistedArtifact(

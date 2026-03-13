@@ -36,7 +36,7 @@ class StoryQualityJudge:
         self.model = (model_override or "").strip() or self.bundle.model
         self.timeout_seconds = float(settings.responses_timeout_seconds)
         self.temperature = 0.1
-        self.enable_thinking = bool(settings.responses_enable_thinking)
+        self.enable_thinking = bool(settings.responses_enable_thinking_story_quality_judge)
 
         if not self.model:
             raise StoryQualityJudgeError(

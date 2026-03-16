@@ -1,9 +1,0 @@
-[Unit]
-Description=RPG Backend readiness probe (/ready)
-After=network-online.target rpg-backend.service
-Wants=network-online.target
-
-[Service]
-Type=oneshot
-# Readiness uses strict semantics: non-200 means not ready.
-ExecStart=/usr/bin/curl --silent --show-error --fail --max-time 8 http://127.0.0.1:8000/ready

@@ -1,1 +1,1 @@
-"""RPG backend package."""
+"""Clean-slate RPG backend rebuild."""

@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     responses_use_session_cache: bool | None = None
     responses_session_cache_header: str = "x-dashscope-session-cache"
     responses_session_cache_value: str = "enable"
+    responses_input_price_per_million_tokens_rmb: float = Field(default=0.2, ge=0)
+    responses_output_price_per_million_tokens_rmb: float = Field(default=2.0, ge=0)
+    responses_session_cache_hit_multiplier: float = Field(default=0.1, ge=0)
+    responses_session_cache_creation_multiplier: float = Field(default=1.25, ge=0)
     responses_enable_thinking_play: bool = False
     responses_enable_thinking_author_overview: bool = False
     responses_enable_thinking_author_beat_plan: bool = False

@@ -2,8 +2,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from rpg_backend.author.compiler.routes import (
+    bundle_affordance_tags,
+    default_story_function_for_tag,
+    normalize_affordance_tag,
+)
 from rpg_backend.author.compiler.router import plan_bundle_theme
 from rpg_backend.author.generation.context import build_author_context_from_bundle
+from rpg_backend.author.normalize import coerce_int
 from rpg_backend.author.contracts import DesignBundle, RouteAffordancePackDraft, RouteOpportunityPlanDraft
 
 if TYPE_CHECKING:
@@ -86,21 +92,10 @@ def _normalize_condition_payload(gateway: "AuthorLLMGateway", conditions: Any) -
         "required_events": [str(conditions.get("event")).strip()] if conditions.get("event") else list(conditions.get("required_events") or []),
         "required_truths": list(conditions.get("required_truths") or []),
         "required_flags": list(conditions.get("required_flags") or []),
-        "min_axes": {str(k): gateway._coerce_int(v, 0) for k, v in dict(conditions.get("min_axes") or {}).items()},
-        "max_axes": {str(k): gateway._coerce_int(v, 0) for k, v in dict(conditions.get("max_axes") or {}).items()},
-        "min_stances": {str(k): gateway._coerce_int(v, 0) for k, v in dict(conditions.get("min_stances") or {}).items()},
+        "min_axes": {str(k): coerce_int(v, 0) for k, v in dict(conditions.get("min_axes") or {}).items()},
+        "max_axes": {str(k): coerce_int(v, 0) for k, v in dict(conditions.get("max_axes") or {}).items()},
+        "min_stances": {str(k): coerce_int(v, 0) for k, v in dict(conditions.get("min_stances") or {}).items()},
     }
-
-
-def _bundle_affordance_tags(bundle: DesignBundle) -> list[str]:
-    tags = sorted({item.tag for beat in bundle.beat_spine for item in beat.affordances})
-    if len(tags) < 2:
-        for fallback_tag in ("reveal_truth", "build_trust"):
-            if fallback_tag not in tags:
-                tags.append(fallback_tag)
-            if len(tags) >= 2:
-                break
-    return tags
 
 
 def _default_route_trigger_payload(bundle: DesignBundle, beat_index: int) -> dict[str, Any]:
@@ -144,7 +139,7 @@ def _normalize_route_opportunity_plan_payload(
         if beat_id not in beats_by_id:
             beat_id = fallback_beat_id
         beat_index = beat_order.index(beat_id) if beat_id in beat_order else 0
-        unlock_tag = gateway._normalize_affordance_tag(
+        unlock_tag = normalize_affordance_tag(
             item.get("unlock_affordance_tag") or item.get("affordance_tag") or affordance_by_beat.get(beat_id, ["build_trust"])[0]
         )
         trigger_rows = []
@@ -165,7 +160,7 @@ def _normalize_route_opportunity_plan_payload(
                 "event_id": "event",
             }.get(kind, kind)
             target_id = str(trigger.get("target_id") or trigger.get("id") or trigger.get("ref") or "").strip()
-            min_value = gateway._coerce_int(trigger.get("min_value"), 0)
+            min_value = coerce_int(trigger.get("min_value"), 0)
             if kind == "truth" and target_id in truth_ids:
                 trigger_rows.append({"kind": "truth", "target_id": target_id})
             elif kind == "axis" and target_id in axis_ids:
@@ -199,7 +194,7 @@ def _normalize_route_affordance_payload(
     normalized = dict(payload)
     beat_ids = {beat.beat_id for beat in bundle.beat_spine}
     fallback_beat_id = sorted(beat_ids)[0] if beat_ids else "b1"
-    affordance_tags = _bundle_affordance_tags(bundle)
+    affordance_tags = bundle_affordance_tags(bundle)
     affordance_by_beat = {beat.beat_id: [item.tag for item in beat.affordances] for beat in bundle.beat_spine}
     route_unlock_rules = []
     for item in list(normalized.get("route_unlock_rules") or [])[:8]:
@@ -208,7 +203,7 @@ def _normalize_route_affordance_payload(
         beat_id = str(item.get("beat_id") or item.get("target") or "").strip()
         if beat_id not in beat_ids:
             beat_id = fallback_beat_id
-        unlock_tag = gateway._normalize_affordance_tag(
+        unlock_tag = normalize_affordance_tag(
             item.get("unlock_affordance_tag") or item.get("affordance_tag") or affordance_by_beat.get(beat_id, ["build_trust"])[0]
         )
         route_unlock_rules.append(
@@ -225,15 +220,17 @@ def _normalize_route_affordance_payload(
     for item in list(normalized.get("affordance_effect_profiles") or [])[:12]:
         if not isinstance(item, dict):
             continue
-        affordance_tag = gateway._normalize_affordance_tag(item.get("affordance_tag") or item.get("tag"))
+        affordance_tag = normalize_affordance_tag(item.get("affordance_tag") or item.get("tag"))
         profile_by_tag[affordance_tag] = {
             "affordance_tag": affordance_tag,
-            "default_story_function": gateway._normalize_story_function(
-                item.get("default_story_function") or item.get("story_function"),
-                affordance_tag,
+            "default_story_function": (
+                str(item.get("default_story_function") or item.get("story_function") or "").strip().casefold().replace("-", "_").replace(" ", "_")
+                if str(item.get("default_story_function") or item.get("story_function") or "").strip().casefold().replace("-", "_").replace(" ", "_")
+                in {"advance", "reveal", "stabilize", "detour", "pay_cost"}
+                else default_story_function_for_tag(affordance_tag)
             ),
-            "axis_deltas": {str(k): gateway._coerce_int(v, 0) for k, v in dict(item.get("axis_deltas") or {}).items()},
-            "stance_deltas": {str(k): gateway._coerce_int(v, 0) for k, v in dict(item.get("stance_deltas") or {}).items()},
+            "axis_deltas": {str(k): coerce_int(v, 0) for k, v in dict(item.get("axis_deltas") or {}).items()},
+            "stance_deltas": {str(k): coerce_int(v, 0) for k, v in dict(item.get("stance_deltas") or {}).items()},
             "can_add_truth": bool(item.get("can_add_truth", False)),
             "can_add_event": bool(item.get("can_add_event", False)),
         }
@@ -242,11 +239,11 @@ def _normalize_route_affordance_payload(
             affordance_tag,
             {
                 "affordance_tag": affordance_tag,
-                "default_story_function": gateway._default_story_function_for_tag(affordance_tag),
+                "default_story_function": default_story_function_for_tag(affordance_tag),
                 "axis_deltas": {},
                 "stance_deltas": {},
-                "can_add_truth": gateway._default_story_function_for_tag(affordance_tag) == "reveal",
-                "can_add_event": gateway._default_story_function_for_tag(affordance_tag) in {"advance", "pay_cost"},
+                "can_add_truth": default_story_function_for_tag(affordance_tag) == "reveal",
+                "can_add_event": default_story_function_for_tag(affordance_tag) in {"advance", "pay_cost"},
             },
         )
     normalized["affordance_effect_profiles"] = [profile_by_tag[tag] for tag in affordance_tags][:12]

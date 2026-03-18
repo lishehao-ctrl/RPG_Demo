@@ -8,11 +8,8 @@ from rpg_backend.author.compiler.cast import build_cast_draft_from_overview, der
 from rpg_backend.author.compiler.router import plan_brief_theme, plan_story_theme
 from rpg_backend.author.compiler.story import build_default_story_frame_draft
 from rpg_backend.author.contracts import (
-    AuthorBundleRequest,
-    AuthorJobCreateRequest,
     AuthorPreviewBeatSummary,
     AuthorPreviewCastSlotSummary,
-    AuthorPreviewRequest,
     AuthorPreviewResponse,
     AuthorPreviewStory,
     AuthorPreviewStrategies,
@@ -93,10 +90,6 @@ def build_author_preview_from_seed(prompt_seed: str) -> AuthorPreviewResponse:
     )
 
 
-def build_author_preview_from_request(request: AuthorPreviewRequest | AuthorJobCreateRequest) -> AuthorPreviewResponse:
-    return build_author_preview_from_seed(request.prompt_seed)
-
-
 def build_generation_state_from_preview(preview: AuthorPreviewResponse) -> dict[str, object]:
     return {
         "focused_brief": preview.focused_brief,
@@ -127,7 +120,3 @@ def build_author_story_summary(bundle: DesignBundle, *, primary_theme: str) -> A
         npc_count=len(bundle.story_bible.cast),
         beat_count=len(bundle.beat_spine),
     )
-
-
-def author_bundle_request_from_seed(prompt_seed: str) -> AuthorBundleRequest:
-    return AuthorBundleRequest(raw_brief=prompt_seed)

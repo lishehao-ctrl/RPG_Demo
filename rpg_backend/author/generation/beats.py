@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from rpg_backend.author.compiler.routes import normalize_affordance_tag
 from rpg_backend.author.compiler.router import plan_story_theme
 from rpg_backend.author.generation.context import build_author_context_from_story
+from rpg_backend.author.normalize import coerce_int, trim_text, unique_preserve
 from rpg_backend.author.contracts import (
     BeatDraftSpec,
     BeatPlanDraft,
@@ -409,9 +411,9 @@ def _normalize_beat_plan_semantics_payload(
     for index, item in enumerate(list(payload.get("beats") or [])[:4], start=1):
         if not isinstance(item, dict):
             continue
-        focus_names = [gateway._trim_text(name, 80) for name in list(item.get("focus_names") or [])[:3]]
+        focus_names = [trim_text(name, 80) for name in list(item.get("focus_names") or [])[:3]]
         focus_names = [name for name in focus_names if name in cast_names]
-        conflict_pair = [gateway._trim_text(name, 80) for name in list(item.get("conflict_pair") or item.get("conflict_names") or [])[:2]]
+        conflict_pair = [trim_text(name, 80) for name in list(item.get("conflict_pair") or item.get("conflict_names") or [])[:2]]
         conflict_pair = [name for name in conflict_pair if name in cast_names]
         if not focus_names and conflict_pair:
             focus_names = conflict_pair[:]
@@ -420,9 +422,9 @@ def _normalize_beat_plan_semantics_payload(
         if not conflict_pair and len(focus_names) >= 2:
             conflict_pair = focus_names[:2]
         required_truths = [
-            gateway._trim_text(text, 220)
+            trim_text(text, 220)
             for text in list(item.get("required_truth_texts") or [])[:3]
-            if gateway._trim_text(text, 220) in truth_texts
+            if trim_text(text, 220) in truth_texts
         ]
         if not required_truths and truth_texts:
             required_truths = [truth_texts[min(index - 1, len(truth_texts) - 1)]]
@@ -432,11 +434,11 @@ def _normalize_beat_plan_semantics_payload(
         milestone_kind = str(item.get("milestone_kind") or item.get("milestone") or "reveal").strip().casefold()
         if milestone_kind not in valid_milestones:
             milestone_kind = "reveal" if index == 1 else "fracture"
-        route_pivot_tag = gateway._normalize_affordance_tag(
+        route_pivot_tag = normalize_affordance_tag(
             item.get("route_pivot_tag") or item.get("pivot_affordance") or item.get("pivot_tag") or "build_trust"
         )
-        affordance_tags = gateway._unique_preserve(
-            [gateway._normalize_affordance_tag(tag) for tag in list(item.get("affordance_tags") or [])[:6]]
+        affordance_tags = unique_preserve(
+            [normalize_affordance_tag(tag) for tag in list(item.get("affordance_tags") or [])[:6]]
         )
         derived_tags = [route_pivot_tag]
         if milestone_kind in {"reveal", "exposure"}:
@@ -452,28 +454,28 @@ def _normalize_beat_plan_semantics_payload(
         if pressure_axis_id in {"external_pressure", "public_panic", "time_window"}:
             derived_tags.append("contain_chaos")
         derived_tags.append("build_trust")
-        affordance_tags = gateway._unique_preserve(derived_tags + affordance_tags)
+        affordance_tags = unique_preserve(derived_tags + affordance_tags)
         for fallback_tag in default_tags:
             if len(affordance_tags) >= 2:
                 break
             if fallback_tag not in affordance_tags:
                 affordance_tags.append(fallback_tag)
-        blocked_affordances = gateway._unique_preserve(
-            [gateway._normalize_affordance_tag(tag) for tag in list(item.get("blocked_affordances") or [])[:4]]
+        blocked_affordances = unique_preserve(
+            [normalize_affordance_tag(tag) for tag in list(item.get("blocked_affordances") or [])[:4]]
         )
         blocked_affordances = [tag for tag in blocked_affordances if tag not in affordance_tags]
         beats.append(
             {
-                "title_seed": gateway._trim_text(item.get("title_seed") or item.get("title") or f"Beat {index}", 80),
-                "goal_seed": gateway._trim_text(item.get("goal_seed") or item.get("goal") or "Push the story toward a decisive civic turning point.", 180),
+                "title_seed": trim_text(item.get("title_seed") or item.get("title") or f"Beat {index}", 80),
+                "goal_seed": trim_text(item.get("goal_seed") or item.get("goal") or "Push the story toward a decisive civic turning point.", 180),
                 "focus_names": focus_names[:3],
                 "conflict_pair": conflict_pair[:2],
                 "pressure_axis_id": pressure_axis_id,
                 "milestone_kind": milestone_kind,
                 "route_pivot_tag": route_pivot_tag,
                 "required_truth_texts": required_truths[:3],
-                "detour_budget": max(0, min(2, gateway._coerce_int(item.get("detour_budget", 1), 1))),
-                "progress_required": max(1, min(3, gateway._coerce_int(item.get("progress_required", 2), 2))),
+                "detour_budget": max(0, min(2, coerce_int(item.get("detour_budget", 1), 1))),
+                "progress_required": max(1, min(3, coerce_int(item.get("progress_required", 2), 2))),
                 "affordance_tags": affordance_tags[:6],
                 "blocked_affordances": blocked_affordances[:4],
             }
@@ -523,8 +525,8 @@ def _compose_beat_plan_from_skeleton(
     for index, skeleton_beat in enumerate(skeleton.beats, start=1):
         beats.append(
             BeatDraftSpec(
-                title=gateway._trim_text(skeleton_beat.title_seed or f"Beat {index}", 120),
-                goal=gateway._trim_text(
+                title=trim_text(skeleton_beat.title_seed or f"Beat {index}", 120),
+                goal=trim_text(
                     skeleton_beat.goal_seed or "Push the story toward a decisive civic turning point.",
                     220,
                 ),

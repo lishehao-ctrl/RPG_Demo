@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-from rpg_backend.author.benchmarks import runner
+from tools.author_benchmarks import runner
 
 
 def _fake_result(

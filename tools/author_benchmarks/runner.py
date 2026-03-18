@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from rpg_backend.author.benchmarks.briefs import BRIEF_SUITES
+from tools.author_benchmarks.briefs import BRIEF_SUITES
 from rpg_backend.author.contracts import AuthorBundleRequest
 from rpg_backend.author.workflow import run_author_bundle
 

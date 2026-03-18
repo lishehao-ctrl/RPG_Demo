@@ -4,6 +4,7 @@ from typing import Any
 from uuid import uuid4
 
 from langgraph.graph import END, START, StateGraph
+from pydantic import BaseModel
 from typing_extensions import TypedDict
 
 from rpg_backend.author.checkpointer import get_author_checkpointer, graph_config
@@ -42,7 +43,6 @@ from rpg_backend.author.compiler.rules import (
 from rpg_backend.author.compiler.story import build_default_story_frame_draft
 from rpg_backend.author.contracts import (
     AuthorBundleRequest,
-    AuthorBundleResponse,
     BeatPlanDraft,
     BeatSpec,
     CastDraft,
@@ -60,6 +60,11 @@ from rpg_backend.author.contracts import (
     StoryFrameDraft,
 )
 from rpg_backend.author.gateway import AuthorGatewayError, AuthorLLMGateway, get_author_llm_gateway
+from rpg_backend.author.generation import beats as beat_generation
+from rpg_backend.author.generation import cast as cast_generation
+from rpg_backend.author.generation import endings as ending_generation
+from rpg_backend.author.generation import routes as route_generation
+from rpg_backend.author.generation import story_frame as story_generation
 from rpg_backend.author.quality.beats import beat_plan_quality_reasons
 from rpg_backend.author.quality.cast import (
     cast_member_quality_reasons,
@@ -138,17 +143,12 @@ def build_author_graph(*, gateway: AuthorLLMGateway | None = None, checkpointer=
         latest_response_id = prior_response_id
         trace = state.get("quality_trace")
         try:
-            if isinstance(resolved_gateway, AuthorLLMGateway):
-                generated = resolved_gateway.generate_story_frame(
-                    state["focused_brief"],
-                    previous_response_id=prior_response_id,
-                    story_frame_strategy=state.get("story_frame_strategy"),
-                )
-            else:
-                generated = resolved_gateway.generate_story_frame(
-                    state["focused_brief"],
-                    previous_response_id=prior_response_id,
-                )
+            generated = story_generation.generate_story_frame(
+                resolved_gateway,
+                state["focused_brief"],
+                previous_response_id=prior_response_id,
+                story_frame_strategy=state.get("story_frame_strategy"),
+            )
         except AuthorGatewayError as exc:
             if exc.code not in {"llm_invalid_json", "llm_schema_invalid"}:
                 raise
@@ -173,7 +173,8 @@ def build_author_graph(*, gateway: AuthorLLMGateway | None = None, checkpointer=
         story_frame_reasons = story_frame_quality_reasons(story_frame_draft, state["focused_brief"])
         if story_frame_should_repair(story_frame_reasons):
             try:
-                gleaned = resolved_gateway.glean_story_frame(
+                gleaned = story_generation.glean_story_frame(
+                    resolved_gateway,
                     state["focused_brief"],
                     story_frame_draft,
                     previous_response_id=latest_response_id,
@@ -307,7 +308,8 @@ def build_author_graph(*, gateway: AuthorLLMGateway | None = None, checkpointer=
                 existing_members.append(fallback_member)
                 continue
             try:
-                generated = resolved_gateway.generate_story_cast_member(
+                generated = cast_generation.generate_story_cast_member(
+                    resolved_gateway,
                     state["focused_brief"],
                     state["story_frame_draft"],
                     slot_payload,
@@ -333,7 +335,8 @@ def build_author_graph(*, gateway: AuthorLLMGateway | None = None, checkpointer=
             )
             if finalized_member is None and member_source != "default":
                 try:
-                    gleaned = resolved_gateway.glean_story_cast_member(
+                    gleaned = cast_generation.glean_story_cast_member(
+                        resolved_gateway,
                         state["focused_brief"],
                         state["story_frame_draft"],
                         slot_payload,
@@ -392,15 +395,12 @@ def build_author_graph(*, gateway: AuthorLLMGateway | None = None, checkpointer=
         trace = state.get("quality_trace")
         beat_strategy = state.get("beat_plan_strategy") or "conservative_direct_draft"
         if beat_strategy == "single_semantic_compile":
-            beat_plan_generate = resolved_gateway.generate_beat_plan
+            beat_plan_generate = beat_generation.generate_beat_plan
         else:
-            beat_plan_generate = getattr(
-                resolved_gateway,
-                "generate_beat_plan_conservative",
-                resolved_gateway.generate_beat_plan,
-            )
+            beat_plan_generate = beat_generation.generate_beat_plan_conservative
         try:
             generated = beat_plan_generate(
+                resolved_gateway,
                 state["focused_brief"],
                 state["story_frame_draft"],
                 state["cast_draft"],
@@ -435,7 +435,8 @@ def build_author_graph(*, gateway: AuthorLLMGateway | None = None, checkpointer=
         )
         if beat_plan_reasons:
             try:
-                gleaned = resolved_gateway.glean_beat_plan(
+                gleaned = beat_generation.glean_beat_plan(
+                    resolved_gateway,
                     state["focused_brief"],
                     state["story_frame_draft"],
                     state["cast_draft"],
@@ -504,7 +505,8 @@ def build_author_graph(*, gateway: AuthorLLMGateway | None = None, checkpointer=
         design_bundle = state["design_bundle"]
         prior_response_id = state.get("author_session_response_id")
         try:
-            generated = resolved_gateway.generate_route_opportunity_plan_result(
+            generated = route_generation.generate_route_opportunity_plan_result(
+                resolved_gateway,
                 design_bundle,
                 previous_response_id=prior_response_id,
             )
@@ -567,132 +569,74 @@ def build_author_graph(*, gateway: AuthorLLMGateway | None = None, checkpointer=
         latest_response_id = prior_response_id
         trace = state.get("quality_trace")
         skeleton = build_ending_skeleton(design_bundle)
-        if hasattr(resolved_gateway, "generate_ending_anchor_suggestions"):
-            try:
-                generated = resolved_gateway.generate_ending_anchor_suggestions(
-                    design_bundle,
-                    previous_response_id=prior_response_id,
-                )
-            except AuthorGatewayError as exc:
-                if exc.code not in {"llm_invalid_json", "llm_schema_invalid"}:
-                    raise
-                ending_intent = normalize_ending_intent_draft(
-                    build_default_ending_intent(design_bundle),
-                    design_bundle,
-                )
-                normalized = build_default_ending_rules(design_bundle)
-                trace = append_quality_trace(
-                    trace,
-                    stage="ending",
-                    source="default",
-                    outcome="fallback",
-                    reasons=[exc.code],
-                )
-                return {
-                    "ending_intent_draft": ending_intent,
-                    "ending_rules_draft": normalized,
-                    "ending_source": "default",
-                    "quality_trace": trace,
-                }
-            latest_response_id = _resolved_session_response_id(prior_response_id, generated.response_id)
-            ending_intent = merge_ending_anchor_suggestions(
-                skeleton,
-                generated.value,
+        try:
+            generated = ending_generation.generate_ending_anchor_suggestions(
+                resolved_gateway,
+                design_bundle,
+                previous_response_id=prior_response_id,
+            )
+        except AuthorGatewayError as exc:
+            if exc.code not in {"llm_invalid_json", "llm_schema_invalid"}:
+                raise
+            ending_intent = normalize_ending_intent_draft(
+                build_default_ending_intent(design_bundle),
                 design_bundle,
             )
-            ending_source = "generated"
-            ending_outcome = "accepted"
-            ending_reasons = ending_intent_quality_reasons(ending_intent, design_bundle)
-            if ending_reasons:
-                try:
-                    gleaned = resolved_gateway.glean_ending_anchor_suggestions(
-                        design_bundle,
-                        generated.value,
-                        previous_response_id=latest_response_id,
-                    )
-                    latest_response_id = _resolved_session_response_id(latest_response_id, gleaned.response_id)
-                    ending_intent = merge_ending_anchor_suggestions(
-                        skeleton,
-                        gleaned.value,
-                        design_bundle,
-                    )
-                    glean_reasons = ending_intent_quality_reasons(ending_intent, design_bundle)
-                    if not glean_reasons:
-                        ending_source = "gleaned"
-                        ending_outcome = "repaired"
-                    else:
-                        ending_reasons.extend(glean_reasons)
-                except AuthorGatewayError as exc:
-                    if exc.code not in {"llm_invalid_json", "llm_schema_invalid"}:
-                        raise
-                    ending_reasons.append(exc.code)
-                if ending_intent_quality_reasons(ending_intent, design_bundle):
-                    ending_intent = normalize_ending_intent_draft(
-                        build_default_ending_intent(design_bundle),
-                        design_bundle,
-                    )
-                    ending_source = "default"
-                    ending_outcome = "fallback"
-            normalized = compile_ending_intent_draft(ending_intent, design_bundle)
-        else:
+            normalized = build_default_ending_rules(design_bundle)
+            trace = append_quality_trace(
+                trace,
+                stage="ending",
+                source="default",
+                outcome="fallback",
+                reasons=[exc.code],
+            )
+            return {
+                "ending_intent_draft": ending_intent,
+                "ending_rules_draft": normalized,
+                "ending_source": "default",
+                "quality_trace": trace,
+            }
+        latest_response_id = _resolved_session_response_id(prior_response_id, generated.response_id)
+        ending_intent = merge_ending_anchor_suggestions(
+            skeleton,
+            generated.value,
+            design_bundle,
+        )
+        ending_source = "generated"
+        ending_outcome = "accepted"
+        ending_reasons = ending_intent_quality_reasons(ending_intent, design_bundle)
+        if ending_reasons:
             try:
-                generated = resolved_gateway.generate_ending_intent_result(
+                gleaned = ending_generation.glean_ending_anchor_suggestions(
+                    resolved_gateway,
                     design_bundle,
-                    previous_response_id=prior_response_id,
+                    generated.value,
+                    previous_response_id=latest_response_id,
                 )
+                latest_response_id = _resolved_session_response_id(latest_response_id, gleaned.response_id)
+                ending_intent = merge_ending_anchor_suggestions(
+                    skeleton,
+                    gleaned.value,
+                    design_bundle,
+                )
+                glean_reasons = ending_intent_quality_reasons(ending_intent, design_bundle)
+                if not glean_reasons:
+                    ending_source = "gleaned"
+                    ending_outcome = "repaired"
+                else:
+                    ending_reasons.extend(glean_reasons)
             except AuthorGatewayError as exc:
                 if exc.code not in {"llm_invalid_json", "llm_schema_invalid"}:
                     raise
+                ending_reasons.append(exc.code)
+            if ending_intent_quality_reasons(ending_intent, design_bundle):
                 ending_intent = normalize_ending_intent_draft(
                     build_default_ending_intent(design_bundle),
                     design_bundle,
                 )
-                normalized = build_default_ending_rules(design_bundle)
-                trace = append_quality_trace(
-                    trace,
-                    stage="ending",
-                    source="default",
-                    outcome="fallback",
-                    reasons=[exc.code],
-                )
-                return {
-                    "ending_intent_draft": ending_intent,
-                    "ending_rules_draft": normalized,
-                    "ending_source": "default",
-                    "quality_trace": trace,
-                }
-            latest_response_id = _resolved_session_response_id(prior_response_id, generated.response_id)
-            ending_intent = normalize_ending_intent_draft(generated.value, design_bundle)
-            ending_source = "generated"
-            ending_outcome = "accepted"
-            ending_reasons = ending_intent_quality_reasons(ending_intent, design_bundle)
-            if ending_reasons:
-                try:
-                    gleaned = resolved_gateway.glean_ending_intent(
-                        design_bundle,
-                        ending_intent,
-                        previous_response_id=latest_response_id,
-                    )
-                    latest_response_id = _resolved_session_response_id(latest_response_id, gleaned.response_id)
-                    ending_intent = normalize_ending_intent_draft(gleaned.value, design_bundle)
-                    glean_reasons = ending_intent_quality_reasons(ending_intent, design_bundle)
-                    if not glean_reasons:
-                        ending_source = "gleaned"
-                        ending_outcome = "repaired"
-                    else:
-                        ending_reasons.extend(glean_reasons)
-                except AuthorGatewayError as exc:
-                    if exc.code not in {"llm_invalid_json", "llm_schema_invalid"}:
-                        raise
-                    ending_reasons.append(exc.code)
-                if ending_intent_quality_reasons(ending_intent, design_bundle):
-                    ending_intent = normalize_ending_intent_draft(
-                        build_default_ending_intent(design_bundle),
-                        design_bundle,
-                    )
-                    ending_source = "default"
-                    ending_outcome = "fallback"
-            normalized = compile_ending_intent_draft(ending_intent, design_bundle)
+                ending_source = "default"
+                ending_outcome = "fallback"
+        normalized = compile_ending_intent_draft(ending_intent, design_bundle)
         ending_rule_reasons = ending_rules_quality_reasons(normalized, design_bundle)
         if ending_rule_reasons:
             ending_intent = normalize_ending_intent_draft(
@@ -762,7 +706,7 @@ def build_author_graph(*, gateway: AuthorLLMGateway | None = None, checkpointer=
 
 def run_author_bundle(request: AuthorBundleRequest, *, gateway: AuthorLLMGateway | None = None) -> "AuthorBundle":
     resolved_gateway = gateway or get_author_llm_gateway()
-    if isinstance(resolved_gateway, AuthorLLMGateway):
+    if hasattr(resolved_gateway, "call_trace"):
         resolved_gateway.call_trace.clear()
     graph = build_author_graph(gateway=resolved_gateway)
     run_id = str(uuid4())
@@ -773,7 +717,7 @@ def run_author_bundle(request: AuthorBundleRequest, *, gateway: AuthorLLMGateway
         },
         config=graph_config(run_id=run_id),
     )
-    if isinstance(resolved_gateway, AuthorLLMGateway):
+    if hasattr(resolved_gateway, "call_trace"):
         state["llm_call_trace"] = list(resolved_gateway.call_trace)
     return AuthorBundle(
         run_id=run_id,
@@ -781,6 +725,7 @@ def run_author_bundle(request: AuthorBundleRequest, *, gateway: AuthorLLMGateway
         state=state,
     )
 
-
-class AuthorBundle(AuthorBundleResponse):
+class AuthorBundle(BaseModel):
+    run_id: str
+    bundle: DesignBundle
     state: AuthorState

@@ -5,14 +5,10 @@ from typing import TYPE_CHECKING, Any
 from rpg_backend.author.compiler.router import plan_bundle_theme
 from rpg_backend.author.compiler.endings import (
     build_ending_skeleton,
-    merge_ending_anchor_suggestions,
 )
-from rpg_backend.author.contracts import (
-    DesignBundle,
-    EndingAnchorSuggestionDraft,
-    EndingIntentDraft,
-)
+from rpg_backend.author.contracts import DesignBundle, EndingAnchorSuggestionDraft
 from rpg_backend.author.generation.context import build_author_context_from_bundle
+from rpg_backend.author.normalize import normalize_id_list
 
 if TYPE_CHECKING:
     from rpg_backend.author.gateway import AuthorLLMGateway
@@ -84,79 +80,6 @@ def _invoke_ending_anchor_with_retry(
     if isinstance(last_error, AuthorGatewayError):
         raise last_error
     raise AuthorGatewayError(code="llm_schema_invalid", message=str(last_error or "ending anchor generation failed"), status_code=502)
-
-
-def _normalize_ending_rules_payload(gateway: "AuthorLLMGateway", payload: dict[str, Any]) -> dict[str, Any]:
-    normalized = dict(payload)
-    ending_rules = []
-    seen_ids: set[str] = set()
-    for item in list(normalized.get("ending_rules") or [])[:6]:
-        if not isinstance(item, dict):
-            continue
-        ending_id = str(item.get("ending_id") or "mixed").strip()
-        if ending_id in seen_ids:
-            continue
-        seen_ids.add(ending_id)
-        ending_rules.append(
-            {
-                "ending_id": ending_id,
-                "priority": gateway._coerce_int(item.get("priority"), 100),
-                "conditions": {
-                    "required_events": list((item.get("conditions") or {}).get("required_events") or []),
-                    "required_truths": list((item.get("conditions") or {}).get("required_truths") or []),
-                    "required_flags": list((item.get("conditions") or {}).get("required_flags") or []),
-                    "min_axes": {str(k): gateway._coerce_int(v, 0) for k, v in dict(((item.get("conditions") or {}).get("min_axes") or {})).items()},
-                    "max_axes": {str(k): gateway._coerce_int(v, 0) for k, v in dict(((item.get("conditions") or {}).get("max_axes") or {})).items()},
-                    "min_stances": {str(k): gateway._coerce_int(v, 0) for k, v in dict(((item.get("conditions") or {}).get("min_stances") or {})).items()},
-                },
-            }
-        )
-    if not ending_rules:
-        ending_rules = [{"ending_id": "mixed", "priority": 100, "conditions": {}}]
-    normalized["ending_rules"] = ending_rules
-    return normalized
-
-
-def _normalize_ending_intent_payload(gateway: "AuthorLLMGateway", payload: dict[str, Any]) -> dict[str, Any]:
-    normalized = dict(payload)
-    ending_intents = []
-    seen_ids: set[str] = set()
-    for item in list(normalized.get("ending_intents") or normalized.get("endings") or [])[:6]:
-        if not isinstance(item, dict):
-            continue
-        ending_id = str(item.get("ending_id") or item.get("id") or "mixed").strip()
-        if ending_id in seen_ids:
-            continue
-        seen_ids.add(ending_id)
-        ending_intents.append(
-            {
-                "ending_id": ending_id,
-                "priority": gateway._coerce_int(item.get("priority"), 100),
-                "axis_ids": gateway._normalize_id_list(
-                    item.get("axis_ids") or item.get("axes") or item.get("preferred_axes") or [],
-                    limit=2,
-                ),
-                "required_truth_ids": gateway._normalize_id_list(
-                    item.get("required_truth_ids") or item.get("truth_ids") or item.get("truths") or [],
-                    limit=2,
-                ),
-                "required_event_ids": gateway._normalize_id_list(
-                    item.get("required_event_ids") or item.get("event_ids") or item.get("events") or [],
-                    limit=2,
-                ),
-                "required_flag_ids": gateway._normalize_id_list(
-                    item.get("required_flag_ids") or item.get("flag_ids") or item.get("flags") or [],
-                    limit=2,
-                ),
-                "fallback": bool(item.get("fallback", False) or ending_id == "mixed"),
-            }
-        )
-    if not ending_intents:
-        ending_intents = [{"ending_id": "mixed", "priority": 100, "fallback": True}]
-    normalized["ending_intents"] = ending_intents
-    return normalized
-
-
 def _normalize_ending_anchor_suggestion_payload(
     gateway: "AuthorLLMGateway",
     payload: dict[str, Any],
@@ -173,19 +96,19 @@ def _normalize_ending_anchor_suggestion_payload(
         rows.append(
             {
                 "ending_id": ending_id,
-                "axis_ids": gateway._normalize_id_list(
+                "axis_ids": normalize_id_list(
                     item.get("axis_ids") or item.get("axes") or item.get("preferred_axes") or [],
                     limit=2,
                 ),
-                "required_truth_ids": gateway._normalize_id_list(
+                "required_truth_ids": normalize_id_list(
                     item.get("required_truth_ids") or item.get("truth_ids") or item.get("truths") or [],
                     limit=2,
                 ),
-                "required_event_ids": gateway._normalize_id_list(
+                "required_event_ids": normalize_id_list(
                     item.get("required_event_ids") or item.get("event_ids") or item.get("events") or [],
                     limit=2,
                 ),
-                "required_flag_ids": gateway._normalize_id_list(
+                "required_flag_ids": normalize_id_list(
                     item.get("required_flag_ids") or item.get("flag_ids") or item.get("flags") or [],
                     limit=2,
                 ),
@@ -283,80 +206,4 @@ def glean_ending_anchor_suggestions(
         prompts=(system_prompt, retry_prompt, final_retry_prompt),
         previous_response_id=previous_response_id,
         max_output_tokens=_ending_anchor_output_tokens(gateway, theme_decision.primary_theme),
-    )
-
-
-def generate_ending_intent_result(
-    gateway: "AuthorLLMGateway",
-    design_bundle: DesignBundle,
-    *,
-    previous_response_id: str | None = None,
-):
-    from rpg_backend.author.gateway import GatewayStructuredResponse
-
-    suggestions = generate_ending_anchor_suggestions(
-        gateway,
-        design_bundle,
-        previous_response_id=previous_response_id,
-    )
-    skeleton = build_ending_skeleton(design_bundle)
-    merged = merge_ending_anchor_suggestions(skeleton, suggestions.value, design_bundle)
-    return GatewayStructuredResponse(value=merged, response_id=suggestions.response_id)
-
-
-def glean_ending_intent(
-    gateway: "AuthorLLMGateway",
-    design_bundle: DesignBundle,
-    partial_ending_intent: EndingIntentDraft,
-    *,
-    previous_response_id: str | None = None,
-):
-    from rpg_backend.author.gateway import GatewayStructuredResponse
-
-    suggestions = EndingAnchorSuggestionDraft.model_validate(
-        {
-            "ending_anchor_suggestions": [
-                {
-                    "ending_id": item.ending_id,
-                    "axis_ids": item.axis_ids,
-                    "required_truth_ids": item.required_truth_ids,
-                    "required_event_ids": item.required_event_ids,
-                    "required_flag_ids": item.required_flag_ids,
-                }
-                for item in partial_ending_intent.ending_intents
-                if item.ending_id in {"collapse", "pyrrhic"}
-            ]
-        }
-    )
-    gleaned = glean_ending_anchor_suggestions(
-        gateway,
-        design_bundle,
-        suggestions,
-        previous_response_id=previous_response_id,
-    )
-    merged = merge_ending_anchor_suggestions(
-        build_ending_skeleton(design_bundle),
-        gleaned.value,
-        design_bundle,
-    )
-    return GatewayStructuredResponse(value=merged, response_id=gleaned.response_id)
-
-
-def generate_ending_rules_result(
-    gateway: "AuthorLLMGateway",
-    design_bundle: DesignBundle,
-    *,
-    previous_response_id: str | None = None,
-):
-    from rpg_backend.author.compiler.endings import compile_ending_intent_draft
-    from rpg_backend.author.gateway import GatewayStructuredResponse
-
-    ending_intent = generate_ending_intent_result(
-        gateway,
-        design_bundle,
-        previous_response_id=previous_response_id,
-    )
-    return GatewayStructuredResponse(
-        value=compile_ending_intent_draft(ending_intent.value, design_bundle),
-        response_id=ending_intent.response_id,
     )

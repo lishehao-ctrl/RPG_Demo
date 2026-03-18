@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from rpg_backend.author.compiler.rules import _bundle_affordance_tags
+from rpg_backend.author.compiler.rules import bundle_affordance_tags
 from rpg_backend.author.contracts import DesignBundle, RouteAffordancePackDraft
 
 
@@ -33,7 +33,7 @@ def route_affordance_pack_quality_reasons(
     if len(bundle.beat_spine) > 1 and len(unique_beats) < required_beat_coverage:
         reasons.append("route_beat_coverage_too_narrow")
     unique_tags = {item.unlock_affordance_tag for item in route_affordance_pack.route_unlock_rules}
-    required_tag_coverage = min(3, len(bundle.beat_spine), len(_bundle_affordance_tags(bundle)))
+    required_tag_coverage = min(3, len(bundle.beat_spine), len(bundle_affordance_tags(bundle)))
     if len(unique_tags) < required_tag_coverage:
         reasons.append("route_tag_diversity_too_narrow")
     return reasons

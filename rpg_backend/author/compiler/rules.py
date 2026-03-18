@@ -13,8 +13,8 @@ from rpg_backend.author.compiler.endings import (
     normalize_ending_rules_draft,
 )
 from rpg_backend.author.compiler.routes import (
-    _bundle_affordance_tags,
-    _default_story_function_for_tag,
+    bundle_affordance_tags,
+    default_story_function_for_tag,
     build_default_route_affordance_pack,
     build_default_route_opportunity_plan,
     build_deterministic_affordance_profiles,
@@ -59,14 +59,14 @@ def build_default_rule_pack(bundle: DesignBundle) -> RulePack:
 
 __all__ = [
     "ENDING_PRIORITY_BY_ID",
-    "_bundle_affordance_tags",
     "_canonical_ending_priority",
-    "_default_story_function_for_tag",
+    "bundle_affordance_tags",
     "build_default_ending_intent",
     "build_default_ending_rules",
     "build_default_route_affordance_pack",
     "build_default_route_opportunity_plan",
     "build_default_rule_pack",
+    "default_story_function_for_tag",
     "build_deterministic_affordance_profiles",
     "build_ending_skeleton",
     "compile_ending_intent_draft",

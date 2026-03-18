@@ -1,6 +1,14 @@
 from __future__ import annotations
 
-from rpg_backend.author.contracts import AuthorPreviewFlashcard
+from rpg_backend.author.contracts import (
+    AuthorCacheMetrics,
+    AuthorJobProgress,
+    AuthorJobProgressSnapshot,
+    AuthorLoadingCard,
+    AuthorPreviewFlashcard,
+    AuthorPreviewResponse,
+    AuthorTokenCostEstimate,
+)
 
 THEME_LABELS = {
     "legitimacy_crisis": "Legitimacy crisis",
@@ -112,3 +120,96 @@ def build_preview_flashcards(
         AuthorPreviewFlashcard(card_id="title", kind="draft", label="Working Title", value=title),
         AuthorPreviewFlashcard(card_id="conflict", kind="draft", label="Core Conflict", value=conflict),
     ]
+
+
+def build_loading_cards(
+    *,
+    preview: AuthorPreviewResponse,
+    progress: AuthorJobProgress,
+    token_usage: AuthorCacheMetrics,
+    token_cost_estimate: AuthorTokenCostEstimate | None,
+) -> list[AuthorLoadingCard]:
+    if token_usage.total_tokens is None:
+        budget_value = "Waiting for first model call"
+    else:
+        budget_value = f"{token_usage.total_tokens} total tokens"
+        if token_cost_estimate is not None:
+            budget_value += f" · RMB {token_cost_estimate.estimated_total_cost_rmb:.6f} est."
+    return [
+        AuthorLoadingCard(card_id="theme", emphasis="stable", label="Theme", value=theme_label(preview.theme.primary_theme)),
+        AuthorLoadingCard(card_id="tone", emphasis="stable", label="Tone", value=preview.story.tone),
+        AuthorLoadingCard(
+            card_id="structure",
+            emphasis="stable",
+            label="Story Shape",
+            value=topology_label(preview.structure.cast_topology),
+        ),
+        AuthorLoadingCard(
+            card_id="cast_count",
+            emphasis="stable",
+            label="NPC Count",
+            value=cast_count_value(progress.stage, preview.structure.expected_npc_count),
+        ),
+        AuthorLoadingCard(
+            card_id="beat_count",
+            emphasis="stable",
+            label="Beat Count",
+            value=beat_count_value(progress.stage, preview.structure.expected_beat_count),
+        ),
+        AuthorLoadingCard(
+            card_id="working_title",
+            emphasis="draft",
+            label="Working Title",
+            value=preview.story.title,
+        ),
+        AuthorLoadingCard(
+            card_id="core_conflict",
+            emphasis="draft",
+            label="Core Conflict",
+            value=preview.focused_brief.core_conflict,
+        ),
+        AuthorLoadingCard(
+            card_id="generation_status",
+            emphasis="live",
+            label="Generation Status",
+            value=stage_status_message(progress.stage),
+        ),
+        AuthorLoadingCard(
+            card_id="token_budget",
+            emphasis="live",
+            label="Token Budget",
+            value=budget_value,
+        ),
+    ]
+
+
+def build_progress_snapshot(
+    *,
+    preview: AuthorPreviewResponse,
+    progress: AuthorJobProgress,
+    token_usage: AuthorCacheMetrics,
+    token_cost_estimate: AuthorTokenCostEstimate | None,
+) -> AuthorJobProgressSnapshot:
+    completion_ratio = 0.0
+    if progress.stage_total > 0:
+        completion_ratio = min(progress.stage_index / progress.stage_total, 1.0)
+    return AuthorJobProgressSnapshot(
+        stage=progress.stage,
+        stage_label=stage_label(progress.stage),
+        stage_index=progress.stage_index,
+        stage_total=progress.stage_total,
+        completion_ratio=round(completion_ratio, 3),
+        primary_theme=preview.theme.primary_theme,
+        cast_topology=preview.structure.cast_topology,
+        expected_npc_count=preview.structure.expected_npc_count,
+        expected_beat_count=preview.structure.expected_beat_count,
+        preview_title=preview.story.title,
+        preview_premise=preview.story.premise,
+        flashcards=list(preview.flashcards),
+        loading_cards=build_loading_cards(
+            preview=preview,
+            progress=progress,
+            token_usage=token_usage,
+            token_cost_estimate=token_cost_estimate,
+        ),
+    )

@@ -521,13 +521,6 @@ class AuthorBundleRequest(BaseModel):
     raw_brief: str = Field(min_length=1, max_length=4000)
 
 
-class AuthorBundleResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    run_id: str = Field(min_length=1)
-    bundle: DesignBundle
-
-
 class AuthorPreviewRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -702,15 +695,6 @@ class AuthorJobResultResponse(BaseModel):
     cache_metrics: AuthorCacheMetrics | None = None
 
 
-class AuthorJobTokenUsageResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    job_id: str = Field(min_length=1)
-    status: Literal["queued", "running", "completed", "failed"]
-    progress: AuthorJobProgress
-    token_usage: AuthorCacheMetrics
-
-
 class AuthorJobProgressSnapshot(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -727,13 +711,6 @@ class AuthorJobProgressSnapshot(BaseModel):
     preview_premise: str = Field(min_length=1, max_length=320)
     flashcards: list[AuthorPreviewFlashcard] = Field(default_factory=list, max_length=16)
     loading_cards: list[AuthorLoadingCard] = Field(default_factory=list, max_length=12)
-
-
-class AuthorTokenUsageBucket(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    bucket_id: str = Field(min_length=1, max_length=80)
-    token_usage: AuthorCacheMetrics
 
 
 class AuthorTokenCostEstimate(BaseModel):
@@ -753,18 +730,6 @@ class AuthorTokenCostEstimate(BaseModel):
     estimated_output_cost_rmb: float = Field(ge=0)
     estimated_total_cost_rmb: float = Field(ge=0)
     notes: str | None = Field(default=None, max_length=240)
-
-
-class AuthorJobTokenUsageDetailResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    job_id: str = Field(min_length=1)
-    status: Literal["queued", "running", "completed", "failed"]
-    progress: AuthorJobProgress
-    total_token_usage: AuthorCacheMetrics
-    operation_breakdown: list[AuthorTokenUsageBucket] = Field(default_factory=list, max_length=32)
-    stage_breakdown: list[AuthorTokenUsageBucket] = Field(default_factory=list, max_length=16)
-    cost_estimate: AuthorTokenCostEstimate | None = None
 
 
 class ErrorEnvelope(BaseModel):

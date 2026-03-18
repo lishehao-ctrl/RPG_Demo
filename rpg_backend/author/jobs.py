@@ -10,32 +10,20 @@ from rpg_backend.author.contracts import (
     AuthorCacheMetrics,
     AuthorJobCreateRequest,
     AuthorJobProgress,
-    AuthorLoadingCard,
-    AuthorJobProgressSnapshot,
     AuthorJobResultResponse,
     AuthorJobStatusResponse,
-    AuthorJobTokenUsageDetailResponse,
-    AuthorJobTokenUsageResponse,
     AuthorPreviewRequest,
     AuthorPreviewResponse,
 )
 from rpg_backend.author.display import (
-    beat_count_value,
-    cast_count_value,
-    stage_label,
-    stage_status_message,
-    theme_label,
-    topology_label,
+    build_progress_snapshot,
 )
 from rpg_backend.author.gateway import get_author_llm_gateway
 from rpg_backend.author.metrics import (
     estimate_token_cost,
     summarize_cache_metrics,
-    summarize_operation_breakdown,
-    summarize_stage_breakdown,
 )
-from rpg_backend.author.preview import author_bundle_request_from_seed, build_author_preview_from_request, build_author_story_summary
-from rpg_backend.author.preview import build_generation_state_from_preview
+from rpg_backend.author.preview import build_author_preview_from_seed, build_author_story_summary, build_generation_state_from_preview
 from rpg_backend.author.workflow import build_author_graph
 
 PUBLIC_STAGE_FLOW = [
@@ -85,7 +73,7 @@ class AuthorJobService:
         self._lock = threading.Lock()
 
     def create_preview(self, request: AuthorPreviewRequest | AuthorJobCreateRequest) -> AuthorPreviewResponse:
-        preview = build_author_preview_from_request(request)
+        preview = build_author_preview_from_seed(request.prompt_seed)
         with self._lock:
             self._previews[preview.preview_id] = preview
         return preview
@@ -94,7 +82,7 @@ class AuthorJobService:
         with self._lock:
             preview = self._previews.get(request.preview_id) if request.preview_id else None
         if preview is None:
-            preview = build_author_preview_from_request(request)
+            preview = build_author_preview_from_seed(request.prompt_seed)
         job_id = str(uuid4())
         record = _AuthorJobRecord(
             job_id=job_id,
@@ -119,7 +107,7 @@ class AuthorJobService:
                 prompt_seed=record.prompt_seed,
                 preview=record.preview,
                 progress=record.progress,
-                progress_snapshot=self._build_progress_snapshot(record),
+                progress_snapshot=self._progress_snapshot(record),
                 cache_metrics=record.cache_metrics,
                 error=record.error,
             )
@@ -132,33 +120,8 @@ class AuthorJobService:
                 status=record.status,  # type: ignore[arg-type]
                 summary=record.summary,
                 bundle=record.bundle,
-                progress_snapshot=self._build_progress_snapshot(record),
+                progress_snapshot=self._progress_snapshot(record),
                 cache_metrics=record.cache_metrics,
-            )
-
-    def get_job_token_usage(self, job_id: str) -> AuthorJobTokenUsageResponse:
-        with self._lock:
-            record = self._jobs[job_id]
-            token_usage = record.cache_metrics or summarize_cache_metrics(record.llm_call_trace)
-            return AuthorJobTokenUsageResponse(
-                job_id=record.job_id,
-                status=record.status,  # type: ignore[arg-type]
-                progress=record.progress,
-                token_usage=token_usage,
-            )
-
-    def get_job_token_usage_detail(self, job_id: str) -> AuthorJobTokenUsageDetailResponse:
-        with self._lock:
-            record = self._jobs[job_id]
-            total_token_usage = record.cache_metrics or summarize_cache_metrics(record.llm_call_trace)
-            return AuthorJobTokenUsageDetailResponse(
-                job_id=record.job_id,
-                status=record.status,  # type: ignore[arg-type]
-                progress=record.progress,
-                total_token_usage=total_token_usage,
-                operation_breakdown=summarize_operation_breakdown(record.llm_call_trace),
-                stage_breakdown=summarize_stage_breakdown(record.llm_call_trace),
-                cost_estimate=estimate_token_cost(total_token_usage),
             )
 
     def stream_job_events(
@@ -294,89 +257,13 @@ class AuthorJobService:
             "token_cost_estimate": token_cost_estimate.model_dump(mode="json") if token_cost_estimate else None,
         }
 
-    def _build_loading_cards(
-        self,
-        record: _AuthorJobRecord,
-        *,
-        token_usage: AuthorCacheMetrics,
-    ) -> list[AuthorLoadingCard]:
-        preview = record.preview
-        progress = record.progress
-        token_cost_estimate = estimate_token_cost(token_usage)
-        if token_usage.total_tokens is None:
-            budget_value = "Waiting for first model call"
-        else:
-            budget_value = f"{token_usage.total_tokens} total tokens"
-            if token_cost_estimate is not None:
-                budget_value += f" · RMB {token_cost_estimate.estimated_total_cost_rmb:.6f} est."
-        return [
-            AuthorLoadingCard(card_id="theme", emphasis="stable", label="Theme", value=theme_label(preview.theme.primary_theme)),
-            AuthorLoadingCard(card_id="tone", emphasis="stable", label="Tone", value=preview.story.tone),
-            AuthorLoadingCard(
-                card_id="structure",
-                emphasis="stable",
-                label="Story Shape",
-                value=topology_label(preview.structure.cast_topology),
-            ),
-            AuthorLoadingCard(
-                card_id="cast_count",
-                emphasis="stable",
-                label="NPC Count",
-                value=cast_count_value(progress.stage, preview.structure.expected_npc_count),
-            ),
-            AuthorLoadingCard(
-                card_id="beat_count",
-                emphasis="stable",
-                label="Beat Count",
-                value=beat_count_value(progress.stage, preview.structure.expected_beat_count),
-            ),
-            AuthorLoadingCard(
-                card_id="working_title",
-                emphasis="draft",
-                label="Working Title",
-                value=preview.story.title,
-            ),
-            AuthorLoadingCard(
-                card_id="core_conflict",
-                emphasis="draft",
-                label="Core Conflict",
-                value=preview.focused_brief.core_conflict,
-            ),
-            AuthorLoadingCard(
-                card_id="generation_status",
-                emphasis="live",
-                label="Generation Status",
-                value=stage_status_message(progress.stage),
-            ),
-            AuthorLoadingCard(
-                card_id="token_budget",
-                emphasis="live",
-                label="Token Budget",
-                value=budget_value,
-            ),
-        ]
-
-    def _build_progress_snapshot(self, record: _AuthorJobRecord) -> AuthorJobProgressSnapshot:
-        progress = record.progress
-        completion_ratio = 0.0
-        if progress.stage_total > 0:
-            completion_ratio = min(progress.stage_index / progress.stage_total, 1.0)
-        preview = record.preview
+    def _progress_snapshot(self, record: _AuthorJobRecord):
         token_usage = record.cache_metrics or summarize_cache_metrics(record.llm_call_trace)
-        return AuthorJobProgressSnapshot(
-            stage=progress.stage,
-            stage_label=stage_label(progress.stage),
-            stage_index=progress.stage_index,
-            stage_total=progress.stage_total,
-            completion_ratio=round(completion_ratio, 3),
-            primary_theme=preview.theme.primary_theme,
-            cast_topology=preview.structure.cast_topology,
-            expected_npc_count=preview.structure.expected_npc_count,
-            expected_beat_count=preview.structure.expected_beat_count,
-            preview_title=preview.story.title,
-            preview_premise=preview.story.premise,
-            flashcards=list(preview.flashcards),
-            loading_cards=self._build_loading_cards(record, token_usage=token_usage),
+        return build_progress_snapshot(
+            preview=record.preview,
+            progress=record.progress,
+            token_usage=token_usage,
+            token_cost_estimate=estimate_token_cost(token_usage),
         )
 
     def _build_status_event_payload(self, job_id: str) -> dict[str, Any]:
@@ -390,7 +277,7 @@ class AuthorJobService:
                 "progress": record.progress.model_dump(mode="json"),
                 "cache_metrics": record.cache_metrics.model_dump(mode="json") if record.cache_metrics else None,
                 "error": record.error,
-                "progress_snapshot": self._build_progress_snapshot(record).model_dump(mode="json"),
+                "progress_snapshot": self._progress_snapshot(record).model_dump(mode="json"),
             }
             payload.update(self._build_token_snapshot_payload(record))
             return payload
@@ -404,7 +291,7 @@ class AuthorJobService:
                 "summary": self._dump_value(record.summary),
                 "bundle": self._dump_value(record.bundle),
                 "cache_metrics": record.cache_metrics.model_dump(mode="json") if record.cache_metrics else None,
-                "progress_snapshot": self._build_progress_snapshot(record).model_dump(mode="json"),
+                "progress_snapshot": self._progress_snapshot(record).model_dump(mode="json"),
             }
             payload.update(self._build_token_snapshot_payload(record))
             return payload

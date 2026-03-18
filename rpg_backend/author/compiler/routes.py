@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from rpg_backend.author.contracts import (
@@ -11,27 +10,11 @@ from rpg_backend.author.contracts import (
     RouteOpportunityPlanDraft,
     RouteUnlockRule,
 )
+from rpg_backend.author.normalize import slugify, unique_preserve
 
 
-def _slug(value: str) -> str:
-    normalized = re.sub(r"[^a-z0-9]+", "_", (value or "").casefold())
-    return normalized.strip("_") or "item"
-
-
-def _unique_preserve(items: list[str]) -> list[str]:
-    seen: set[str] = set()
-    ordered: list[str] = []
-    for item in items:
-        lowered = item.casefold()
-        if not item or lowered in seen:
-            continue
-        seen.add(lowered)
-        ordered.append(item)
-    return ordered
-
-
-def _normalize_affordance_tag(value: str) -> str:
-    normalized = _slug(value)
+def normalize_affordance_tag(value: str) -> str:
+    normalized = slugify(value)
     mapping = {
         "reveal": "reveal_truth",
         "investigate": "reveal_truth",
@@ -49,8 +32,8 @@ def _normalize_affordance_tag(value: str) -> str:
     return mapping.get(normalized, normalized)
 
 
-def _default_story_function_for_tag(tag: str) -> str:
-    normalized = _normalize_affordance_tag(tag)
+def default_story_function_for_tag(tag: str) -> str:
+    normalized = normalize_affordance_tag(tag)
     if normalized == "reveal_truth":
         return "reveal"
     if normalized == "contain_chaos":
@@ -60,7 +43,7 @@ def _default_story_function_for_tag(tag: str) -> str:
     return "advance"
 
 
-def _bundle_affordance_tags(bundle: DesignBundle) -> list[str]:
+def bundle_affordance_tags(bundle: DesignBundle) -> list[str]:
     affordance_tags = sorted({weight.tag for beat in bundle.beat_spine for weight in beat.affordances})
     if len(affordance_tags) < 2:
         for fallback_tag in ("reveal_truth", "build_trust"):
@@ -76,7 +59,7 @@ def normalize_route_affordance_pack(
     bundle: DesignBundle,
 ) -> RouteAffordancePackDraft:
     beat_ids = {beat.beat_id for beat in bundle.beat_spine}
-    affordance_tags = set(_bundle_affordance_tags(bundle))
+    affordance_tags = set(bundle_affordance_tags(bundle))
     axis_ids = {axis.axis_id for axis in bundle.state_schema.axes}
     stance_ids = {stance.stance_id for stance in bundle.state_schema.stances}
     flag_ids = {flag.flag_id for flag in bundle.state_schema.flags}
@@ -105,7 +88,7 @@ def normalize_route_affordance_pack(
         if tag in profile_by_tag:
             normalized_profiles.append(profile_by_tag[tag])
             continue
-        default_story_function = _default_story_function_for_tag(tag)
+        default_story_function = default_story_function_for_tag(tag)
         normalized_profiles.append(
             AffordanceEffectProfile(
                 affordance_tag=tag,
@@ -124,7 +107,7 @@ def normalize_route_affordance_pack(
 
 
 def build_deterministic_affordance_profiles(bundle: DesignBundle) -> list[AffordanceEffectProfile]:
-    affordance_tags = _bundle_affordance_tags(bundle)
+    affordance_tags = bundle_affordance_tags(bundle)
     axes_by_id = {axis.axis_id: axis for axis in bundle.state_schema.axes}
     pressure_axis = next((axis.axis_id for axis in bundle.state_schema.axes if axis.kind == "pressure"), bundle.state_schema.axes[0].axis_id)
     relationship_axis = next(
@@ -139,7 +122,7 @@ def build_deterministic_affordance_profiles(bundle: DesignBundle) -> list[Afford
     first_stance_id = bundle.state_schema.stances[0].stance_id if bundle.state_schema.stances else None
     profiles = []
     for tag in affordance_tags:
-        default_story_function = _default_story_function_for_tag(tag)
+        default_story_function = default_story_function_for_tag(tag)
         axis_deltas: dict[str, int] = {}
         stance_deltas: dict[str, int] = {}
         if tag == "reveal_truth":
@@ -193,7 +176,7 @@ def _default_route_trigger_payload(bundle: DesignBundle, beat_index: int) -> dic
 def _preferred_route_tags_for_beat(beat: BeatSpec) -> list[str]:
     tags = [beat.route_pivot_tag] if beat.route_pivot_tag else []
     tags.extend(weight.tag for weight in beat.affordances)
-    return _unique_preserve([_normalize_affordance_tag(tag) for tag in tags if tag])
+    return unique_preserve([normalize_affordance_tag(tag) for tag in tags if tag])
 
 
 def _route_supplement_candidate_rows(bundle: DesignBundle) -> list[dict[str, Any]]:
@@ -227,7 +210,7 @@ def compile_route_opportunity_plan(
     bundle: DesignBundle,
 ) -> RouteAffordancePackDraft:
     beat_ids = {beat.beat_id for beat in bundle.beat_spine}
-    affordance_tags = set(_bundle_affordance_tags(bundle))
+    affordance_tags = set(bundle_affordance_tags(bundle))
     axis_ids = {axis.axis_id for axis in bundle.state_schema.axes}
     stance_ids = {stance.stance_id for stance in bundle.state_schema.stances}
     flag_ids = {flag.flag_id for flag in bundle.state_schema.flags}
@@ -276,7 +259,7 @@ def compile_route_opportunity_plan(
         signatures.add(signature)
         route_unlock_rules.append(
             RouteUnlockRule(
-                rule_id=_slug(f"{opportunity.beat_id}_{opportunity.unlock_route_id}"),
+                rule_id=slugify(f"{opportunity.beat_id}_{opportunity.unlock_route_id}"),
                 beat_id=opportunity.beat_id,
                 conditions={
                     "min_axes": min_axes,

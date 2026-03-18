@@ -12,6 +12,7 @@ from rpg_backend.author.contracts import (
     FocusedBrief,
     StoryFrameDraft,
 )
+from rpg_backend.author.normalize import trim_text, unique_preserve
 
 if TYPE_CHECKING:
     from rpg_backend.author.gateway import AuthorLLMGateway
@@ -74,25 +75,25 @@ def _normalize_cast_overview_payload(gateway: "AuthorLLMGateway", payload: dict[
     for item in list(normalized.get("cast_slots") or normalized.get("roles") or normalized.get("cast") or [])[:5]:
         if not isinstance(item, dict):
             continue
-        slot_label = gateway._trim_text(item.get("slot_label") or item.get("label") or item.get("name") or "Civic Role", 80)
-        public_role = gateway._trim_text(item.get("public_role") or item.get("role") or "Stakeholder", 120)
+        slot_label = trim_text(item.get("slot_label") or item.get("label") or item.get("name") or "Civic Role", 80)
+        public_role = trim_text(item.get("public_role") or item.get("role") or "Stakeholder", 120)
         slot_items.append(
             {
                 "slot_label": slot_label,
                 "public_role": public_role,
-                "relationship_to_protagonist": gateway._trim_text(
+                "relationship_to_protagonist": trim_text(
                     item.get("relationship_to_protagonist") or item.get("relationship") or "Complicates or supports the protagonist under pressure.",
                     180,
                 ),
-                "agenda_anchor": gateway._trim_text(
+                "agenda_anchor": trim_text(
                     item.get("agenda_anchor") or item.get("agenda") or f"{slot_label} tries to protect their institutional stake while the crisis unfolds.",
                     220,
                 ),
-                "red_line_anchor": gateway._trim_text(
+                "red_line_anchor": trim_text(
                     item.get("red_line_anchor") or item.get("red_line") or f"{slot_label} will not accept being cut out of the settlement.",
                     220,
                 ),
-                "pressure_vector": gateway._trim_text(
+                "pressure_vector": trim_text(
                     item.get("pressure_vector") or item.get("pressure_signature") or f"{slot_label} pushes harder for leverage as public pressure rises.",
                     220,
                 ),
@@ -119,11 +120,11 @@ def _normalize_cast_overview_payload(gateway: "AuthorLLMGateway", payload: dict[
             }
         )
     relationship_summary = [
-        gateway._trim_text(item, 180)
+        trim_text(item, 180)
         for item in list(normalized.get("relationship_summary") or normalized.get("relationships") or [])[:6]
-        if gateway._trim_text(item, 180)
+        if trim_text(item, 180)
     ]
-    relationship_summary = gateway._unique_preserve(relationship_summary)
+    relationship_summary = unique_preserve(relationship_summary)
     if len(relationship_summary) < 2:
         relationship_summary = [
             f"{unique_slots[0]['slot_label']} and {unique_slots[1]['slot_label']} need each other but disagree on procedure.",
@@ -141,15 +142,15 @@ def _normalize_cast_payload(gateway: "AuthorLLMGateway", payload: dict[str, Any]
     for item in list(normalized.get("cast") or [])[:5]:
         if not isinstance(item, dict):
             continue
-        name = gateway._trim_text(item.get("name") or "Unnamed Figure", 80)
-        role = gateway._trim_text(item.get("role") or "Civic actor", 120)
+        name = trim_text(item.get("name") or "Unnamed Figure", 80)
+        role = trim_text(item.get("role") or "Civic actor", 120)
         cast_items.append(
             {
                 "name": name,
                 "role": role,
-                "agenda": gateway._trim_text(item.get("agenda") or f"{name} tries to preserve their role in the crisis.", 220),
-                "red_line": gateway._trim_text(item.get("red_line") or f"{name} will not lose public legitimacy without resistance.", 220),
-                "pressure_signature": gateway._trim_text(
+                "agenda": trim_text(item.get("agenda") or f"{name} tries to preserve their role in the crisis.", 220),
+                "red_line": trim_text(item.get("red_line") or f"{name} will not lose public legitimacy without resistance.", 220),
+                "pressure_signature": trim_text(
                     item.get("pressure_signature") or f"{name} reacts sharply when pressure threatens public order.",
                     220,
                 ),
@@ -190,14 +191,14 @@ def _normalize_cast_member_payload(
     source = payload.get("member") if isinstance(payload.get("member"), dict) else payload
     if not isinstance(source, dict):
         source = {}
-    name = gateway._trim_text(source.get("name") or slot_label, 80)
-    role = gateway._trim_text(source.get("role") or public_role, 120)
+    name = trim_text(source.get("name") or slot_label, 80)
+    role = trim_text(source.get("role") or public_role, 120)
     return {
         "name": name,
         "role": role,
-        "agenda": gateway._trim_text(source.get("agenda") or agenda_anchor, 220),
-        "red_line": gateway._trim_text(source.get("red_line") or red_line_anchor, 220),
-        "pressure_signature": gateway._trim_text(source.get("pressure_signature") or pressure_vector, 220),
+        "agenda": trim_text(source.get("agenda") or agenda_anchor, 220),
+        "red_line": trim_text(source.get("red_line") or red_line_anchor, 220),
+        "pressure_signature": trim_text(source.get("pressure_signature") or pressure_vector, 220),
     }
 
 
@@ -210,22 +211,22 @@ def _normalize_cast_member_semantics_payload(
     source = payload.get("member") if isinstance(payload.get("member"), dict) else payload
     if not isinstance(source, dict):
         source = {}
-    name = gateway._trim_text(source.get("name") or source.get("person_name") or slot_label, 80)
-    agenda_detail = gateway._trim_text(
+    name = trim_text(source.get("name") or source.get("person_name") or slot_label, 80)
+    agenda_detail = trim_text(
         source.get("agenda_detail")
         or source.get("agenda")
         or source.get("leverage_source")
         or "Uses their position to turn private hesitation into public leverage.",
         180,
     )
-    red_line_detail = gateway._trim_text(
+    red_line_detail = trim_text(
         source.get("red_line_detail")
         or source.get("red_line")
         or source.get("private_stake")
         or "Refuses to let the settlement erase what they believe the crisis entitles them to protect.",
         180,
     )
-    pressure_detail = gateway._trim_text(
+    pressure_detail = trim_text(
         source.get("pressure_detail")
         or source.get("pressure_signature")
         or source.get("pressure_instinct")

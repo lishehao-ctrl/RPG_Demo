@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 from rpg_backend.author.compiler.router import plan_brief_theme
 from rpg_backend.author.compiler.story import compile_story_frame
 from rpg_backend.author.contracts import FocusedBrief, StoryFrameDraft, StoryFrameScaffoldDraft
+from rpg_backend.author.normalize import coerce_int, trim_text, unique_preserve
 
 if TYPE_CHECKING:
     from rpg_backend.author.gateway import AuthorLLMGateway, GatewayStructuredResponse
@@ -28,13 +29,13 @@ def _normalize_story_frame_semantics_payload(
     fallback_truths: list[str],
 ) -> dict[str, Any]:
     normalized = dict(payload)
-    normalized["tone"] = gateway._trim_text(normalized.get("tone") or "hopeful civic fantasy", 120)
+    normalized["tone"] = trim_text(normalized.get("tone") or "hopeful civic fantasy", 120)
     world_rules = [
-        gateway._trim_text(item, 180)
+        trim_text(item, 180)
         for item in list(normalized.get("world_rules") or [])[:5]
-        if isinstance(item, str) and gateway._trim_text(item, 180)
+        if isinstance(item, str) and trim_text(item, 180)
     ]
-    world_rules = gateway._unique_preserve(world_rules)
+    world_rules = unique_preserve(world_rules)
     fallback_world_rules = [
         "Power and public legitimacy move together.",
         "The main plot advances through fixed beats even if local tactics vary.",
@@ -46,7 +47,7 @@ def _normalize_story_frame_semantics_payload(
     for item in list(normalized.get("truths") or [])[:6]:
         if not isinstance(item, dict):
             continue
-        text = gateway._trim_text(item.get("text"), 220)
+        text = trim_text(item.get("text"), 220)
         if not text:
             continue
         truths.append(
@@ -55,13 +56,13 @@ def _normalize_story_frame_semantics_payload(
                 "importance": item.get("importance") or "core",
             }
         )
-    truths = gateway._unique_preserve([json.dumps(item, ensure_ascii=False, sort_keys=True) for item in truths])
+    truths = unique_preserve([json.dumps(item, ensure_ascii=False, sort_keys=True) for item in truths])
     normalized_truths = [json.loads(item) for item in truths]
     if len(normalized_truths) < 2:
         truth_defaults = [
-            {"text": gateway._trim_text(text, 220), "importance": "core"}
+            {"text": trim_text(text, 220), "importance": "core"}
             for text in fallback_truths
-            if gateway._trim_text(text, 220)
+            if trim_text(text, 220)
         ]
         normalized_truths.extend(truth_defaults[len(normalized_truths) :])
     normalized["truths"] = normalized_truths[:6]
@@ -70,12 +71,12 @@ def _normalize_story_frame_semantics_payload(
     for item in raw_axis_items:
         if not isinstance(item, dict):
             continue
-        label_text = gateway._trim_text(item.get("story_label") or item.get("label") or "State Axis", 80)
+        label_text = trim_text(item.get("story_label") or item.get("label") or "State Axis", 80)
         axis_choices.append(
             {
                 "template_id": item.get("template_id") or "external_pressure",
                 "story_label": label_text,
-                "starting_value": max(0, min(3, gateway._coerce_int(item.get("starting_value", 0), 0))),
+                "starting_value": max(0, min(3, coerce_int(item.get("starting_value", 0), 0))),
             }
         )
     axis_defaults = [
@@ -99,7 +100,7 @@ def _normalize_story_frame_semantics_payload(
     for item in list(normalized.get("flags") or [])[:4]:
         if not isinstance(item, dict):
             continue
-        label = gateway._trim_text(item.get("label"), 80)
+        label = trim_text(item.get("label"), 80)
         if not label:
             continue
         flags.append(
@@ -124,23 +125,23 @@ def _normalize_story_frame_scaffold_payload(
             str(payload.get("stakes_core") or payload.get("protagonist_mandate") or "Public legitimacy is fragile."),
         ],
     )
-    normalized["title_seed"] = gateway._trim_text(
+    normalized["title_seed"] = trim_text(
         normalized.get("title_seed") or payload.get("title") or "Lantern Accord",
         80,
     )
-    normalized["setting_frame"] = gateway._trim_text(
+    normalized["setting_frame"] = trim_text(
         normalized.get("setting_frame") or "a city under civic pressure",
         180,
     )
-    normalized["protagonist_mandate"] = gateway._trim_text(
+    normalized["protagonist_mandate"] = trim_text(
         normalized.get("protagonist_mandate") or "a mediator must keep the coalition intact",
         220,
     )
-    normalized["opposition_force"] = gateway._trim_text(
+    normalized["opposition_force"] = trim_text(
         normalized.get("opposition_force") or "institutional fracture and political opportunism push the city toward collapse",
         220,
     )
-    normalized["stakes_core"] = gateway._trim_text(
+    normalized["stakes_core"] = trim_text(
         normalized.get("stakes_core") or "the city loses both legitimacy and continuity in public view",
         220,
     )
@@ -159,16 +160,16 @@ def _normalize_story_frame_payload(
             str(payload.get("stakes") or "If the coalition fails, the city loses both legitimacy and continuity."),
         ],
     )
-    normalized["title"] = gateway._trim_text(normalized.get("title") or "Untitled Crisis", 120)
-    normalized["premise"] = gateway._trim_text(
+    normalized["title"] = trim_text(normalized.get("title") or "Untitled Crisis", 120)
+    normalized["premise"] = trim_text(
         normalized.get("premise") or "A city under pressure must decide what still holds it together.",
         320,
     )
-    normalized["stakes"] = gateway._trim_text(
+    normalized["stakes"] = trim_text(
         normalized.get("stakes") or "If the coalition fails, the city loses both legitimacy and continuity.",
         240,
     )
-    normalized["style_guard"] = gateway._trim_text(
+    normalized["style_guard"] = trim_text(
         normalized.get("style_guard")
         or "Keep the story tense, readable, and grounded in civic consequence rather than spectacle.",
         220,

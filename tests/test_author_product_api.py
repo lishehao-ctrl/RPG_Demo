@@ -12,11 +12,7 @@ from rpg_backend.author.contracts import (
     AuthorJobProgressSnapshot,
     AuthorJobResultResponse,
     AuthorJobStatusResponse,
-    AuthorJobTokenUsageDetailResponse,
-    AuthorJobTokenUsageResponse,
     AuthorLoadingCard,
-    AuthorTokenCostEstimate,
-    AuthorTokenUsageBucket,
     AuthorPreviewFlashcard,
     AuthorPreviewResponse,
 )
@@ -115,144 +111,6 @@ class _FakeAuthorJobService:
                 cache_type="ephemeral",
                 billing_type="response_api",
                 cache_metrics_source="provider_usage_no_cache_breakdown",
-            ),
-        )
-
-    def get_job_token_usage(self, job_id: str) -> AuthorJobTokenUsageResponse:
-        return AuthorJobTokenUsageResponse(
-            job_id=job_id,
-            status="running",
-            progress=AuthorJobProgress(stage="cast_ready", stage_index=6, stage_total=10),
-            token_usage=AuthorCacheMetrics(
-                session_cache_enabled=True,
-                cache_path_used=True,
-                total_call_count=4,
-                previous_response_call_count=3,
-                total_input_characters=920,
-                estimated_input_tokens_from_chars=230,
-                provider_usage={"input_tokens": 240, "output_tokens": 60, "total_tokens": 300},
-                input_tokens=240,
-                output_tokens=60,
-                total_tokens=300,
-                reasoning_tokens=28,
-                cached_input_tokens=160,
-                cache_creation_input_tokens=30,
-                cache_type="ephemeral",
-                billing_type="response_api",
-                cache_metrics_source="provider_usage_no_cache_breakdown",
-            ),
-        )
-
-    def get_job_token_usage_detail(self, job_id: str) -> AuthorJobTokenUsageDetailResponse:
-        summary = self.get_job_token_usage(job_id)
-        return AuthorJobTokenUsageDetailResponse(
-            job_id=job_id,
-            status="running",
-            progress=summary.progress,
-            total_token_usage=summary.token_usage,
-            operation_breakdown=[
-                AuthorTokenUsageBucket(
-                    bucket_id="story_frame_semantics",
-                    token_usage=AuthorCacheMetrics(
-                        session_cache_enabled=True,
-                        cache_path_used=True,
-                        total_call_count=1,
-                        previous_response_call_count=0,
-                        total_input_characters=280,
-                        estimated_input_tokens_from_chars=70,
-                        provider_usage={"input_tokens": 90, "output_tokens": 24, "total_tokens": 114},
-                        input_tokens=90,
-                        output_tokens=24,
-                        total_tokens=114,
-                        reasoning_tokens=10,
-                        cached_input_tokens=0,
-                        cache_creation_input_tokens=20,
-                        cache_type="ephemeral",
-                        billing_type="response_api",
-                        cache_metrics_source="provider_usage_no_cache_breakdown",
-                    ),
-                ),
-                AuthorTokenUsageBucket(
-                    bucket_id="cast_member_semantics",
-                    token_usage=AuthorCacheMetrics(
-                        session_cache_enabled=True,
-                        cache_path_used=True,
-                        total_call_count=3,
-                        previous_response_call_count=3,
-                        total_input_characters=640,
-                        estimated_input_tokens_from_chars=160,
-                        provider_usage={"input_tokens": 150, "output_tokens": 36, "total_tokens": 186},
-                        input_tokens=150,
-                        output_tokens=36,
-                        total_tokens=186,
-                        reasoning_tokens=18,
-                        cached_input_tokens=160,
-                        cache_creation_input_tokens=10,
-                        cache_type="ephemeral",
-                        billing_type="response_api",
-                        cache_metrics_source="provider_usage_no_cache_breakdown",
-                    ),
-                ),
-            ],
-            stage_breakdown=[
-                AuthorTokenUsageBucket(
-                    bucket_id="story_frame",
-                    token_usage=AuthorCacheMetrics(
-                        session_cache_enabled=True,
-                        cache_path_used=True,
-                        total_call_count=1,
-                        previous_response_call_count=0,
-                        total_input_characters=280,
-                        estimated_input_tokens_from_chars=70,
-                        provider_usage={"input_tokens": 90, "output_tokens": 24, "total_tokens": 114},
-                        input_tokens=90,
-                        output_tokens=24,
-                        total_tokens=114,
-                        reasoning_tokens=10,
-                        cached_input_tokens=0,
-                        cache_creation_input_tokens=20,
-                        cache_type="ephemeral",
-                        billing_type="response_api",
-                        cache_metrics_source="provider_usage_no_cache_breakdown",
-                    ),
-                ),
-                AuthorTokenUsageBucket(
-                    bucket_id="cast_member",
-                    token_usage=AuthorCacheMetrics(
-                        session_cache_enabled=True,
-                        cache_path_used=True,
-                        total_call_count=3,
-                        previous_response_call_count=3,
-                        total_input_characters=640,
-                        estimated_input_tokens_from_chars=160,
-                        provider_usage={"input_tokens": 150, "output_tokens": 36, "total_tokens": 186},
-                        input_tokens=150,
-                        output_tokens=36,
-                        total_tokens=186,
-                        reasoning_tokens=18,
-                        cached_input_tokens=160,
-                        cache_creation_input_tokens=10,
-                        cache_type="ephemeral",
-                        billing_type="response_api",
-                        cache_metrics_source="provider_usage_no_cache_breakdown",
-                    ),
-                ),
-            ],
-            cost_estimate=AuthorTokenCostEstimate(
-                model="qwen3.5-flash",
-                currency="RMB",
-                input_price_per_million_tokens_rmb=0.2,
-                output_price_per_million_tokens_rmb=2.0,
-                session_cache_hit_multiplier=0.1,
-                session_cache_creation_multiplier=1.25,
-                uncached_input_tokens=50,
-                cached_input_tokens=160,
-                cache_creation_input_tokens=30,
-                output_tokens=60,
-                estimated_input_cost_rmb=0.00002,
-                estimated_output_cost_rmb=0.00012,
-                estimated_total_cost_rmb=0.00014,
-                notes=None,
             ),
         )
 
@@ -591,7 +449,7 @@ def test_author_job_service_loading_cards_are_stage_adaptive() -> None:
     ]
 
     for stage, stage_index, total_tokens, cast_value, beat_value, status_value, token_value in scenarios:
-        snapshot = service._build_progress_snapshot(build_record(stage, stage_index, total_tokens))
+        snapshot = service._progress_snapshot(build_record(stage, stage_index, total_tokens))
         assert [card.card_id for card in snapshot.loading_cards] == [
             "theme",
             "tone",
@@ -622,8 +480,6 @@ def test_author_job_routes_use_job_service(monkeypatch) -> None:
             json={"prompt_seed": "港口检疫官阻止城市崩溃"},
         )
         status_response = client.get("/author/jobs/job-123")
-        usage_response = client.get("/author/jobs/job-123/token-usage")
-        usage_detail_response = client.get("/author/jobs/job-123/token-usage/detail")
         result_response = client.get("/author/jobs/job-123/result")
     finally:
         main_module.author_job_service = original
@@ -635,14 +491,6 @@ def test_author_job_routes_use_job_service(monkeypatch) -> None:
     assert status_response.json()["cache_metrics"]["session_cache_enabled"] is True
     assert status_response.json()["progress_snapshot"]["loading_cards"][0]["card_id"] == "theme"
     assert status_response.json()["progress_snapshot"]["loading_cards"][7]["value"] == "Story frame drafted. Title, premise, and stakes are set."
-    assert usage_response.status_code == 200
-    assert usage_response.json()["token_usage"]["input_tokens"] == 240
-    assert usage_response.json()["progress"]["stage"] == "cast_ready"
-    assert usage_detail_response.status_code == 200
-    assert usage_detail_response.json()["total_token_usage"]["total_tokens"] == 300
-    assert usage_detail_response.json()["operation_breakdown"][0]["bucket_id"] == "story_frame_semantics"
-    assert usage_detail_response.json()["stage_breakdown"][1]["bucket_id"] == "cast_member"
-    assert usage_detail_response.json()["cost_estimate"]["estimated_total_cost_rmb"] == 0.00014
     assert result_response.status_code == 200
     assert result_response.json()["summary"]["title"] == "The Harbor Compact"
     assert result_response.json()["progress_snapshot"]["stage_label"] == "Bundle complete"

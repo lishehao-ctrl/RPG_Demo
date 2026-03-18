@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from fastapi.testclient import TestClient
 from langgraph.checkpoint.memory import InMemorySaver
 
 from rpg_backend.author.checkpointer import graph_config
@@ -17,8 +16,6 @@ from rpg_backend.author.contracts import (
     CastDraft,
     CastOverviewDraft,
     CastOverviewSlotDraft,
-    EndingIntentDraft,
-    EndingIntentSpec,
     EndingRule,
     EndingRulesDraft,
     FocusedBrief,
@@ -33,20 +30,23 @@ from rpg_backend.author.contracts import (
     StoryFrameScaffoldDraft,
     StoryOverviewDraft,
 )
-from rpg_backend.author.gateway import AuthorGatewayError, AuthorLLMGateway, GatewayStructuredResponse
+from rpg_backend.author.gateway import AuthorGatewayError, AuthorLLMGateway
 from rpg_backend.author.compiler.router import plan_story_theme
+from rpg_backend.author.generation import beats as beat_generation
+from rpg_backend.author.generation import cast as cast_generation
+from rpg_backend.author.generation import endings as ending_generation
+from rpg_backend.author.generation import routes as route_generation
+from rpg_backend.author.generation import story_frame as story_generation
 from rpg_backend.author.workflow import (
     assemble_story_overview,
     build_author_graph,
     build_design_bundle,
-    build_default_ending_intent,
     build_default_ending_rules,
     build_default_route_opportunity_plan,
     build_default_route_affordance_pack,
     focus_brief,
     run_author_bundle,
 )
-from rpg_backend.main import app
 
 
 def _overview_draft() -> StoryOverviewDraft:
@@ -219,27 +219,6 @@ def _cast_overview_draft() -> CastOverviewDraft:
     )
 
 
-def _four_slot_cast_overview_draft() -> CastOverviewDraft:
-    draft = _cast_overview_draft()
-    return CastOverviewDraft(
-        cast_slots=[
-            *draft.cast_slots,
-            CastOverviewSlotDraft(
-                slot_label="Civic Witness",
-                public_role="Public advocate",
-                relationship_to_protagonist="Presses the protagonist to make the process legible to ordinary citizens.",
-                agenda_anchor="Force the crisis response to remain publicly accountable.",
-                red_line_anchor="Will not let elite procedure erase the public record.",
-                pressure_vector="Turns ambiguity into public scrutiny whenever the room starts closing ranks.",
-            ),
-        ],
-        relationship_summary=[
-            *draft.relationship_summary,
-            "The civic witness amplifies any gap between elite coordination and public legitimacy.",
-        ],
-    )
-
-
 def _beat_plan_draft() -> BeatPlanDraft:
     return BeatPlanDraft(beats=_overview_draft().beats)
 
@@ -348,23 +327,6 @@ def _ending_rules_draft() -> EndingRulesDraft:
     return build_default_ending_rules(bundle)
 
 
-def _ending_intent_draft() -> EndingIntentDraft:
-    bundle = build_design_bundle(
-        _story_frame_draft(),
-        _cast_draft(),
-        _beat_plan_draft(),
-        FocusedBrief(
-            story_kernel="Hold the city together.",
-            setting_signal="Archive city blackout.",
-            core_conflict="Prevent coalition collapse.",
-            tone_signal="Hopeful civic fantasy.",
-            hard_constraints=[],
-            forbidden_tones=[],
-        ),
-    )
-    return build_default_ending_intent(bundle)
-
-
 class _FakeClient:
     def __init__(self, payloads: list[dict[str, object] | str]) -> None:
         self.payloads = payloads
@@ -388,780 +350,421 @@ class _FakeClient:
         self.responses = _Responses(self)
 
 
+def _cast_member_semantics_payloads() -> list[dict[str, str]]:
+    return [
+        {
+            "name": "Envoy Iri",
+            "agenda_detail": "Keeps rival institutions bargaining long enough to expose the sabotage.",
+            "red_line_detail": "Will not trade civilian safety for elite stability.",
+            "pressure_detail": "Treats every compromise as a public obligation that will outlive the emergency.",
+        },
+        {
+            "name": "Archivist Sen",
+            "agenda_detail": "Preserves continuity and keeps the archive systems stable under strain.",
+            "red_line_detail": "Will not let the archive vaults be sacrificed for convenience.",
+            "pressure_detail": "Pushes everyone to think in system consequences before dramatic gestures.",
+        },
+        {
+            "name": "Broker Tal",
+            "agenda_detail": "Uses the blackout to reshape who gets to define the final settlement.",
+            "red_line_detail": "Will not accept being excluded from the new order.",
+            "pressure_detail": "Frames every delay as proof that authority must change hands.",
+        },
+        {
+            "name": "Lio Maren",
+            "agenda_detail": "Forces the crisis response to stay publicly legible while pressure keeps rising.",
+            "red_line_detail": "Will not let procedure erase the public record of what happened.",
+            "pressure_detail": "Turns secrecy and ambiguity into immediate public scrutiny.",
+        },
+    ]
+
+
+def _ending_anchor_suggestion_payload() -> dict[str, object]:
+    return {
+        "ending_anchor_suggestions": [
+            {
+                "ending_id": "collapse",
+                "axis_ids": ["external_pressure"],
+                "required_truth_ids": ["truth_1"],
+            },
+            {
+                "ending_id": "pyrrhic",
+                "axis_ids": ["political_leverage", "public_panic"],
+                "required_event_ids": ["b2.fracture"],
+            },
+        ]
+    }
+
+
+def _default_transport_responses() -> dict[str, list[dict[str, object] | Exception]]:
+    return {
+        "story_frame_semantics": [
+            _story_frame_scaffold_draft().model_dump(mode="json"),
+        ],
+        "cast_member_semantics": list(_cast_member_semantics_payloads()),
+        "beat_plan_generate": [
+            _beat_plan_skeleton_draft().model_dump(mode="json"),
+        ],
+        "route_opportunity_generate": [
+            _route_opportunity_plan_draft().model_dump(mode="json"),
+        ],
+        "ending_anchor_generate": [
+            _ending_anchor_suggestion_payload(),
+        ],
+    }
+
+
+def _low_quality_story_frame_scaffold() -> dict[str, object]:
+    return {
+        "title_seed": "Untitled Crisis",
+        "setting_frame": "Archive city blackout.",
+        "protagonist_mandate": "Hold the city together",
+        "opposition_force": "Prevent coalition collapse.",
+        "stakes_core": "Prevent coalition collapse.",
+        "tone": "Hopeful civic fantasy.",
+        "world_rules": ["Archive city blackout.", "The main plot advances in fixed beats even when local tactics vary."],
+        "truths": [
+            {"text": "Prevent coalition collapse.", "importance": "core"},
+            {"text": "Archive city blackout.", "importance": "core"},
+        ],
+        "state_axis_choices": [item.model_dump(mode="json") for item in _story_frame_draft().state_axis_choices],
+        "flags": [item.model_dump(mode="json") for item in _story_frame_draft().flags],
+    }
+
+
 class _FakeGateway:
-    def generate_story_frame(
-        self,
-        focused_brief: FocusedBrief,
-        *,
-        previous_response_id: str | None = None,
-    ) -> GatewayStructuredResponse[StoryFrameDraft]:
-        assert focused_brief.story_kernel
-        return GatewayStructuredResponse(value=_story_frame_draft(), response_id=previous_response_id or "fake-frame")
+    def __init__(self, responses_by_operation: dict[str, list[dict[str, object] | Exception]] | None = None) -> None:
+        self.responses_by_operation = responses_by_operation or _default_transport_responses()
+        self.max_output_tokens_overview = 700
+        self.max_output_tokens_beat_plan = 900
+        self.max_output_tokens_rulepack = 900
+        self.use_session_cache = False
+        self.call_trace: list[dict[str, object]] = []
+        self._response_index = 0
 
-    def glean_story_frame(
+    def _invoke_json(
         self,
-        focused_brief: FocusedBrief,
-        partial_story_frame: StoryFrameDraft,
         *,
+        system_prompt: str,
+        user_payload: dict[str, object],
+        max_output_tokens: int | None,
         previous_response_id: str | None = None,
-    ) -> GatewayStructuredResponse[StoryFrameDraft]:
-        assert focused_brief.story_kernel
-        assert partial_story_frame.title
-        return GatewayStructuredResponse(value=_story_frame_draft(), response_id=previous_response_id or "fake-frame-glean")
-
-    def generate_cast_overview(
-        self,
-        focused_brief: FocusedBrief,
-        story_frame: StoryFrameDraft,
-        *,
-        previous_response_id: str | None = None,
-    ) -> GatewayStructuredResponse[CastOverviewDraft]:
-        assert focused_brief.story_kernel
-        assert story_frame.title
-        return GatewayStructuredResponse(value=_cast_overview_draft(), response_id=previous_response_id or "fake-cast-overview")
-
-    def glean_cast_overview(
-        self,
-        focused_brief: FocusedBrief,
-        story_frame: StoryFrameDraft,
-        partial_cast_overview: CastOverviewDraft,
-        *,
-        previous_response_id: str | None = None,
-    ) -> GatewayStructuredResponse[CastOverviewDraft]:
-        assert focused_brief.story_kernel
-        assert story_frame.title
-        assert partial_cast_overview.cast_slots
-        return GatewayStructuredResponse(value=_cast_overview_draft(), response_id=previous_response_id or "fake-cast-overview-glean")
-
-    def generate_story_cast(
-        self,
-        focused_brief: FocusedBrief,
-        story_frame: StoryFrameDraft,
-        cast_overview: CastOverviewDraft,
-        *,
-        previous_response_id: str | None = None,
-    ) -> GatewayStructuredResponse[CastDraft]:
-        assert focused_brief.story_kernel
-        assert story_frame.title
-        assert cast_overview.cast_slots
-        return GatewayStructuredResponse(value=_cast_draft(), response_id=previous_response_id or "fake-cast")
-
-    def generate_story_cast_member(
-        self,
-        focused_brief: FocusedBrief,
-        story_frame: StoryFrameDraft,
-        cast_slot: dict[str, object],
-        existing_cast: list[dict[str, object]],
-        *,
-        previous_response_id: str | None = None,
+        operation_name: str | None = None,
     ):
-        assert focused_brief.story_kernel
-        assert story_frame.title
-        assert cast_slot["slot_label"]
-        pool = [
-            *_cast_draft().cast,
-            OverviewCastDraft(
-                name="Lio Maren",
-                role="Public advocate",
-                agenda="Force the crisis response to remain publicly accountable while pressure keeps rising.",
-                red_line="Will not let elite procedure erase the public record of what happened.",
-                pressure_signature="Turns ambiguity, secrecy, or procedural drift into public scrutiny.",
-            ),
-        ]
-        member = pool[len(existing_cast)]
-        return GatewayStructuredResponse(value=member, response_id=previous_response_id or f"fake-cast-member-{len(existing_cast)+1}")
-
-    def glean_story_cast_member(
-        self,
-        focused_brief: FocusedBrief,
-        story_frame: StoryFrameDraft,
-        cast_slot: dict[str, object],
-        existing_cast: list[dict[str, object]],
-        partial_member: dict[str, object],
-        *,
-        previous_response_id: str | None = None,
-    ):
-        assert focused_brief.story_kernel
-        assert story_frame.title
-        assert cast_slot["slot_label"]
-        assert partial_member
-        pool = [
-            *_cast_draft().cast,
-            OverviewCastDraft(
-                name="Lio Maren",
-                role="Public advocate",
-                agenda="Force the crisis response to remain publicly accountable while pressure keeps rising.",
-                red_line="Will not let elite procedure erase the public record of what happened.",
-                pressure_signature="Turns ambiguity, secrecy, or procedural drift into public scrutiny.",
-            ),
-        ]
-        member = pool[len(existing_cast)]
-        return GatewayStructuredResponse(value=member, response_id=previous_response_id or f"fake-cast-member-glean-{len(existing_cast)+1}")
-
-    def glean_story_cast(
-        self,
-        focused_brief: FocusedBrief,
-        story_frame: StoryFrameDraft,
-        cast_overview: CastOverviewDraft,
-        partial_cast: CastDraft,
-        *,
-        previous_response_id: str | None = None,
-    ) -> GatewayStructuredResponse[CastDraft]:
-        assert focused_brief.story_kernel
-        assert story_frame.title
-        assert cast_overview.cast_slots
-        assert partial_cast.cast
-        return GatewayStructuredResponse(value=_cast_draft(), response_id=previous_response_id or "fake-cast-glean")
-
-    def generate_beat_plan(
-        self,
-        focused_brief: FocusedBrief,
-        story_frame: StoryFrameDraft,
-        cast_draft: CastDraft,
-        *,
-        previous_response_id: str | None = None,
-    ) -> GatewayStructuredResponse[BeatPlanDraft]:
-        assert focused_brief.story_kernel
-        assert story_frame.title
-        assert cast_draft.cast
-        return GatewayStructuredResponse(value=_beat_plan_draft(), response_id=previous_response_id or "fake-beats")
-
-    def glean_beat_plan(
-        self,
-        focused_brief: FocusedBrief,
-        story_frame: StoryFrameDraft,
-        cast_draft: CastDraft,
-        partial_beat_plan: BeatPlanDraft,
-        *,
-        previous_response_id: str | None = None,
-    ) -> GatewayStructuredResponse[BeatPlanDraft]:
-        assert focused_brief.story_kernel
-        assert story_frame.title
-        assert cast_draft.cast
-        assert partial_beat_plan.beats
-        return GatewayStructuredResponse(value=_beat_plan_draft(), response_id=previous_response_id or "fake-beat-glean")
-
-    def generate_story_overview(self, focused_brief: FocusedBrief) -> StoryOverviewDraft:
-        return assemble_story_overview(_story_frame_draft(), _cast_draft(), _beat_plan_draft())
-
-    def generate_route_opportunity_plan_result(self, design_bundle, *, previous_response_id: str | None = None):  # noqa: ANN001
-        del design_bundle
-        return GatewayStructuredResponse(
-            value=_route_opportunity_plan_draft(),
-            response_id=previous_response_id or "fake-route-opportunities",
+        del system_prompt
+        operation = operation_name or "unknown"
+        queue = self.responses_by_operation.get(operation)
+        if not queue:
+            raise AssertionError(f"Unexpected operation: {operation}")
+        next_item = queue.pop(0)
+        self._response_index += 1
+        response_id = f"{operation}-{self._response_index}"
+        self.call_trace.append(
+            {
+                "operation": operation,
+                "response_id": response_id,
+                "used_previous_response_id": bool(previous_response_id),
+                "session_cache_enabled": False,
+                "max_output_tokens": max_output_tokens,
+                "input_characters": len(str(user_payload)),
+                "usage": {},
+            }
         )
-
-    def generate_route_affordance_pack_result(self, design_bundle, *, previous_response_id: str | None = None):  # noqa: ANN001
-        from rpg_backend.author.contracts import AffordanceEffectProfile, RouteUnlockRule
-
-        del design_bundle
-        return GatewayStructuredResponse(
-            value=RouteAffordancePackDraft(
-                route_unlock_rules=[
-                    RouteUnlockRule(
-                        rule_id="b2_public_cover",
-                        beat_id="b2",
-                        conditions={"min_stances": {"archivist_sen_stance": 1}},
-                        unlock_route_id="public_cover_route",
-                        unlock_affordance_tag="shift_public_narrative",
-                    )
-                ],
-                affordance_effect_profiles=[
-                    AffordanceEffectProfile(
-                        affordance_tag="reveal_truth",
-                        default_story_function="reveal",
-                        axis_deltas={"civic_pressure": 1},
-                        stance_deltas={},
-                        can_add_truth=True,
-                        can_add_event=False,
-                    ),
-                    AffordanceEffectProfile(
-                        affordance_tag="build_trust",
-                        default_story_function="advance",
-                        axis_deltas={"political_leverage": 1},
-                        stance_deltas={"archivist_sen_stance": 1},
-                        can_add_truth=False,
-                        can_add_event=True,
-                    ),
-                    AffordanceEffectProfile(
-                        affordance_tag="contain_chaos",
-                        default_story_function="stabilize",
-                        axis_deltas={"public_panic": -1},
-                        stance_deltas={},
-                        can_add_truth=False,
-                        can_add_event=False,
-                    ),
-                    AffordanceEffectProfile(
-                        affordance_tag="shift_public_narrative",
-                        default_story_function="advance",
-                        axis_deltas={"public_panic": -1, "political_leverage": 1},
-                        stance_deltas={},
-                        can_add_truth=False,
-                        can_add_event=True,
-                    ),
-                    AffordanceEffectProfile(
-                        affordance_tag="pay_cost",
-                        default_story_function="pay_cost",
-                        axis_deltas={"civic_pressure": -1},
-                        stance_deltas={},
-                        can_add_truth=False,
-                        can_add_event=True,
-                    ),
-                ],
-            ),
-            response_id=previous_response_id or "fake-rulepack",
+        if isinstance(next_item, Exception):
+            raise next_item
+        return SimpleNamespace(
+            payload=next_item,
+            response_id=response_id,
+            usage={},
+            input_characters=len(str(user_payload)),
         )
-
-    def generate_ending_intent_result(self, design_bundle, *, previous_response_id: str | None = None):  # noqa: ANN001
-        del design_bundle
-        return GatewayStructuredResponse(
-            value=EndingIntentDraft(
-                ending_intents=[
-                    EndingIntentSpec(
-                        ending_id="collapse",
-                        priority=1,
-                        axis_ids=["civic_pressure"],
-                        required_truth_ids=["truth_1"],
-                    ),
-                    EndingIntentSpec(
-                        ending_id="pyrrhic",
-                        priority=2,
-                        axis_ids=["political_leverage", "public_panic"],
-                        required_event_ids=["b2.fracture"],
-                    ),
-                    EndingIntentSpec(
-                        ending_id="mixed",
-                        priority=10,
-                        fallback=True,
-                    ),
-                ]
-            ),
-            response_id=previous_response_id or "fake-endings",
-        )
-
-    def glean_ending_intent(self, design_bundle, partial_ending_intent, *, previous_response_id: str | None = None):  # noqa: ANN001
-        del design_bundle, partial_ending_intent
-        return self.generate_ending_intent_result(design_bundle=None, previous_response_id=previous_response_id)
-
-    def generate_ending_rules_result(self, design_bundle, *, previous_response_id: str | None = None):  # noqa: ANN001
-        from rpg_backend.author.workflow import compile_ending_intent_draft
-
-        ending_intent = self.generate_ending_intent_result(design_bundle, previous_response_id=previous_response_id)
-        return GatewayStructuredResponse(
-            value=compile_ending_intent_draft(ending_intent.value, design_bundle),
-            response_id=ending_intent.response_id,
-        )
-
-    def glean_ending_rules(self, design_bundle, partial_ending_rules, *, previous_response_id: str | None = None):  # noqa: ANN001
-        del partial_ending_rules
-        return self.generate_ending_rules_result(design_bundle, previous_response_id=previous_response_id)
-
-    def generate_global_rulepack_result(self, design_bundle, *, previous_response_id: str | None = None):  # noqa: ANN001
-        from rpg_backend.author.contracts import RulePack
-
-        route_affordance_pack = self.generate_route_affordance_pack_result(
-            design_bundle,
-            previous_response_id=previous_response_id,
-        )
-        ending_rules = self.generate_ending_rules_result(
-            design_bundle,
-            previous_response_id=route_affordance_pack.response_id,
-        )
-        return GatewayStructuredResponse(
-            value=RulePack(
-                route_unlock_rules=route_affordance_pack.value.route_unlock_rules,
-                ending_rules=ending_rules.value.ending_rules,
-                affordance_effect_profiles=route_affordance_pack.value.affordance_effect_profiles,
-            ),
-            response_id=ending_rules.response_id,
-        )
-
-    def generate_global_rulepack(self, design_bundle):  # noqa: ANN001
-        return self.generate_global_rulepack_result(design_bundle).value
 
 
 class _FallbackRulepackGateway(_FakeGateway):
-    def generate_route_opportunity_plan_result(self, design_bundle, *, previous_response_id: str | None = None):  # noqa: ANN001
-        del design_bundle, previous_response_id
-        raise AuthorGatewayError(code="llm_invalid_json", message="provider returned empty content", status_code=502)
+    def __init__(self) -> None:
+        responses = _default_transport_responses()
+        responses["route_opportunity_generate"] = [
+            AuthorGatewayError(code="llm_invalid_json", message="provider returned empty content", status_code=502),
+            AuthorGatewayError(code="llm_invalid_json", message="provider returned empty content", status_code=502),
+            AuthorGatewayError(code="llm_invalid_json", message="provider returned empty content", status_code=502),
+        ]
+        super().__init__(responses)
 
 
 class _FallbackEndingRulesGateway(_FakeGateway):
-    def generate_ending_intent_result(self, design_bundle, *, previous_response_id: str | None = None):  # noqa: ANN001
-        del design_bundle, previous_response_id
-        raise AuthorGatewayError(code="llm_invalid_json", message="provider returned empty content", status_code=502)
-
-    def glean_ending_intent(self, design_bundle, partial_ending_intent, *, previous_response_id: str | None = None):  # noqa: ANN001
-        del design_bundle, partial_ending_intent, previous_response_id
-        raise AuthorGatewayError(code="llm_invalid_json", message="provider returned empty content", status_code=502)
-
-
-class _LowQualityEndingRulesGateway(_FakeGateway):
-    def generate_ending_intent_result(self, design_bundle, *, previous_response_id: str | None = None):  # noqa: ANN001
-        del design_bundle, previous_response_id
-        return GatewayStructuredResponse(
-            value=EndingIntentDraft(
-                ending_intents=[
-                    EndingIntentSpec(ending_id="collapse", priority=1),
-                    EndingIntentSpec(ending_id="pyrrhic", priority=2),
-                    EndingIntentSpec(ending_id="mixed", priority=10, fallback=True),
-                ]
-            ),
-            response_id="low-quality-endings",
-        )
-
-    def glean_ending_intent(self, design_bundle, partial_ending_intent, *, previous_response_id: str | None = None):  # noqa: ANN001
-        del partial_ending_intent
-        return _FakeGateway().generate_ending_intent_result(design_bundle, previous_response_id=previous_response_id)
+    def __init__(self) -> None:
+        responses = _default_transport_responses()
+        responses["ending_anchor_generate"] = [
+            AuthorGatewayError(code="llm_invalid_json", message="provider returned empty content", status_code=502),
+            AuthorGatewayError(code="llm_invalid_json", message="provider returned empty content", status_code=502),
+            AuthorGatewayError(code="llm_invalid_json", message="provider returned empty content", status_code=502),
+        ]
+        super().__init__(responses)
 
 
 class _NonCanonicalEndingPriorityGateway(_FakeGateway):
-    def generate_ending_intent_result(self, design_bundle, *, previous_response_id: str | None = None):  # noqa: ANN001
-        del design_bundle, previous_response_id
-        return GatewayStructuredResponse(
-            value=EndingIntentDraft(
-                ending_intents=[
-                    EndingIntentSpec(
-                        ending_id="mixed",
-                        priority=50,
-                        fallback=True,
-                    ),
-                    EndingIntentSpec(
-                        ending_id="pyrrhic",
-                        priority=20,
-                        axis_ids=["political_leverage", "public_panic"],
-                        required_event_ids=["b2.fracture"],
-                    ),
-                    EndingIntentSpec(
-                        ending_id="collapse",
-                        priority=10,
-                        axis_ids=["civic_pressure"],
-                        required_truth_ids=["truth_1"],
-                    ),
+    def __init__(self) -> None:
+        responses = _default_transport_responses()
+        responses["ending_anchor_generate"] = [
+            {
+                "ending_anchor_suggestions": [
+                    {
+                        "ending_id": "pyrrhic",
+                        "axis_ids": ["political_leverage", "public_panic"],
+                        "required_event_ids": ["b2.fracture"],
+                    },
+                    {
+                        "ending_id": "collapse",
+                        "axis_ids": ["external_pressure"],
+                        "required_truth_ids": ["truth_1"],
+                    },
                 ]
-            ),
-            response_id="noncanonical-endings",
-        )
-
-
-class _RecoveringEndingIntentGateway(_LowQualityEndingRulesGateway):
-    def glean_ending_intent(self, design_bundle, partial_ending_intent, *, previous_response_id: str | None = None):  # noqa: ANN001
-        del design_bundle, partial_ending_intent
-        return GatewayStructuredResponse(
-            value=EndingIntentDraft(
-                ending_intents=[
-                    EndingIntentSpec(
-                        ending_id="collapse",
-                        priority=1,
-                        axis_ids=["external_pressure"],
-                        required_truth_ids=["truth_1"],
-                    ),
-                    EndingIntentSpec(
-                        ending_id="pyrrhic",
-                        priority=2,
-                        axis_ids=["political_leverage", "public_panic"],
-                        required_event_ids=["b2.fracture"],
-                    ),
-                    EndingIntentSpec(
-                        ending_id="mixed",
-                        priority=10,
-                        fallback=True,
-                    ),
-                ]
-            ),
-            response_id=previous_response_id or "recovering-endings",
-        )
+            }
+        ]
+        super().__init__(responses)
 
 
 class _FallbackBeatPlanGateway(_FakeGateway):
-    def generate_beat_plan(
-        self,
-        focused_brief: FocusedBrief,
-        story_frame: StoryFrameDraft,
-        cast_draft: CastDraft,
-        *,
-        previous_response_id: str | None = None,
-    ) -> GatewayStructuredResponse[BeatPlanDraft]:
-        del focused_brief, story_frame, cast_draft, previous_response_id
-        raise AuthorGatewayError(code="llm_invalid_json", message="provider returned empty content", status_code=502)
-
-
-class _LowQualityBeatPlanGateway(_FakeGateway):
-    def generate_beat_plan(
-        self,
-        focused_brief: FocusedBrief,
-        story_frame: StoryFrameDraft,
-        cast_draft: CastDraft,
-        *,
-        previous_response_id: str | None = None,
-    ) -> GatewayStructuredResponse[BeatPlanDraft]:
-        del focused_brief, story_frame, cast_draft, previous_response_id
-        return GatewayStructuredResponse(
-            value=BeatPlanDraft(
-                beats=[
-                    BeatDraftSpec(
-                        title="Opening Pressure",
-                        goal="Push through the crisis.",
-                        focus_names=["Envoy Iri"],
-                        conflict_pair=["Envoy Iri"],
-                        pressure_axis_id="external_pressure",
-                        milestone_kind="reveal",
-                        route_pivot_tag="reveal_truth",
-                        required_truth_texts=["Not A Story Truth"],
-                        detour_budget=1,
-                        progress_required=2,
-                        return_hooks=["A visible failure forces action."],
-                        affordance_tags=["reveal_truth", "build_trust"],
-                        blocked_affordances=[],
-                    ),
-                    BeatDraftSpec(
-                        title="Alliance Stress",
-                        goal="Keep pressure on the coalition.",
-                        focus_names=["Envoy Iri"],
-                        conflict_pair=["Envoy Iri"],
-                        pressure_axis_id="external_pressure",
-                        milestone_kind="reveal",
-                        route_pivot_tag="reveal_truth",
-                        required_truth_texts=["Still Not A Story Truth"],
-                        detour_budget=1,
-                        progress_required=2,
-                        return_hooks=["Another visible failure forces action."],
-                        affordance_tags=["reveal_truth", "build_trust"],
-                        blocked_affordances=[],
-                    )
-                ]
-            ),
-            response_id="low-quality-beats",
-        )
-
-    def glean_beat_plan(
-        self,
-        focused_brief: FocusedBrief,
-        story_frame: StoryFrameDraft,
-        cast_draft: CastDraft,
-        partial_beat_plan: BeatPlanDraft,
-        *,
-        previous_response_id: str | None = None,
-    ) -> GatewayStructuredResponse[BeatPlanDraft]:
-        del partial_beat_plan
-        return _FakeGateway().generate_beat_plan(
-            focused_brief,
-            story_frame,
-            cast_draft,
-            previous_response_id=previous_response_id,
-        )
+    def __init__(self) -> None:
+        responses = _default_transport_responses()
+        responses["beat_plan_generate"] = [
+            AuthorGatewayError(code="llm_invalid_json", message="provider returned empty content", status_code=502),
+            AuthorGatewayError(code="llm_invalid_json", message="provider returned empty content", status_code=502),
+            AuthorGatewayError(code="llm_invalid_json", message="provider returned empty content", status_code=502),
+        ]
+        super().__init__(responses)
 
 
 class _LowQualityRouteOpportunitiesGateway(_FakeGateway):
-    def generate_route_opportunity_plan_result(self, design_bundle, *, previous_response_id: str | None = None):  # noqa: ANN001
-        del design_bundle, previous_response_id
-        return GatewayStructuredResponse(
-            value=RouteOpportunityPlanDraft(
-                opportunities=[
+    def __init__(self) -> None:
+        responses = _default_transport_responses()
+        responses["route_opportunity_generate"] = [
+            {
+                "opportunities": [
                     {
                         "beat_id": "b1",
                         "unlock_route_id": "b1_single_route",
                         "unlock_affordance_tag": "reveal_truth",
-                        "triggers": [
-                            {"kind": "truth", "target_id": "truth_1"},
-                        ],
+                        "triggers": [{"kind": "truth", "target_id": "truth_1"}],
                     }
                 ]
-            ),
-            response_id="low-quality-routes",
-        )
+            }
+        ]
+        super().__init__(responses)
 
 
 class _NarrowRouteDiversityGateway(_FakeGateway):
-    def generate_route_opportunity_plan_result(self, design_bundle, *, previous_response_id: str | None = None):  # noqa: ANN001
-        del design_bundle, previous_response_id
-        return GatewayStructuredResponse(
-            value=RouteOpportunityPlanDraft(
-                opportunities=[
+    def __init__(self) -> None:
+        responses = _default_transport_responses()
+        responses["route_opportunity_generate"] = [
+            {
+                "opportunities": [
                     {
                         "beat_id": "b1",
                         "unlock_route_id": "b1_build_trust_route",
                         "unlock_affordance_tag": "build_trust",
-                        "triggers": [
-                            {"kind": "truth", "target_id": "truth_1"},
-                        ],
+                        "triggers": [{"kind": "truth", "target_id": "truth_1"}],
                     },
                     {
                         "beat_id": "b2",
                         "unlock_route_id": "b2_build_trust_route",
                         "unlock_affordance_tag": "build_trust",
-                        "triggers": [
-                            {"kind": "event", "target_id": "b1.reveal"},
-                        ],
+                        "triggers": [{"kind": "event", "target_id": "b1.reveal"}],
                     },
                 ]
-            ),
-            response_id="narrow-route-diversity",
-        )
+            }
+        ]
+        super().__init__(responses)
 
 
 class _LowQualityStoryFrameGateway(_FakeGateway):
-    def generate_story_frame(
-        self,
-        focused_brief: FocusedBrief,
-        *,
-        previous_response_id: str | None = None,
-    ) -> GatewayStructuredResponse[StoryFrameDraft]:
-        del previous_response_id
-        return GatewayStructuredResponse(
-            value=StoryFrameDraft(
-                title=focused_brief.story_kernel,
-                premise=focused_brief.story_kernel,
-                tone=focused_brief.tone_signal,
-                stakes=f"If the player fails, {focused_brief.core_conflict}",
-                style_guard="Keep it readable.",
-                world_rules=[focused_brief.setting_signal, "The main plot advances in fixed beats even when local tactics vary."],
-                truths=[
-                    OverviewTruthDraft(text=focused_brief.core_conflict, importance="core"),
-                    OverviewTruthDraft(text=focused_brief.setting_signal, importance="core"),
-                ],
-                state_axis_choices=_story_frame_draft().state_axis_choices,
-                flags=_story_frame_draft().flags,
-            ),
-            response_id="low-quality-frame",
-        )
+    def __init__(self) -> None:
+        responses = _default_transport_responses()
+        responses["story_frame_glean"] = [
+            AuthorGatewayError(code="llm_invalid_json", message="provider returned empty content", status_code=502)
+        ]
+        super().__init__(responses)
 
-    def glean_story_frame(
+    def _invoke_json(
         self,
-        focused_brief: FocusedBrief,
-        partial_story_frame: StoryFrameDraft,
         *,
+        system_prompt: str,
+        user_payload: dict[str, object],
+        max_output_tokens: int | None,
         previous_response_id: str | None = None,
-    ) -> GatewayStructuredResponse[StoryFrameDraft]:
-        del focused_brief, partial_story_frame, previous_response_id
-        raise AuthorGatewayError(code="llm_invalid_json", message="provider returned empty content", status_code=502)
+        operation_name: str | None = None,
+    ):
+        if operation_name == "story_frame_semantics":
+            focused_brief = dict(user_payload.get("focused_brief") or {})
+            self.responses_by_operation["story_frame_semantics"] = [
+                {
+                    **_low_quality_story_frame_scaffold(),
+                    "setting_frame": focused_brief.get("setting_signal") or "Archive city blackout.",
+                    "protagonist_mandate": "a mediator keeping a city together",
+                    "opposition_force": "institutional pressure closing in",
+                    "stakes_core": focused_brief.get("core_conflict") or "Prevent coalition collapse.",
+                    "tone": focused_brief.get("tone_signal") or "Hopeful civic fantasy.",
+                    "world_rules": [
+                        focused_brief.get("setting_signal") or "Archive city blackout.",
+                        "The main plot advances in fixed beats even when local tactics vary.",
+                    ],
+                    "truths": [
+                        {"text": focused_brief.get("core_conflict") or "Prevent coalition collapse.", "importance": "core"},
+                        {"text": focused_brief.get("setting_signal") or "Archive city blackout.", "importance": "core"},
+                    ],
+                }
+            ]
+        return super()._invoke_json(
+            system_prompt=system_prompt,
+            user_payload=user_payload,
+            max_output_tokens=max_output_tokens,
+            previous_response_id=previous_response_id,
+            operation_name=operation_name,
+        )
 
 
 class _RecoveringStoryFrameGateway(_FakeGateway):
-    def generate_story_frame(
-        self,
-        focused_brief: FocusedBrief,
-        *,
-        previous_response_id: str | None = None,
-    ) -> GatewayStructuredResponse[StoryFrameDraft]:
-        del previous_response_id
-        return GatewayStructuredResponse(
-            value=StoryFrameDraft(
-                title=focused_brief.story_kernel,
-                premise=focused_brief.story_kernel,
-                tone=focused_brief.tone_signal,
-                stakes=f"If the player fails, {focused_brief.core_conflict}",
-                style_guard="Keep it readable.",
-                world_rules=[focused_brief.setting_signal, "The main plot advances in fixed beats even when local tactics vary."],
-                truths=[
-                    OverviewTruthDraft(text=focused_brief.core_conflict, importance="core"),
-                    OverviewTruthDraft(text=focused_brief.setting_signal, importance="core"),
-                ],
-                state_axis_choices=_story_frame_draft().state_axis_choices,
-                flags=_story_frame_draft().flags,
-            ),
-            response_id="recovering-low-quality-frame",
-        )
+    def __init__(self) -> None:
+        responses = _default_transport_responses()
+        responses["story_frame_glean"] = [_story_frame_draft().model_dump(mode="json")]
+        super().__init__(responses)
 
-    def glean_story_frame(
+    def _invoke_json(
         self,
-        focused_brief: FocusedBrief,
-        partial_story_frame: StoryFrameDraft,
         *,
+        system_prompt: str,
+        user_payload: dict[str, object],
+        max_output_tokens: int | None,
         previous_response_id: str | None = None,
-    ) -> GatewayStructuredResponse[StoryFrameDraft]:
-        del focused_brief, partial_story_frame, previous_response_id
-        return GatewayStructuredResponse(value=_story_frame_draft(), response_id="recovered-frame")
-
-
-class _LowQualityCastOverviewGateway(_FakeGateway):
-    def generate_cast_overview(
-        self,
-        focused_brief: FocusedBrief,
-        story_frame: StoryFrameDraft,
-        *,
-        previous_response_id: str | None = None,
-    ) -> GatewayStructuredResponse[CastOverviewDraft]:
-        del focused_brief, story_frame, previous_response_id
-        return GatewayStructuredResponse(
-            value=CastOverviewDraft(
-                cast_slots=[
-                    CastOverviewSlotDraft(
-                        slot_label="Civic Role 1",
-                        public_role="Stakeholder",
-                        relationship_to_protagonist="Complicates or supports the protagonist under pressure.",
-                        agenda_anchor="Protect their institutional stake while the crisis unfolds.",
-                        red_line_anchor="Will not accept being cut out of the settlement.",
-                        pressure_vector="Pushes harder for leverage as public pressure rises.",
-                    ),
-                    CastOverviewSlotDraft(
-                        slot_label="Civic Role 2",
-                        public_role="Stakeholder",
-                        relationship_to_protagonist="Complicates or supports the protagonist under pressure.",
-                        agenda_anchor="Protect their institutional stake while the crisis unfolds.",
-                        red_line_anchor="Will not accept being cut out of the settlement.",
-                        pressure_vector="Pushes harder for leverage as public pressure rises.",
-                    ),
-                    CastOverviewSlotDraft(
-                        slot_label="Civic Role 3",
-                        public_role="Stakeholder",
-                        relationship_to_protagonist="Complicates or supports the protagonist under pressure.",
-                        agenda_anchor="Protect their institutional stake while the crisis unfolds.",
-                        red_line_anchor="Will not accept being cut out of the settlement.",
-                        pressure_vector="Pushes harder for leverage as public pressure rises.",
-                    ),
-                ],
-                relationship_summary=[
-                    "Generic relation one.",
-                    "Generic relation two.",
-                ],
-            ),
-            response_id="low-quality-cast-overview",
+        operation_name: str | None = None,
+    ):
+        if operation_name == "story_frame_semantics":
+            focused_brief = dict(user_payload.get("focused_brief") or {})
+            self.responses_by_operation["story_frame_semantics"] = [
+                {
+                    **_low_quality_story_frame_scaffold(),
+                    "setting_frame": focused_brief.get("setting_signal") or "Archive city blackout.",
+                    "protagonist_mandate": "a mediator keeping a city together",
+                    "opposition_force": "institutional pressure closing in",
+                    "stakes_core": focused_brief.get("core_conflict") or "Prevent coalition collapse.",
+                    "tone": focused_brief.get("tone_signal") or "Hopeful civic fantasy.",
+                    "world_rules": [
+                        focused_brief.get("setting_signal") or "Archive city blackout.",
+                        "The main plot advances in fixed beats even when local tactics vary.",
+                    ],
+                    "truths": [
+                        {"text": focused_brief.get("core_conflict") or "Prevent coalition collapse.", "importance": "core"},
+                        {"text": focused_brief.get("setting_signal") or "Archive city blackout.", "importance": "core"},
+                    ],
+                }
+            ]
+        return super()._invoke_json(
+            system_prompt=system_prompt,
+            user_payload=user_payload,
+            max_output_tokens=max_output_tokens,
+            previous_response_id=previous_response_id,
+            operation_name=operation_name,
         )
 
 
 class _GenericCastGateway(_FakeGateway):
-    def generate_story_cast_member(
-        self,
-        focused_brief: FocusedBrief,
-        story_frame: StoryFrameDraft,
-        cast_slot: dict[str, object],
-        existing_cast: list[dict[str, object]],
-        *,
-        previous_response_id: str | None = None,
-    ):
-        del focused_brief, story_frame, cast_slot, previous_response_id
-        members = [
-            OverviewCastDraft(
-                name="Mira Vale",
-                role="Mediator",
-                agenda="Mira Vale tries to preserve their role in the crisis.",
-                red_line="Mira Vale will not lose public legitimacy without resistance.",
-                pressure_signature="Mira Vale reacts sharply when pressure threatens public order.",
-            ),
-            OverviewCastDraft(
-                name="Curator Pell",
-                role="Institutional guardian",
-                agenda="Curator Pell tries to preserve their role in the crisis.",
-                red_line="Curator Pell will not lose public legitimacy without resistance.",
-                pressure_signature="Curator Pell reacts sharply when pressure threatens public order.",
-            ),
-            OverviewCastDraft(
-                name="Broker Seln",
-                role="Coalition rival",
-                agenda="Broker Seln tries to preserve their role in the crisis.",
-                red_line="Broker Seln will not lose public legitimacy without resistance.",
-                pressure_signature="Broker Seln reacts sharply when pressure threatens public order.",
-            ),
-            OverviewCastDraft(
-                name="Lio Maren",
-                role="Public advocate",
-                agenda="Lio Maren tries to preserve their role in the crisis.",
-                red_line="Lio Maren will not lose public legitimacy without resistance.",
-                pressure_signature="Lio Maren reacts sharply when pressure threatens public order.",
-            ),
+    def __init__(self) -> None:
+        responses = _default_transport_responses()
+        responses["cast_member_semantics"] = [
+            {
+                "name": "Mira Vale",
+                "agenda_detail": "Tries to preserve their role in the crisis.",
+                "red_line_detail": "Will not lose public legitimacy without resistance.",
+                "pressure_detail": "Reacts sharply when pressure threatens public order.",
+            },
+            {
+                "name": "Curator Pell",
+                "agenda_detail": "Tries to preserve their role in the crisis.",
+                "red_line_detail": "Will not lose public legitimacy without resistance.",
+                "pressure_detail": "Reacts sharply when pressure threatens public order.",
+            },
+            {
+                "name": "Broker Seln",
+                "agenda_detail": "Tries to preserve their role in the crisis.",
+                "red_line_detail": "Will not lose public legitimacy without resistance.",
+                "pressure_detail": "Reacts sharply when pressure threatens public order.",
+            },
+            {
+                "name": "Lio Maren",
+                "agenda_detail": "Tries to preserve their role in the crisis.",
+                "red_line_detail": "Will not lose public legitimacy without resistance.",
+                "pressure_detail": "Reacts sharply when pressure threatens public order.",
+            },
         ]
-        return GatewayStructuredResponse(
-            value=members[len(existing_cast)],
-            response_id="generic-cast",
-        )
+        super().__init__(responses)
 
 
 class _FallbackOverviewGateway(_FakeGateway):
-    def generate_story_frame(
-        self,
-        focused_brief: FocusedBrief,
-        *,
-        previous_response_id: str | None = None,
-    ) -> GatewayStructuredResponse[StoryFrameDraft]:
-        del focused_brief, previous_response_id
-        raise AuthorGatewayError(code="llm_invalid_json", message="provider returned empty content", status_code=502)
+    def __init__(self) -> None:
+        responses = _default_transport_responses()
+        responses["story_frame_semantics"] = [
+            AuthorGatewayError(code="llm_invalid_json", message="provider returned empty content", status_code=502),
+            AuthorGatewayError(code="llm_invalid_json", message="provider returned empty content", status_code=502),
+            AuthorGatewayError(code="llm_invalid_json", message="provider returned empty content", status_code=502),
+        ]
+        super().__init__(responses)
 
 
 class _PlaceholderCastGateway(_FakeGateway):
-    def generate_story_cast_member(
-        self,
-        focused_brief: FocusedBrief,
-        story_frame: StoryFrameDraft,
-        cast_slot: dict[str, object],
-        existing_cast: list[dict[str, object]],
-        *,
-        previous_response_id: str | None = None,
-    ):
-        del focused_brief, story_frame, cast_slot, previous_response_id
-        member = OverviewCastDraft(
-            name=f"Civic Figure {len(existing_cast) + 1}",
-            role="Stakeholder",
-            agenda="Placeholder agenda.",
-            red_line="Placeholder red line.",
-            pressure_signature="Placeholder pressure signature.",
-        )
-        return GatewayStructuredResponse(
-            value=member,
-            response_id="placeholder-cast",
-        )
-
-    def glean_story_cast_member(
-        self,
-        focused_brief: FocusedBrief,
-        story_frame: StoryFrameDraft,
-        cast_slot: dict[str, object],
-        existing_cast: list[dict[str, object]],
-        partial_member: dict[str, object],
-        *,
-        previous_response_id: str | None = None,
-    ):
-        return self.generate_story_cast_member(
-            focused_brief,
-            story_frame,
-            cast_slot,
-            existing_cast,
-            previous_response_id=previous_response_id,
-        )
-
-
-class _FourSlotCastGateway(_FakeGateway):
-    def generate_cast_overview(
-        self,
-        focused_brief: FocusedBrief,
-        story_frame: StoryFrameDraft,
-        *,
-        previous_response_id: str | None = None,
-    ) -> GatewayStructuredResponse[CastOverviewDraft]:
-        assert focused_brief.story_kernel
-        assert story_frame.title
-        return GatewayStructuredResponse(
-            value=_four_slot_cast_overview_draft(),
-            response_id=previous_response_id or "fake-four-slot-overview",
-        )
-
-    def generate_story_cast_member(
-        self,
-        focused_brief: FocusedBrief,
-        story_frame: StoryFrameDraft,
-        cast_slot: dict[str, object],
-        existing_cast: list[dict[str, object]],
-        *,
-        previous_response_id: str | None = None,
-    ):
-        assert focused_brief.story_kernel
-        assert story_frame.title
-        pool = [
-            _cast_draft().cast[0],
-            _cast_draft().cast[1],
-            _cast_draft().cast[2],
-            OverviewCastDraft(
-                name="Lio Maren",
-                role="Public advocate",
-                agenda="Force the crisis response to remain publicly accountable.",
-                red_line="Will not let elite procedure erase the public record.",
-                pressure_signature="Turns ambiguity into public scrutiny whenever the room starts closing ranks.",
-            ),
+    def __init__(self) -> None:
+        responses = _default_transport_responses()
+        placeholder = [
+            {
+                "name": "Civic Figure 1",
+                "agenda_detail": "Placeholder agenda.",
+                "red_line_detail": "Placeholder red line.",
+                "pressure_detail": "Placeholder pressure signature.",
+            },
+            {
+                "name": "Civic Figure 2",
+                "agenda_detail": "Placeholder agenda.",
+                "red_line_detail": "Placeholder red line.",
+                "pressure_detail": "Placeholder pressure signature.",
+            },
+            {
+                "name": "Civic Figure 3",
+                "agenda_detail": "Placeholder agenda.",
+                "red_line_detail": "Placeholder red line.",
+                "pressure_detail": "Placeholder pressure signature.",
+            },
+            {
+                "name": "Civic Figure 4",
+                "agenda_detail": "Placeholder agenda.",
+                "red_line_detail": "Placeholder red line.",
+                "pressure_detail": "Placeholder pressure signature.",
+            },
+            {
+                "name": "Civic Figure 1",
+                "agenda_detail": "Placeholder agenda.",
+                "red_line_detail": "Placeholder red line.",
+                "pressure_detail": "Placeholder pressure signature.",
+            },
+            {
+                "name": "Civic Figure 2",
+                "agenda_detail": "Placeholder agenda.",
+                "red_line_detail": "Placeholder red line.",
+                "pressure_detail": "Placeholder pressure signature.",
+            },
+            {
+                "name": "Civic Figure 3",
+                "agenda_detail": "Placeholder agenda.",
+                "red_line_detail": "Placeholder red line.",
+                "pressure_detail": "Placeholder pressure signature.",
+            },
+            {
+                "name": "Civic Figure 4",
+                "agenda_detail": "Placeholder agenda.",
+                "red_line_detail": "Placeholder red line.",
+                "pressure_detail": "Placeholder pressure signature.",
+            },
         ]
-        return GatewayStructuredResponse(
-            value=pool[len(existing_cast)],
-            response_id=previous_response_id or f"fake-four-slot-member-{len(existing_cast)+1}",
-        )
+        responses["cast_member_semantics"] = placeholder
+        super().__init__(responses)
 
 
 def test_focus_brief_extracts_kernel_and_conflict() -> None:
@@ -1231,16 +834,36 @@ def test_gateway_formats_requests_and_parses_models() -> None:
         use_session_cache=True,
     )
 
-    overview = gateway.generate_story_overview(
-        FocusedBrief(
-            story_kernel="Hold the city together.",
-            setting_signal="Archive city blackout.",
-            core_conflict="Prevent coalition collapse.",
-            tone_signal="Hopeful civic fantasy.",
-            hard_constraints=[],
-            forbidden_tones=[],
-        )
+    focused_brief = FocusedBrief(
+        story_kernel="Hold the city together.",
+        setting_signal="Archive city blackout.",
+        core_conflict="Prevent coalition collapse.",
+        tone_signal="Hopeful civic fantasy.",
+        hard_constraints=[],
+        forbidden_tones=[],
     )
+    story_frame = story_generation.generate_story_frame(gateway, focused_brief)
+    cast_overview = cast_generation.generate_cast_overview(
+        gateway,
+        focused_brief,
+        story_frame.value,
+        previous_response_id=story_frame.response_id,
+    )
+    cast = cast_generation.generate_story_cast(
+        gateway,
+        focused_brief,
+        story_frame.value,
+        cast_overview.value,
+        previous_response_id=cast_overview.response_id or story_frame.response_id,
+    )
+    beat_plan = beat_generation.generate_beat_plan(
+        gateway,
+        focused_brief,
+        story_frame.value,
+        cast.value,
+        previous_response_id=cast.response_id or story_frame.response_id,
+    )
+    overview = assemble_story_overview(story_frame.value, cast.value, beat_plan.value)
 
     assert overview.title == "Archive Blackout"
     assert client.calls[0]["model"] == "demo-model"
@@ -1275,7 +898,8 @@ def test_gateway_compiles_story_frame_from_semantics_without_second_llm_call() -
         use_session_cache=True,
     )
 
-    story_frame = gateway.generate_story_frame(
+    story_frame = story_generation.generate_story_frame(
+        gateway,
         FocusedBrief(
             story_kernel="Hold the city together.",
             setting_signal="Archive city blackout.",
@@ -1309,7 +933,8 @@ def test_gateway_retries_story_frame_semantics_after_invalid_json() -> None:
         use_session_cache=True,
     )
 
-    story_frame = gateway.generate_story_frame(
+    story_frame = story_generation.generate_story_frame(
+        gateway,
         FocusedBrief(
             story_kernel="A mediator keeping a city together",
             setting_signal="city during a blackout and succession crisis",
@@ -1351,7 +976,8 @@ def test_gateway_stabilizes_generic_story_frame_scaffold_before_compile() -> Non
         use_session_cache=True,
     )
 
-    story_frame = gateway.generate_story_frame(
+    story_frame = story_generation.generate_story_frame(
+        gateway,
         FocusedBrief(
             story_kernel="A mediator keeping a city together",
             setting_signal="city during a blackout and succession crisis",
@@ -1382,7 +1008,8 @@ def test_gateway_compiles_beat_plan_from_single_semantics_call() -> None:
         use_session_cache=True,
     )
 
-    beat_plan = gateway.generate_beat_plan(
+    beat_plan = beat_generation.generate_beat_plan(
+        gateway,
         FocusedBrief(
             story_kernel="Hold the city together.",
             setting_signal="Archive city blackout.",
@@ -1427,7 +1054,8 @@ def test_gateway_retries_beat_plan_skeleton_after_invalid_json() -> None:
         use_session_cache=True,
     )
 
-    beat_plan = gateway.generate_beat_plan(
+    beat_plan = beat_generation.generate_beat_plan(
+        gateway,
         FocusedBrief(
             story_kernel="Hold the city together.",
             setting_signal="Archive city blackout.",
@@ -1470,7 +1098,8 @@ def test_gateway_compiles_cast_member_semantics_and_replaces_role_label_name() -
     )
 
     slot = _cast_overview_draft().cast_slots[2].model_dump(mode="json")
-    member = gateway.generate_story_cast_member(
+    member = cast_generation.generate_story_cast_member(
+        gateway,
         FocusedBrief(
             story_kernel="Hold the city together.",
             setting_signal="Archive city blackout.",
@@ -1517,7 +1146,8 @@ def test_gateway_retries_cast_member_semantics_after_invalid_json() -> None:
     )
 
     slot = _cast_overview_draft().cast_slots[2].model_dump(mode="json")
-    member = gateway.generate_story_cast_member(
+    member = cast_generation.generate_story_cast_member(
+        gateway,
         FocusedBrief(
             story_kernel="Hold the city together.",
             setting_signal="Archive city blackout.",
@@ -1551,7 +1181,8 @@ def test_gateway_raises_stable_error_for_invalid_json() -> None:
     )
 
     try:
-        gateway.generate_story_overview(
+        story_generation.generate_story_frame(
+            gateway,
             FocusedBrief(
                 story_kernel="Hold the city together.",
                 setting_signal="Archive city blackout.",
@@ -1559,7 +1190,7 @@ def test_gateway_raises_stable_error_for_invalid_json() -> None:
                 tone_signal="Hopeful civic fantasy.",
                 hard_constraints=[],
                 forbidden_tones=[],
-            )
+            ),
         )
     except AuthorGatewayError as exc:
         assert exc.code == "llm_invalid_json"
@@ -1571,7 +1202,7 @@ def test_rule_generation_uses_author_context_packets() -> None:
     client = _FakeClient(
         [
             _route_opportunity_plan_draft().model_dump(mode="json"),
-            _ending_intent_draft().model_dump(mode="json"),
+            _ending_anchor_suggestion_payload(),
         ]
     )
     gateway = AuthorLLMGateway(
@@ -1597,8 +1228,8 @@ def test_rule_generation_uses_author_context_packets() -> None:
         ),
     )
 
-    gateway.generate_route_opportunity_plan_result(bundle, previous_response_id="resp-a")
-    gateway.generate_ending_intent_result(bundle, previous_response_id="resp-b")
+    route_generation.generate_route_opportunity_plan_result(gateway, bundle, previous_response_id="resp-a")
+    ending_generation.generate_ending_anchor_suggestions(gateway, bundle, previous_response_id="resp-b")
 
     import json
     route_payload = json.loads(client.calls[0]["input"])
@@ -1699,7 +1330,7 @@ def test_author_graph_can_checkpoint_state_snapshot() -> None:
     assert snapshot.values["route_affordance_source"] == "compiled"
     assert snapshot.values["ending_intent_draft"].ending_intents
     assert snapshot.values["ending_rules_draft"].ending_rules
-    assert snapshot.values["ending_source"] == "default"
+    assert snapshot.values["ending_source"] == "generated"
     assert snapshot.values["quality_trace"]
     assert {item["stage"] for item in snapshot.values["quality_trace"]} >= {"story_frame", "beat_plan", "route_affordance", "ending"}
     assert snapshot.values["design_bundle"].story_bible.title
@@ -1719,52 +1350,6 @@ def test_author_graph_generates_dynamic_number_of_cast_members_from_cast_overvie
     assert len(result.state["cast_member_drafts"]) == 4
     assert len(result.bundle.story_bible.cast) == 4
     assert result.bundle.story_bible.cast[-1].name == "Lio Maren"
-
-
-def test_author_design_bundle_api_returns_bundle() -> None:
-    import rpg_backend.main as main_module
-
-    client = TestClient(app)
-    original = main_module.get_author_llm_gateway
-    main_module.get_author_llm_gateway = lambda: _FakeGateway()
-    try:
-        response = client.post(
-            "/author/design-bundles",
-            json=AuthorBundleRequest(
-                raw_brief="A civic fantasy about preserving trust during a blackout election."
-            ).model_dump(mode="json"),
-        )
-    finally:
-        main_module.get_author_llm_gateway = original
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["run_id"]
-    assert body["bundle"]["focused_brief"]["story_kernel"]
-    assert body["bundle"]["story_bible"]["cast"]
-    assert body["bundle"]["rule_pack"]["ending_rules"]
-
-
-def test_author_design_bundle_api_maps_gateway_errors() -> None:
-    import rpg_backend.main as main_module
-
-    def _bad_gateway():
-        raise AuthorGatewayError(code="llm_config_missing", message="missing config", status_code=500)
-
-    client = TestClient(app)
-    original = main_module.get_author_llm_gateway
-    main_module.get_author_llm_gateway = _bad_gateway
-    try:
-        response = client.post(
-            "/author/design-bundles",
-            json={"raw_brief": "A civic fantasy about preserving trust during a blackout election."},
-        )
-    finally:
-        main_module.get_author_llm_gateway = original
-
-    assert response.status_code == 500
-    assert response.json()["error"]["code"] == "llm_config_missing"
-
 
 def test_author_bundle_falls_back_to_default_rulepack_when_rulepack_payload_is_malformed() -> None:
     result = run_author_bundle(
@@ -1802,44 +1387,6 @@ def test_author_bundle_falls_back_to_default_endings_when_ending_payload_is_malf
         and item["source"] == "default"
         and item["outcome"] == "fallback"
         and "llm_invalid_json" in item["reasons"]
-        for item in result.state["quality_trace"]
-    )
-
-
-def test_author_bundle_replaces_low_quality_endings_with_default_endings() -> None:
-    result = run_author_bundle(
-        AuthorBundleRequest(
-            raw_brief="A civic fantasy about preserving trust during a blackout election."
-        ),
-        gateway=_LowQualityEndingRulesGateway(),
-    )
-
-    assert {item.ending_id for item in result.bundle.rule_pack.ending_rules} == {"collapse", "pyrrhic", "mixed"}
-    assert any(item.conditions.min_axes for item in result.bundle.rule_pack.ending_rules if item.ending_id != "mixed")
-    assert result.state["ending_source"] == "default"
-    assert any(
-        item["stage"] == "ending"
-        and item["source"] == "default"
-        and item["outcome"] == "fallback"
-        and item["reasons"]
-        for item in result.state["quality_trace"]
-    )
-
-
-def test_author_bundle_recovers_low_quality_endings_via_glean() -> None:
-    result = run_author_bundle(
-        AuthorBundleRequest(
-            raw_brief="A civic fantasy about preserving trust during a blackout election."
-        ),
-        gateway=_RecoveringEndingIntentGateway(),
-    )
-
-    assert result.state["ending_source"] == "gleaned"
-    assert any(
-        item["stage"] == "ending"
-        and item["source"] == "gleaned"
-        and item["outcome"] == "repaired"
-        and item["reasons"]
         for item in result.state["quality_trace"]
     )
 
@@ -1964,38 +1511,6 @@ def test_author_bundle_falls_back_to_default_beats_when_payload_is_malformed() -
         and "llm_invalid_json" in item["reasons"]
         for item in result.state["quality_trace"]
     )
-
-
-def test_author_bundle_recovers_low_quality_beats_via_glean() -> None:
-    result = run_author_bundle(
-        AuthorBundleRequest(
-            raw_brief="A civic fantasy about preserving trust during a blackout election."
-        ),
-        gateway=_LowQualityBeatPlanGateway(),
-    )
-
-    assert result.state["beat_plan_source"] == "gleaned"
-    assert len(result.bundle.beat_spine) >= 2
-    assert any(
-        item["stage"] == "beat_plan"
-        and item["source"] == "gleaned"
-        and item["outcome"] == "repaired"
-        and item["reasons"]
-        for item in result.state["quality_trace"]
-    )
-    assert result.bundle.story_bible.premise == _story_frame_draft().premise
-
-
-def test_author_bundle_replaces_low_quality_cast_overview_with_default_cast_overview() -> None:
-    result = run_author_bundle(
-        AuthorBundleRequest(
-            raw_brief="A civic fantasy about preserving trust during a blackout election."
-        ),
-        gateway=_LowQualityCastOverviewGateway(),
-    )
-
-    slot_labels = [item.slot_label for item in result.state["cast_overview_draft"].cast_slots]
-    assert slot_labels == ["Mediator Anchor", "Institutional Guardian", "Leverage Broker", "Civic Witness"]
 
 
 def test_author_bundle_repairs_generic_cast_fields_without_dropping_named_characters() -> None:

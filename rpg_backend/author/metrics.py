@@ -5,41 +5,8 @@ from typing import Any
 from rpg_backend.author.contracts import (
     AuthorCacheMetrics,
     AuthorTokenCostEstimate,
-    AuthorTokenUsageBucket,
 )
 from rpg_backend.config import get_settings
-
-
-def _operation_stage(operation: str) -> str:
-    if operation.startswith("story_frame_"):
-        return "story_frame"
-    if operation.startswith("cast_overview_"):
-        return "cast_overview"
-    if operation.startswith("cast_member_") or operation.startswith("cast_generate_") or operation.startswith("cast_glean_"):
-        return "cast_member"
-    if operation.startswith("beat_plan_"):
-        return "beat_plan"
-    if operation.startswith("route_"):
-        return "route_affordance"
-    if operation.startswith("ending_"):
-        return "ending"
-    return "unknown"
-
-
-def _summarize_usage_buckets(
-    llm_call_trace: list[dict[str, Any]] | None,
-    *,
-    bucket_resolver,
-) -> list[AuthorTokenUsageBucket]:
-    trace = list(llm_call_trace or [])
-    buckets: dict[str, list[dict[str, Any]]] = {}
-    for item in trace:
-        bucket_id = str(bucket_resolver(str(item.get("operation") or "unknown")) or "unknown")
-        buckets.setdefault(bucket_id, []).append(item)
-    return [
-        AuthorTokenUsageBucket(bucket_id=bucket_id, token_usage=summarize_cache_metrics(items))
-        for bucket_id, items in sorted(buckets.items())
-    ]
 
 
 def summarize_cache_metrics(llm_call_trace: list[dict[str, Any]] | None) -> AuthorCacheMetrics:
@@ -133,22 +100,6 @@ def summarize_cache_metrics(llm_call_trace: list[dict[str, Any]] | None) -> Auth
         billing_type=billing_type,
         cache_metrics_source=cache_metrics_source,
     )
-
-
-def summarize_operation_breakdown(llm_call_trace: list[dict[str, Any]] | None) -> list[AuthorTokenUsageBucket]:
-    return _summarize_usage_buckets(
-        llm_call_trace,
-        bucket_resolver=lambda operation: operation,
-    )
-
-
-def summarize_stage_breakdown(llm_call_trace: list[dict[str, Any]] | None) -> list[AuthorTokenUsageBucket]:
-    return _summarize_usage_buckets(
-        llm_call_trace,
-        bucket_resolver=_operation_stage,
-    )
-
-
 def estimate_token_cost(metrics: AuthorCacheMetrics) -> AuthorTokenCostEstimate | None:
     if metrics.input_tokens is None and metrics.output_tokens is None:
         return None

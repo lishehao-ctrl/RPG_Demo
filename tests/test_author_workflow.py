@@ -409,32 +409,30 @@ class _FakeGateway:
         )
 
 
-class _FallbackRulepackGateway(_FakeGateway):
-    def __init__(self) -> None:
-        responses = _default_transport_responses()
-        responses["route_opportunity_generate"] = [
-            AuthorGatewayError(code="llm_invalid_json", message="provider returned empty content", status_code=502),
-            AuthorGatewayError(code="llm_invalid_json", message="provider returned empty content", status_code=502),
-            AuthorGatewayError(code="llm_invalid_json", message="provider returned empty content", status_code=502),
-        ]
-        super().__init__(responses)
+def _repeated_gateway_error(code: str, *, count: int = 3) -> list[AuthorGatewayError]:
+    return [
+        AuthorGatewayError(code=code, message="provider returned empty content", status_code=502)
+        for _ in range(count)
+    ]
 
 
-class _FallbackEndingRulesGateway(_FakeGateway):
-    def __init__(self) -> None:
-        responses = _default_transport_responses()
-        responses["ending_anchor_generate"] = [
-            AuthorGatewayError(code="llm_invalid_json", message="provider returned empty content", status_code=502),
-            AuthorGatewayError(code="llm_invalid_json", message="provider returned empty content", status_code=502),
-            AuthorGatewayError(code="llm_invalid_json", message="provider returned empty content", status_code=502),
-        ]
-        super().__init__(responses)
+def _gateway_with_overrides(**overrides: list[dict[str, object] | Exception]) -> _FakeGateway:
+    responses = _default_transport_responses()
+    responses.update(overrides)
+    return _FakeGateway(responses)
 
 
-class _NonCanonicalEndingPriorityGateway(_FakeGateway):
-    def __init__(self) -> None:
-        responses = _default_transport_responses()
-        responses["ending_anchor_generate"] = [
+def _fallback_rulepack_gateway() -> _FakeGateway:
+    return _gateway_with_overrides(route_opportunity_generate=_repeated_gateway_error("llm_invalid_json"))
+
+
+def _fallback_ending_rules_gateway() -> _FakeGateway:
+    return _gateway_with_overrides(ending_anchor_generate=_repeated_gateway_error("llm_invalid_json"))
+
+
+def _noncanonical_ending_priority_gateway() -> _FakeGateway:
+    return _gateway_with_overrides(
+        ending_anchor_generate=[
             {
                 "ending_anchor_suggestions": [
                     {
@@ -450,24 +448,16 @@ class _NonCanonicalEndingPriorityGateway(_FakeGateway):
                 ]
             }
         ]
-        super().__init__(responses)
+    )
 
 
-class _FallbackBeatPlanGateway(_FakeGateway):
-    def __init__(self) -> None:
-        responses = _default_transport_responses()
-        responses["beat_plan_generate"] = [
-            AuthorGatewayError(code="llm_invalid_json", message="provider returned empty content", status_code=502),
-            AuthorGatewayError(code="llm_invalid_json", message="provider returned empty content", status_code=502),
-            AuthorGatewayError(code="llm_invalid_json", message="provider returned empty content", status_code=502),
-        ]
-        super().__init__(responses)
+def _fallback_beat_plan_gateway() -> _FakeGateway:
+    return _gateway_with_overrides(beat_plan_generate=_repeated_gateway_error("llm_invalid_json"))
 
 
-class _LowQualityRouteOpportunitiesGateway(_FakeGateway):
-    def __init__(self) -> None:
-        responses = _default_transport_responses()
-        responses["route_opportunity_generate"] = [
+def _low_quality_route_opportunities_gateway() -> _FakeGateway:
+    return _gateway_with_overrides(
+        route_opportunity_generate=[
             {
                 "opportunities": [
                     {
@@ -479,13 +469,12 @@ class _LowQualityRouteOpportunitiesGateway(_FakeGateway):
                 ]
             }
         ]
-        super().__init__(responses)
+    )
 
 
-class _NarrowRouteDiversityGateway(_FakeGateway):
-    def __init__(self) -> None:
-        responses = _default_transport_responses()
-        responses["route_opportunity_generate"] = [
+def _narrow_route_diversity_gateway() -> _FakeGateway:
+    return _gateway_with_overrides(
+        route_opportunity_generate=[
             {
                 "opportunities": [
                     {
@@ -503,7 +492,7 @@ class _NarrowRouteDiversityGateway(_FakeGateway):
                 ]
             }
         ]
-        super().__init__(responses)
+    )
 
 
 class _LowQualityStoryFrameGateway(_FakeGateway):
@@ -596,10 +585,9 @@ class _RecoveringStoryFrameGateway(_FakeGateway):
         )
 
 
-class _GenericCastGateway(_FakeGateway):
-    def __init__(self) -> None:
-        responses = _default_transport_responses()
-        responses["cast_member_semantics"] = [
+def _generic_cast_gateway() -> _FakeGateway:
+    return _gateway_with_overrides(
+        cast_member_semantics=[
             {
                 "name": "Mira Vale",
                 "agenda_detail": "Tries to preserve their role in the crisis.",
@@ -625,75 +613,65 @@ class _GenericCastGateway(_FakeGateway):
                 "pressure_detail": "Reacts sharply when pressure threatens public order.",
             },
         ]
-        super().__init__(responses)
+    )
 
 
-class _FallbackOverviewGateway(_FakeGateway):
-    def __init__(self) -> None:
-        responses = _default_transport_responses()
-        responses["story_frame_semantics"] = [
-            AuthorGatewayError(code="llm_invalid_json", message="provider returned empty content", status_code=502),
-            AuthorGatewayError(code="llm_invalid_json", message="provider returned empty content", status_code=502),
-            AuthorGatewayError(code="llm_invalid_json", message="provider returned empty content", status_code=502),
-        ]
-        super().__init__(responses)
+def _fallback_overview_gateway() -> _FakeGateway:
+    return _gateway_with_overrides(story_frame_semantics=_repeated_gateway_error("llm_invalid_json"))
 
 
-class _PlaceholderCastGateway(_FakeGateway):
-    def __init__(self) -> None:
-        responses = _default_transport_responses()
-        placeholder = [
-            {
-                "name": "Civic Figure 1",
-                "agenda_detail": "Placeholder agenda.",
-                "red_line_detail": "Placeholder red line.",
-                "pressure_detail": "Placeholder pressure signature.",
-            },
-            {
-                "name": "Civic Figure 2",
-                "agenda_detail": "Placeholder agenda.",
-                "red_line_detail": "Placeholder red line.",
-                "pressure_detail": "Placeholder pressure signature.",
-            },
-            {
-                "name": "Civic Figure 3",
-                "agenda_detail": "Placeholder agenda.",
-                "red_line_detail": "Placeholder red line.",
-                "pressure_detail": "Placeholder pressure signature.",
-            },
-            {
-                "name": "Civic Figure 4",
-                "agenda_detail": "Placeholder agenda.",
-                "red_line_detail": "Placeholder red line.",
-                "pressure_detail": "Placeholder pressure signature.",
-            },
-            {
-                "name": "Civic Figure 1",
-                "agenda_detail": "Placeholder agenda.",
-                "red_line_detail": "Placeholder red line.",
-                "pressure_detail": "Placeholder pressure signature.",
-            },
-            {
-                "name": "Civic Figure 2",
-                "agenda_detail": "Placeholder agenda.",
-                "red_line_detail": "Placeholder red line.",
-                "pressure_detail": "Placeholder pressure signature.",
-            },
-            {
-                "name": "Civic Figure 3",
-                "agenda_detail": "Placeholder agenda.",
-                "red_line_detail": "Placeholder red line.",
-                "pressure_detail": "Placeholder pressure signature.",
-            },
-            {
-                "name": "Civic Figure 4",
-                "agenda_detail": "Placeholder agenda.",
-                "red_line_detail": "Placeholder red line.",
-                "pressure_detail": "Placeholder pressure signature.",
-            },
-        ]
-        responses["cast_member_semantics"] = placeholder
-        super().__init__(responses)
+def _placeholder_cast_gateway() -> _FakeGateway:
+    placeholder = [
+        {
+            "name": "Civic Figure 1",
+            "agenda_detail": "Placeholder agenda.",
+            "red_line_detail": "Placeholder red line.",
+            "pressure_detail": "Placeholder pressure signature.",
+        },
+        {
+            "name": "Civic Figure 2",
+            "agenda_detail": "Placeholder agenda.",
+            "red_line_detail": "Placeholder red line.",
+            "pressure_detail": "Placeholder pressure signature.",
+        },
+        {
+            "name": "Civic Figure 3",
+            "agenda_detail": "Placeholder agenda.",
+            "red_line_detail": "Placeholder red line.",
+            "pressure_detail": "Placeholder pressure signature.",
+        },
+        {
+            "name": "Civic Figure 4",
+            "agenda_detail": "Placeholder agenda.",
+            "red_line_detail": "Placeholder red line.",
+            "pressure_detail": "Placeholder pressure signature.",
+        },
+        {
+            "name": "Civic Figure 1",
+            "agenda_detail": "Placeholder agenda.",
+            "red_line_detail": "Placeholder red line.",
+            "pressure_detail": "Placeholder pressure signature.",
+        },
+        {
+            "name": "Civic Figure 2",
+            "agenda_detail": "Placeholder agenda.",
+            "red_line_detail": "Placeholder red line.",
+            "pressure_detail": "Placeholder pressure signature.",
+        },
+        {
+            "name": "Civic Figure 3",
+            "agenda_detail": "Placeholder agenda.",
+            "red_line_detail": "Placeholder red line.",
+            "pressure_detail": "Placeholder pressure signature.",
+        },
+        {
+            "name": "Civic Figure 4",
+            "agenda_detail": "Placeholder agenda.",
+            "red_line_detail": "Placeholder red line.",
+            "pressure_detail": "Placeholder pressure signature.",
+        },
+    ]
+    return _gateway_with_overrides(cast_member_semantics=placeholder)
 
 
 def test_focus_brief_extracts_kernel_and_conflict() -> None:
@@ -1285,7 +1263,7 @@ def test_author_bundle_falls_back_to_default_rulepack_when_rulepack_payload_is_m
         AuthorBundleRequest(
             raw_brief="A civic fantasy about preserving trust during a blackout election."
         ),
-        gateway=_FallbackRulepackGateway(),
+        gateway=_fallback_rulepack_gateway(),
     )
 
     assert result.bundle.rule_pack.ending_rules
@@ -1305,7 +1283,7 @@ def test_author_bundle_falls_back_to_default_endings_when_ending_payload_is_malf
         AuthorBundleRequest(
             raw_brief="A civic fantasy about preserving trust during a blackout election."
         ),
-        gateway=_FallbackEndingRulesGateway(),
+        gateway=_fallback_ending_rules_gateway(),
     )
 
     assert result.bundle.rule_pack.ending_rules
@@ -1325,7 +1303,7 @@ def test_author_bundle_canonicalizes_noncanonical_ending_priorities() -> None:
         AuthorBundleRequest(
             raw_brief="A civic fantasy about preserving trust during a blackout election."
         ),
-        gateway=_NonCanonicalEndingPriorityGateway(),
+        gateway=_noncanonical_ending_priority_gateway(),
     )
 
     assert [(item.ending_id, item.priority) for item in result.bundle.rule_pack.ending_rules] == [
@@ -1365,7 +1343,7 @@ def test_author_bundle_replaces_low_quality_route_opportunities_with_default_rou
         AuthorBundleRequest(
             raw_brief="A civic fantasy about preserving trust during a blackout election."
         ),
-        gateway=_LowQualityRouteOpportunitiesGateway(),
+        gateway=_low_quality_route_opportunities_gateway(),
     )
 
     assert len(result.bundle.rule_pack.route_unlock_rules) >= 2
@@ -1377,7 +1355,7 @@ def test_author_bundle_supplements_narrow_route_diversity() -> None:
         AuthorBundleRequest(
             raw_brief="A civic fantasy about preserving trust during a blackout election."
         ),
-        gateway=_NarrowRouteDiversityGateway(),
+        gateway=_narrow_route_diversity_gateway(),
     )
 
     assert len({item.beat_id for item in result.bundle.rule_pack.route_unlock_rules}) >= 2
@@ -1428,7 +1406,7 @@ def test_author_bundle_falls_back_to_default_beats_when_payload_is_malformed() -
         AuthorBundleRequest(
             raw_brief="A civic fantasy about preserving trust during a blackout election."
         ),
-        gateway=_FallbackBeatPlanGateway(),
+        gateway=_fallback_beat_plan_gateway(),
     )
 
     assert result.state["beat_plan_source"] == "default"
@@ -1447,7 +1425,7 @@ def test_author_bundle_repairs_generic_cast_fields_without_dropping_named_charac
         AuthorBundleRequest(
             raw_brief="A civic fantasy about preserving trust during a blackout election."
         ),
-        gateway=_GenericCastGateway(),
+        gateway=_generic_cast_gateway(),
     )
 
     cast = result.bundle.story_bible.cast
@@ -1461,7 +1439,7 @@ def test_author_bundle_replaces_placeholder_cast_with_default_cast() -> None:
         AuthorBundleRequest(
             raw_brief="A civic fantasy about preserving trust during a blackout election."
         ),
-        gateway=_PlaceholderCastGateway(),
+        gateway=_placeholder_cast_gateway(),
     )
 
     cast_names = [item.name for item in result.bundle.story_bible.cast]
@@ -1475,7 +1453,7 @@ def test_author_bundle_falls_back_to_default_overview_when_overview_payload_is_m
         AuthorBundleRequest(
             raw_brief="A civic fantasy about preserving trust during a blackout election."
         ),
-        gateway=_FallbackOverviewGateway(),
+        gateway=_fallback_overview_gateway(),
     )
 
     assert result.bundle.story_bible.title

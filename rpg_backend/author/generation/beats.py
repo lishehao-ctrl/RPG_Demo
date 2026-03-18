@@ -578,7 +578,7 @@ def generate_beat_plan(
 
     context_packet = build_author_context_from_story(story_frame, cast_draft)
     payload: dict[str, Any] = {
-        "author_context": context_packet.model_dump(mode="json"),
+        "author_context": context_packet,
     }
     if not (gateway.use_session_cache and previous_response_id):
         payload["focused_brief"] = focused_brief.model_dump(mode="json")
@@ -642,7 +642,7 @@ def generate_beat_plan_conservative(
 
     context_packet = build_author_context_from_story(story_frame, cast_draft)
     payload: dict[str, Any] = {
-        "author_context": context_packet.model_dump(mode="json"),
+        "author_context": context_packet,
     }
     if not (gateway.use_session_cache and previous_response_id):
         payload["focused_brief"] = focused_brief.model_dump(mode="json")
@@ -691,7 +691,7 @@ def glean_beat_plan(
 
     context_packet = build_author_context_from_story(story_frame, cast_draft)
     payload: dict[str, Any] = {
-        "author_context": context_packet.model_dump(mode="json"),
+        "author_context": context_packet,
         "partial_beat_plan": partial_beat_plan.model_dump(mode="json"),
     }
     if not (gateway.use_session_cache and previous_response_id):

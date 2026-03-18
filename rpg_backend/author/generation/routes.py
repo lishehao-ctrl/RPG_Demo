@@ -258,7 +258,7 @@ def generate_route_opportunity_plan_result(
 ):
     theme_decision = plan_bundle_theme(design_bundle)
     context_packet = build_author_context_from_bundle(design_bundle)
-    payload = {"author_context": context_packet.model_dump(mode="json")}
+    payload = {"author_context": context_packet}
     system_prompt = (
         "You are the Author Route Opportunity generator. Return one strict JSON object matching RouteOpportunityPlanDraft. "
         "Identify 1-8 route opportunities across the beats in author_context. "
@@ -298,7 +298,7 @@ def generate_route_affordance_pack_result(
     from rpg_backend.author.gateway import AuthorGatewayError, GatewayStructuredResponse
 
     context_packet = build_author_context_from_bundle(design_bundle)
-    payload = {"author_context": context_packet.model_dump(mode="json")}
+    payload = {"author_context": context_packet}
     system_prompt = (
         "You are the Author Route and Affordance generator. Return one strict JSON object matching RouteAffordancePackDraft. "
         "Create route unlock rules and one affordance effect profile for every affordance tag used in author_context.beats. "

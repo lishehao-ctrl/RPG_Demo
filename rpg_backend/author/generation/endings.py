@@ -129,7 +129,7 @@ def generate_ending_anchor_suggestions(
     collapse = next(item for item in skeleton.ending_intents if item.ending_id == "collapse")
     pyrrhic = next(item for item in skeleton.ending_intents if item.ending_id == "pyrrhic")
     payload = {
-        "author_context": context_packet.model_dump(mode="json"),
+        "author_context": context_packet,
         "ending_anchor_seed": {
             "collapse": {
                 "axis_ids": collapse.axis_ids,
@@ -180,7 +180,7 @@ def glean_ending_anchor_suggestions(
     theme_decision = plan_bundle_theme(design_bundle)
     context_packet = build_author_context_from_bundle(design_bundle)
     payload = {
-        "author_context": context_packet.model_dump(mode="json"),
+        "author_context": context_packet,
         "partial_ending_anchor_suggestions": partial_ending_anchor_suggestions.model_dump(mode="json"),
     }
     system_prompt = (

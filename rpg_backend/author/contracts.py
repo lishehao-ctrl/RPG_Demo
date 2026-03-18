@@ -413,63 +413,6 @@ class CastDraft(BaseModel):
     cast: list[OverviewCastDraft] = Field(min_length=3, max_length=5)
 
 
-class ContextTruthSummary(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    truth_id: str | None = None
-    text: str = Field(min_length=1, max_length=220)
-
-
-class ContextCastSummary(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    name: str = Field(min_length=1, max_length=80)
-    role: str = Field(min_length=1, max_length=120)
-    agenda: str = Field(min_length=1, max_length=220)
-    pressure_signature: str = Field(min_length=1, max_length=220)
-
-
-class ContextAxisSummary(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    axis_id: str | None = None
-    label: str = Field(min_length=1, max_length=80)
-    kind: AxisKind | None = None
-    starting_value: int | None = None
-
-
-class ContextBeatSummary(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    beat_id: str | None = None
-    title: str = Field(min_length=1, max_length=120)
-    goal: str = Field(min_length=1, max_length=220)
-    focus_names: list[str] = Field(default_factory=list, max_length=4)
-    conflict_names: list[str] = Field(default_factory=list, max_length=2)
-    pressure_axis_id: str | None = None
-    milestone_kind: BeatMilestoneKind | None = None
-    route_pivot_tag: AffordanceTag | None = None
-    required_truths: list[str] = Field(default_factory=list, max_length=4)
-    required_events: list[str] = Field(default_factory=list, max_length=4)
-    affordance_tags: list[AffordanceTag] = Field(default_factory=list, max_length=6)
-
-
-class AuthorContextPacket(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    title: str = Field(min_length=1, max_length=120)
-    premise: str = Field(min_length=1, max_length=320)
-    tone: str = Field(min_length=1, max_length=120)
-    stakes: str = Field(min_length=1, max_length=240)
-    style_guard: str = Field(min_length=1, max_length=220)
-    world_rules: list[str] = Field(min_length=2, max_length=5)
-    truths: list[ContextTruthSummary] = Field(min_length=2, max_length=8)
-    cast: list[ContextCastSummary] = Field(min_length=3, max_length=5)
-    axes: list[ContextAxisSummary] = Field(min_length=2, max_length=6)
-    flags: list[str] = Field(default_factory=list, max_length=8)
-    beats: list[ContextBeatSummary] = Field(default_factory=list, max_length=6)
-
-
 class BeatPlanDraft(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -691,9 +634,3 @@ class AuthorTokenCostEstimate(BaseModel):
     estimated_output_cost_rmb: float = Field(ge=0)
     estimated_total_cost_rmb: float = Field(ge=0)
     notes: str | None = Field(default=None, max_length=240)
-
-
-class ErrorEnvelope(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    error: dict[str, str]

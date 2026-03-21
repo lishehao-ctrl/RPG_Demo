@@ -1,26 +1,14 @@
 # RPG Demo Rebuild
 
-This repository has been reset for a clean rebuild.
+<p align="center">
+  <a href="./README.zh.md">
+    <img alt="README 中文版" src="https://img.shields.io/badge/README-%E4%B8%AD%E6%96%87-1677ff">
+  </a>
+  <a href="./README.en.md">
+    <img alt="README English" src="https://img.shields.io/badge/README-English-111827">
+  </a>
+</p>
 
-Current scope:
+请选择语言查看完整说明。
 
-- keep `.env` as the source of LLM API configuration
-- rebuild the backend around official LangGraph state management
-- define a `DesignBundle`-first author pipeline before any play runtime
-
-The new minimal backend currently includes:
-
-- `FocusedBrief`
-- `StoryBible`
-- `StateSchema`
-- `BeatSpine`
-- `RulePack`
-- `DesignBundle`
-- an official LangGraph author workflow with checkpoint support
-- a minimal FastAPI endpoint to generate a design bundle
-
-Next intended layers:
-
-1. real LLM-backed overview and rule generation
-2. beat compiler subgraph
-3. play runtime driven by `DesignBundle`
+Choose a language to view the full documentation.

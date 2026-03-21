@@ -1,0 +1,20 @@
+[Unit]
+Description=RPG Demo FastAPI Backend
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/srv/rpg-demo/app
+EnvironmentFile=/srv/rpg-demo/shared/.env.production
+ExecStart=/srv/rpg-demo/venv/bin/uvicorn rpg_backend.main:app --host 127.0.0.1 --port 8010 --proxy-headers
+Restart=always
+RestartSec=3
+TimeoutStopSec=20
+
+# Keep this single-process for now.
+# Current author resume and SQLite-backed runtime state are not ready for multi-worker deployment.
+
+[Install]
+WantedBy=multi-user.target

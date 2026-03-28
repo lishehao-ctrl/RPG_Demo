@@ -2,6 +2,7 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .env
+artifacts/
 artifacts/benchmarks/
 artifacts/*.sqlite3
 artifacts/*.sqlite3-*

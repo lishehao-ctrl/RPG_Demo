@@ -34,6 +34,8 @@ export type CurrentActorResponse = {
   is_default: boolean
 }
 
+export type PlayLengthPreset = "5_8" | "10_12" | "12_15" | "15_20" | "20_25"
+
 export type FocusedBrief = {
   story_kernel: string
   setting_signal: string
@@ -109,11 +111,13 @@ export type AuthorPreviewBeatSummary = {
 export type AuthorPreviewRequest = {
   prompt_seed: string
   random_seed?: number | null
+  play_length_preset?: PlayLengthPreset | null
 }
 
 export type AuthorPreviewResponse = {
   preview_id: string
   prompt_seed: string
+  play_length_preset?: PlayLengthPreset | null
   focused_brief: FocusedBrief
   theme: AuthorPreviewTheme
   strategies: AuthorPreviewStrategies
@@ -172,6 +176,7 @@ export type AuthorJobCreateRequest = {
   prompt_seed: string
   random_seed?: number | null
   preview_id?: string | null
+  play_length_preset?: PlayLengthPreset | null
 }
 
 export type AuthorJobStatus = "queued" | "running" | "completed" | "failed"
@@ -285,6 +290,7 @@ export type PublishedStoryPlayOverview = {
   opening_narration: string
   runtime_profile: string
   runtime_profile_label: string
+  play_length_preset?: PlayLengthPreset | null
   max_turns: number
 }
 
@@ -302,12 +308,18 @@ export type PlaySessionCreateRequest = {
 export type PlayTurnRequest = {
   input_text: string
   selected_suggestion_id?: string | null
+  selected_story_action_id?: string | null
+  selected_control_action_id?: string | null
+  control_action?: "press" | "redirect" | "detonate" | "none"
+  control_target_kind?: "relationship_debt" | "public_wave" | "secret_pressure" | "npc_action" | null
+  control_target_id?: string | null
+  control_target_mode?: "kind" | "event" | "character" | null
 }
 
 export type PlayStateBar = {
   bar_id: string
   label: string
-  category: "axis" | "stance"
+  category: "axis" | "stance" | "global" | "relationship"
   current_value: number
   min_value: number
   max_value: number

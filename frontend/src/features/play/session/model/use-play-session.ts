@@ -97,6 +97,20 @@ export function usePlaySession(sessionId: string) {
     setInputText(action.prompt)
   }
 
+  const updateInputText = (nextText: string) => {
+    setInputText(nextText)
+    if (!nextText.trim()) {
+      setSelectedSuggestionId(null)
+      return
+    }
+    if (snapshot) {
+      const matched = snapshot.suggested_actions.find((item) => item.prompt === nextText)
+      setSelectedSuggestionId(matched?.suggestion_id ?? null)
+      return
+    }
+    setSelectedSuggestionId(null)
+  }
+
   const submitTurn = async () => {
     if (!snapshot) {
       return
@@ -154,7 +168,7 @@ export function usePlaySession(sessionId: string) {
     loading,
     submitting,
     error,
-    setInputText,
+    setInputText: updateInputText,
     selectSuggestedAction,
     submitTurn,
   }

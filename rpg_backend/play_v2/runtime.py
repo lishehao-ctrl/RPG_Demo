@@ -2794,6 +2794,8 @@ def _try_compile_with_llm(
         else 1.0
     )
     allowed_moves = list(dict.fromkeys(segment.allowed_move_families or list(MOVE_KEYWORDS.keys())))
+    allowed_move_set = set(allowed_moves)
+    cast_ids = {member.character_id for member in plan.cast}
     cast_payload = [
         {
             "character_id": member.character_id,
@@ -2812,6 +2814,104 @@ def _try_compile_with_llm(
         }
         for item in suggestions
     ]
+    base_system_prompt = (
+        "你是 play_v2 的自由输入意图编译器。只输出 JSON 对象。"
+        "字段: move_family,target_id,target_name,scene_frame,lane_id,intent_confidence,deviation_type,deviation_note,alternatives,semantic_effects。"
+        "可选字段: control_action,control_target_id,control_target_mode,tradeoff_markers。"
+        "move_family 必须来自 allowed_move_families。scene_frame 只能是 private/semi_public/public。"
+        "intent_confidence 输出 0 到 1 浮点。若输入含多步动作或多目标，优先给第一可执行步，并在 deviation_note 解释偏移和 alternatives。"
+        "当输入带有让步、代价、拒绝升级、台面证据等信号时，优先在 tradeoff_markers 提炼短语，并尽量给出可执行 control_action。"
+        "可参考 intent_control_contract_hint_weight 调整 tradeoff_markers 和 control_action 的提取强度。"
+        "semantic_effects 是一个数组，每个元素 {effect_type, target_id, detail}。"
+        "effect_type 可选值: secret_reveal, trust_action, betrayal, public_exposure, emotional_shift, alliance_change, confession, confrontation, protection, jealousy_provocation。"
+        "用 semantic_effects 描述玩家行为的语义后果，不要只依赖 move_family。例如玩家说'把秘密告诉大家'，move_family 是 public_reveal，同时 semantic_effects 应包含 {effect_type:'secret_reveal', detail:'向众人揭露秘密'}。"
+    )
+    base_budget = int(getattr(settings, "play_v2_intent_compiler_max_output_tokens", 220) or 220)
+
+    def _repair_budget() -> int:
+        gateway_budget = getattr(gateway, "max_output_tokens_interpret_repair", None)
+        if isinstance(gateway_budget, int) and gateway_budget > 0:
+            return gateway_budget
+        return base_budget
+
+    def _parse_candidate_payload(payload: Any) -> tuple[_IntentCandidate | None, str]:
+        if not isinstance(payload, dict):
+            return None, "payload_not_object"
+        move_family = str(payload.get("move_family") or "")
+        if move_family not in allowed_move_set:
+            return None, "invalid_move_family"
+        target_id = str(payload.get("target_id") or "").strip() or None
+        target_name = str(payload.get("target_name") or "").strip()
+        if target_id is None and target_name:
+            target_id = next(
+                (
+                    member.character_id
+                    for member in plan.cast
+                    if _normalize_user_text(member.display_name) == _normalize_user_text(target_name)
+                ),
+                None,
+            )
+        if target_id is not None and target_id not in cast_ids:
+            target_id = None
+        scene_frame = str(payload.get("scene_frame") or "").strip() or _scene_frame_for_segment(segment)
+        if scene_frame not in {"private", "semi_public", "public"}:
+            scene_frame = _scene_frame_for_segment(segment)
+        lane_id = str(payload.get("lane_id") or "").strip() or None
+        if lane_id not in {"relationship", "side", "burst"}:
+            lane_id = None
+        raw_alternatives = payload.get("alternatives")
+        alternatives: tuple[str, ...] = tuple(
+            trim_text(str(item), 80)
+            for item in list(raw_alternatives or [])
+            if isinstance(item, str) and str(item).strip()
+        )[:3]
+        deviation_type = _normalize_deviation_type(str(payload.get("deviation_type") or ""))
+        deviation_note = str(payload.get("deviation_note") or "").strip() or None
+        try:
+            confidence = _safe_confidence(float(payload.get("intent_confidence") or 0.0))
+        except Exception:  # noqa: BLE001
+            return None, "invalid_intent_confidence"
+        control_action = _normalize_optional_control_action(payload.get("control_action"))
+        control_target_mode = _normalize_optional_control_target_mode(payload.get("control_target_mode"))
+        control_target_id = str(payload.get("control_target_id") or "").strip() or None
+        if control_target_id and control_target_id not in cast_ids:
+            control_target_id = None
+        tradeoff_markers = _normalize_tradeoff_markers(payload.get("tradeoff_markers"))
+        raw_semantic_effects = payload.get("semantic_effects")
+        semantic_effects: tuple[dict[str, str], ...] = ()
+        if isinstance(raw_semantic_effects, list):
+            parsed_effects = []
+            for raw_effect in raw_semantic_effects[:6]:
+                if isinstance(raw_effect, dict) and raw_effect.get("effect_type"):
+                    parsed_effects.append({
+                        "effect_type": str(raw_effect.get("effect_type", ""))[:60],
+                        "target_id": str(raw_effect.get("target_id", ""))[:120] if raw_effect.get("target_id") else "",
+                        "detail": str(raw_effect.get("detail", ""))[:220],
+                    })
+            semantic_effects = tuple(parsed_effects)
+        if diagnostics is not None:
+            diagnostics["intent_llm_control_action"] = control_action
+            diagnostics["intent_llm_control_target_id"] = control_target_id or ""
+            diagnostics["intent_llm_control_target_mode"] = control_target_mode or ""
+            diagnostics["intent_tradeoff_markers"] = ",".join(tradeoff_markers)
+        return _IntentCandidate(
+            move_family=move_family,  # type: ignore[arg-type]
+            target_id=target_id,
+            scene_frame=scene_frame,  # type: ignore[arg-type]
+            lane_id=lane_id,  # type: ignore[arg-type]
+            mapped_suggestion_id=None,
+            intent_confidence=max(confidence, 0.35),
+            compile_source="llm",
+            deviation_type=deviation_type,
+            deviation_note=trim_text(deviation_note, 220) if deviation_note else None,
+            alternatives=alternatives,
+            control_action=control_action,
+            control_target_id=control_target_id,
+            control_target_mode=control_target_mode,
+            tradeoff_markers=tradeoff_markers,
+            semantic_effects=semantic_effects,
+        ), ""
+
     control_actions = [
         {
             "action_type": item.action_type,
@@ -2822,120 +2922,84 @@ def _try_compile_with_llm(
         }
         for item in build_control_actions(plan, state)
     ]
+    base_payload = {
+        "input_text": input_text,
+        "segment_role": segment.segment_role,
+        "allowed_move_families": allowed_moves,
+        "default_scene_frame": _scene_frame_for_segment(segment),
+        "cast": cast_payload,
+        "suggestions": suggestion_payload,
+        "control_actions": control_actions,
+        "intent_control_contract_hint_weight": round(intent_control_contract_hint_weight, 4),
+        "known_secrets": [sid for sid in (state.known_secret_ids or [])],
+        "allocated_secrets_this_segment": [sid for sid in (segment.allocated_secret_ids or [])],
+    }
     started = time.perf_counter()
-    try:
-        response = gateway._invoke_json(
-            system_prompt=(
-                "你是 play_v2 的自由输入意图编译器。只输出 JSON 对象。"
-                "字段: move_family,target_id,target_name,scene_frame,lane_id,intent_confidence,deviation_type,deviation_note,alternatives,semantic_effects。"
-                "可选字段: control_action,control_target_id,control_target_mode,tradeoff_markers。"
-                "move_family 必须来自 allowed_move_families。scene_frame 只能是 private/semi_public/public。"
-                "intent_confidence 输出 0 到 1 浮点。若输入含多步动作或多目标，优先给第一可执行步，并在 deviation_note 解释偏移和 alternatives。"
-                "当输入带有让步、代价、拒绝升级、台面证据等信号时，优先在 tradeoff_markers 提炼短语，并尽量给出可执行 control_action。"
-                "可参考 intent_control_contract_hint_weight 调整 tradeoff_markers 和 control_action 的提取强度。"
-                "semantic_effects 是一个数组，每个元素 {effect_type, target_id, detail}。"
-                "effect_type 可选值: secret_reveal, trust_action, betrayal, public_exposure, emotional_shift, alliance_change, confession, confrontation, protection, jealousy_provocation。"
-                "用 semantic_effects 描述玩家行为的语义后果，不要只依赖 move_family。例如玩家说'把秘密告诉大家'，move_family 是 public_reveal，同时 semantic_effects 应包含 {effect_type:'secret_reveal', detail:'向众人揭露秘密'}。"
-            ),
-            user_payload={
-                "input_text": input_text,
-                "segment_role": segment.segment_role,
-                "allowed_move_families": allowed_moves,
-                "default_scene_frame": _scene_frame_for_segment(segment),
-                "cast": cast_payload,
-                "suggestions": suggestion_payload,
-                "control_actions": control_actions,
-                "intent_control_contract_hint_weight": round(intent_control_contract_hint_weight, 4),
-                "known_secrets": [sid for sid in (state.known_secret_ids or [])],
-                "allocated_secrets_this_segment": [sid for sid in (segment.allocated_secret_ids or [])],
-            },
-            max_output_tokens=int(getattr(settings, "play_v2_intent_compiler_max_output_tokens", 220) or 220),
-            operation_name="play_v2.intent_compile",
-            plaintext_fallback_key=None,
-        )
-    except PlayGatewayError:
+    last_failure_reason = ""
+    last_usage: dict[str, Any] = {}
+    previous_response_id: str | None = None
+    max_attempts = 2
+    if diagnostics is not None:
+        diagnostics["intent_llm_attempts"] = 0
+        diagnostics["intent_llm_retry_count"] = 0
+        diagnostics["intent_llm_invalid_reason"] = ""
+    for attempt in range(max_attempts):
+        retry_mode = attempt > 0
+        system_prompt = base_system_prompt
+        if retry_mode:
+            system_prompt = (
+                f"{base_system_prompt}"
+                "上次输出验证失败。请修复成严格 JSON，并只使用给定候选值。"
+                "若 move_family 不合法，必须改为 allowed_move_families 中最贴近的一项。"
+            )
+        try:
+            response = gateway._invoke_json(
+                system_prompt=system_prompt,
+                user_payload={
+                    **base_payload,
+                    "retry_mode": retry_mode,
+                    "retry_feedback": last_failure_reason if retry_mode else "",
+                },
+                max_output_tokens=_repair_budget() if retry_mode else base_budget,
+                previous_response_id=previous_response_id if retry_mode else None,
+                operation_name="play_v2.intent_compile_repair" if retry_mode else "play_v2.intent_compile",
+                plaintext_fallback_key=None,
+            )
+        except PlayGatewayError as exc:
+            last_failure_reason = exc.code or "play_llm_provider_failed"
+            if diagnostics is not None:
+                diagnostics["intent_llm_attempts"] = attempt + 1
+                diagnostics["intent_llm_invalid_reason"] = last_failure_reason
+            if attempt + 1 < max_attempts:
+                continue
+            break
+        previous_response_id = response.response_id or previous_response_id
+        last_usage = response.usage if isinstance(response.usage, dict) else {}
+        candidate, invalid_reason = _parse_candidate_payload(response.payload)
+        if candidate is not None:
+            if diagnostics is not None:
+                diagnostics["intent_llm_status"] = "completed_retry" if retry_mode else "completed"
+                diagnostics["intent_llm_latency_ms"] = round((time.perf_counter() - started) * 1000, 4)
+                diagnostics["intent_llm_input_tokens"] = _usage_token_count(response.usage, "input_tokens")
+                diagnostics["intent_llm_output_tokens"] = _usage_token_count(response.usage, "output_tokens")
+                diagnostics["intent_llm_total_tokens"] = _usage_token_count(response.usage, "total_tokens")
+                diagnostics["intent_llm_attempts"] = attempt + 1
+                diagnostics["intent_llm_retry_count"] = attempt
+                diagnostics["intent_llm_invalid_reason"] = ""
+            return candidate
+        last_failure_reason = invalid_reason
         if diagnostics is not None:
-            diagnostics["intent_llm_status"] = "failed"
-            diagnostics["intent_llm_latency_ms"] = round((time.perf_counter() - started) * 1000, 4)
-        return None
+            diagnostics["intent_llm_attempts"] = attempt + 1
+            diagnostics["intent_llm_invalid_reason"] = invalid_reason
     if diagnostics is not None:
-        diagnostics["intent_llm_status"] = "completed"
+        diagnostics["intent_llm_status"] = "failed"
         diagnostics["intent_llm_latency_ms"] = round((time.perf_counter() - started) * 1000, 4)
-        diagnostics["intent_llm_input_tokens"] = _usage_token_count(response.usage, "input_tokens")
-        diagnostics["intent_llm_output_tokens"] = _usage_token_count(response.usage, "output_tokens")
-        diagnostics["intent_llm_total_tokens"] = _usage_token_count(response.usage, "total_tokens")
-    payload = response.payload if isinstance(response.payload, dict) else {}
-    move_family = str(payload.get("move_family") or "")
-    if move_family not in set(allowed_moves):
-        return None
-    target_id = str(payload.get("target_id") or "").strip() or None
-    target_name = str(payload.get("target_name") or "").strip()
-    if target_id is None and target_name:
-        target_id = next(
-            (
-                member.character_id
-                for member in plan.cast
-                if _normalize_user_text(member.display_name) == _normalize_user_text(target_name)
-            ),
-            None,
-        )
-    if target_id is not None and target_id not in {member.character_id for member in plan.cast}:
-        target_id = None
-    scene_frame = str(payload.get("scene_frame") or "").strip() or _scene_frame_for_segment(segment)
-    if scene_frame not in {"private", "semi_public", "public"}:
-        scene_frame = _scene_frame_for_segment(segment)
-    lane_id = str(payload.get("lane_id") or "").strip() or None
-    if lane_id not in {"relationship", "side", "burst"}:
-        lane_id = None
-    raw_alternatives = payload.get("alternatives")
-    alternatives: tuple[str, ...] = tuple(
-        trim_text(str(item), 80)
-        for item in list(raw_alternatives or [])
-        if isinstance(item, str) and str(item).strip()
-    )[:3]
-    deviation_type = _normalize_deviation_type(str(payload.get("deviation_type") or ""))
-    deviation_note = str(payload.get("deviation_note") or "").strip() or None
-    confidence = _safe_confidence(float(payload.get("intent_confidence") or 0.0))
-    control_action = _normalize_optional_control_action(payload.get("control_action"))
-    control_target_mode = _normalize_optional_control_target_mode(payload.get("control_target_mode"))
-    control_target_id = str(payload.get("control_target_id") or "").strip() or None
-    if control_target_id and control_target_id not in {member.character_id for member in plan.cast}:
-        control_target_id = None
-    tradeoff_markers = _normalize_tradeoff_markers(payload.get("tradeoff_markers"))
-    raw_semantic_effects = payload.get("semantic_effects")
-    semantic_effects: tuple[dict[str, str], ...] = ()
-    if isinstance(raw_semantic_effects, list):
-        parsed_effects = []
-        for raw_effect in raw_semantic_effects[:6]:
-            if isinstance(raw_effect, dict) and raw_effect.get("effect_type"):
-                parsed_effects.append({
-                    "effect_type": str(raw_effect.get("effect_type", ""))[:60],
-                    "target_id": str(raw_effect.get("target_id", ""))[:120] if raw_effect.get("target_id") else "",
-                    "detail": str(raw_effect.get("detail", ""))[:220],
-                })
-        semantic_effects = tuple(parsed_effects)
-    if diagnostics is not None:
-        diagnostics["intent_llm_control_action"] = control_action
-        diagnostics["intent_llm_control_target_id"] = control_target_id or ""
-        diagnostics["intent_llm_control_target_mode"] = control_target_mode or ""
-        diagnostics["intent_tradeoff_markers"] = ",".join(tradeoff_markers)
-    return _IntentCandidate(
-        move_family=move_family,  # type: ignore[arg-type]
-        target_id=target_id,
-        scene_frame=scene_frame,  # type: ignore[arg-type]
-        lane_id=lane_id,  # type: ignore[arg-type]
-        mapped_suggestion_id=None,
-        intent_confidence=max(confidence, 0.35),
-        compile_source="llm",
-        deviation_type=deviation_type,
-        deviation_note=trim_text(deviation_note, 220) if deviation_note else None,
-        alternatives=alternatives,
-        control_action=control_action,
-        control_target_id=control_target_id,
-        control_target_mode=control_target_mode,
-        tradeoff_markers=tradeoff_markers,
-        semantic_effects=semantic_effects,
-    )
+        diagnostics["intent_llm_retry_count"] = max_attempts - 1
+        diagnostics["intent_llm_invalid_reason"] = last_failure_reason or str(diagnostics.get("intent_llm_invalid_reason") or "")
+        diagnostics["intent_llm_input_tokens"] = _usage_token_count(last_usage, "input_tokens")
+        diagnostics["intent_llm_output_tokens"] = _usage_token_count(last_usage, "output_tokens")
+        diagnostics["intent_llm_total_tokens"] = _usage_token_count(last_usage, "total_tokens")
+    return None
 
 
 def _heuristic_intent_candidate(

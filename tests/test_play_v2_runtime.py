@@ -3428,9 +3428,15 @@ def test_run_intent_stage_pressure_turn_prefers_llm_micro_sim_by_default(monkeyp
     suggestion = build_suggested_actions(plan, state)[0]
 
     class _FakeResponse:
-        def __init__(self, payload: dict[str, object], usage: dict[str, int] | None = None) -> None:
+        def __init__(
+            self,
+            payload: dict[str, object],
+            usage: dict[str, int] | None = None,
+            response_id: str | None = None,
+        ) -> None:
             self.payload = payload
             self.usage = usage or {}
+            self.response_id = response_id
 
     class _FakeGateway:
         def __init__(self) -> None:
@@ -3501,9 +3507,15 @@ def test_run_turn_reuses_single_gateway_for_intent_micro_and_compose(monkeypatch
     state.route_lock = 5
 
     class _FakeResponse:
-        def __init__(self, payload: dict[str, object], usage: dict[str, int] | None = None) -> None:
+        def __init__(
+            self,
+            payload: dict[str, object],
+            usage: dict[str, int] | None = None,
+            response_id: str | None = None,
+        ) -> None:
             self.payload = payload
             self.usage = usage or {}
+            self.response_id = response_id
 
     class _FakeGateway:
         def __init__(self) -> None:

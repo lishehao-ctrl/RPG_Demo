@@ -22,8 +22,8 @@ import {
   type PublishedStoryListResponse,
   type UpdateStoryVisibilityRequest,
 } from "./contracts"
+import type { FrontendApiClient } from "./client"
 import { BACKEND_ROUTE_MAP } from "./route-map"
-import type { FrontendApiClient } from "./placeholder-client"
 
 type RouteParams = Record<string, string | number>
 

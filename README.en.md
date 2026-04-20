@@ -11,11 +11,14 @@ This is a full-stack interactive narrative demo in a single repo. The product lo
 5. open a story from the library
 6. play it through natural-language turns
 
-The project is now at MVP closeout.
+The project is now pivoting away from the old civic-procedural narrative direction toward relationship drama.
 
-For final status, real smoke runs, and benchmark references:
+Current active product/refactor docs:
 
-- `specs/mvp_closeout_20260321.md`
+- `specs/relationship_drama_pivot_strategy_20260328.md`
+- `specs/backend/2026-03-28-relationship-drama-backend-refactor/SPEC.md`
+- `specs/backend/2026-03-28-relationship-drama-runtime-architecture/SPEC.md`
+- `specs/frontend/2026-03-28-relationship-drama-ui-refactor/SPEC.md`
 
 ## Stack
 
@@ -99,7 +102,10 @@ AWS single-host deployment material:
 
 ## Related Docs
 
-- `specs/mvp_closeout_20260321.md`
+- `specs/relationship_drama_pivot_strategy_20260328.md`
+- `specs/backend/2026-03-28-relationship-drama-backend-refactor/SPEC.md`
+- `specs/backend/2026-03-28-relationship-drama-runtime-architecture/SPEC.md`
+- `specs/frontend/2026-03-28-relationship-drama-ui-refactor/SPEC.md`
 - `specs/interface_governance_20260319.md`
 - `specs/interface_stability_matrix_20260319.md`
 - `frontend/specs/FRONTEND_PRODUCT_SPEC.md`

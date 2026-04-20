@@ -1,0 +1,45 @@
+from tools.urban_author_play_benchmarks.gold_set import (
+    UrbanGoldCase,
+    burst_pressure_realistic_20,
+    burst_pressure_set,
+    mini_gold_realistic_6,
+    mini_gold_set,
+    native_cn_gold_realistic_14,
+    v1_topic_gold_realistic_10,
+)
+from tools.urban_author_play_benchmarks.runner import run_benchmark, run_case, summarize_results
+from tools.urban_author_play_benchmarks.self_play_runner import (
+    LIVE_AUTHOR_MODE,
+    PILOT_CASE_ID,
+    PERSONA_CONFIGS,
+    PlayerAgentAdapter,
+    ScriptedPlayerAdapter,
+    SelfPlayComparisonSummary,
+    SelfPlayRunSummary,
+    SelfPlayTurnLog,
+    SubagentPlayerAdapter,
+    run_self_play_pilot,
+)
+
+__all__ = [
+    "LIVE_AUTHOR_MODE",
+    "PILOT_CASE_ID",
+    "PERSONA_CONFIGS",
+    "PlayerAgentAdapter",
+    "ScriptedPlayerAdapter",
+    "SelfPlayComparisonSummary",
+    "SelfPlayRunSummary",
+    "SelfPlayTurnLog",
+    "SubagentPlayerAdapter",
+    "UrbanGoldCase",
+    "burst_pressure_realistic_20",
+    "burst_pressure_set",
+    "mini_gold_realistic_6",
+    "mini_gold_set",
+    "native_cn_gold_realistic_14",
+    "v1_topic_gold_realistic_10",
+    "run_benchmark",
+    "run_case",
+    "run_self_play_pilot",
+    "summarize_results",
+]

@@ -8,11 +8,12 @@ from pydantic import BaseModel, ConfigDict, Field
 from rpg_backend.author.contracts import (
     AuthorPreviewResponse,
     AuthorStorySummary,
-    DesignBundle,
 )
+from rpg_backend.author_v2.product_package import RelationshipDramaV2Package
 from rpg_backend.play.contracts import PlayProtagonist
 
 StoryVisibility = Literal["private", "public"]
+PackageVersion = Literal["relationship_drama_v2"]
 
 
 class PublishedStoryCard(BaseModel):
@@ -89,6 +90,7 @@ class PublishedStoryPlayOverview(BaseModel):
     opening_narration: str = Field(min_length=1, max_length=4000)
     runtime_profile: str = Field(min_length=1, max_length=80)
     runtime_profile_label: str = Field(min_length=1, max_length=120)
+    play_length_preset: str | None = Field(default=None, max_length=16)
     max_turns: int = Field(ge=1)
 
 
@@ -109,9 +111,10 @@ class PublishedStoryRecord(BaseModel):
     source_job_id: str = Field(min_length=1)
     prompt_seed: str = Field(min_length=1, max_length=4000)
     visibility: StoryVisibility = "private"
+    package_version: PackageVersion = "relationship_drama_v2"
     summary: AuthorStorySummary
     preview: AuthorPreviewResponse
-    bundle: DesignBundle
+    bundle: RelationshipDramaV2Package
 
 
 class UpdateStoryVisibilityRequest(BaseModel):

@@ -34,7 +34,16 @@ export type CurrentActorResponse = {
   is_default: boolean
 }
 
-export type PlayLengthPreset = "5_8" | "10_12" | "12_15" | "15_20" | "20_25"
+export type StoryShellId =
+  | "wealth_families"
+  | "entertainment_scandal"
+  | "office_power"
+  | "campus_romance"
+  | "urban_supernatural"
+
+export type PlayLengthPreset = "5_8" | "10_12" | "12_15" | "15_20" | "20_25" | "30_45"
+export type TargetGenderPref = "male" | "female"
+export type SeedFitMode = "direct_fit" | "soft_fit" | "out_of_range"
 
 export type FocusedBrief = {
   story_kernel: string
@@ -43,6 +52,18 @@ export type FocusedBrief = {
   tone_signal: string
   hard_constraints: string[]
   forbidden_tones: string[]
+}
+
+export type NormalizedSeedPacket = {
+  accepted_shell: StoryShellId
+  fit_mode: SeedFitMode
+  relationship_hook: string
+  secret_hook: string
+  surface_signal_ids: string[]
+  surface_signal_summary: string
+  target_visibility_summary: string
+  rewritten_seed: string
+  rewrite_reason: string
 }
 
 export type AuthorPreviewFlashcard = {
@@ -95,6 +116,7 @@ export type AuthorPreviewStory = {
   premise: string
   tone: string
   stakes: string
+  route_fantasy?: string | null
 }
 
 export type AuthorPreviewCastSlotSummary = {
@@ -112,12 +134,20 @@ export type AuthorPreviewRequest = {
   prompt_seed: string
   random_seed?: number | null
   play_length_preset?: PlayLengthPreset | null
+  target_gender_pref?: TargetGenderPref | null
 }
 
 export type AuthorPreviewResponse = {
   preview_id: string
   prompt_seed: string
   play_length_preset?: PlayLengthPreset | null
+  normalized_seed?: NormalizedSeedPacket | null
+  story_shell_id?: StoryShellId | null
+  relationship_hook?: string | null
+  secret_hook?: string | null
+  surface_signal_ids: string[]
+  surface_signal_summary?: string | null
+  target_visibility_summary?: string | null
   focused_brief: FocusedBrief
   theme: AuthorPreviewTheme
   strategies: AuthorPreviewStrategies
@@ -301,6 +331,11 @@ export type PublishedStoryDetailResponse = {
   play_overview?: PublishedStoryPlayOverview | null
 }
 
+export type PlayStoryMode = "legacy_civic" | "relationship_drama"
+export type ControlTargetKind = "kind" | "event" | "character"
+export type LatentEventKind = "relationship_debt" | "public_wave" | "secret_pressure" | "npc_action"
+export type LatentRadarTrend = "rising" | "steady" | "cooling" | "triggered"
+
 export type PlaySessionCreateRequest = {
   story_id: string
 }
@@ -311,9 +346,9 @@ export type PlayTurnRequest = {
   selected_story_action_id?: string | null
   selected_control_action_id?: string | null
   control_action?: "press" | "redirect" | "detonate" | "none"
-  control_target_kind?: "relationship_debt" | "public_wave" | "secret_pressure" | "npc_action" | null
+  control_target_kind?: LatentEventKind | null
   control_target_id?: string | null
-  control_target_mode?: "kind" | "event" | "character" | null
+  control_target_mode?: ControlTargetKind | null
 }
 
 export type PlayStateBar = {
@@ -327,6 +362,17 @@ export type PlayStateBar = {
 
 export type PlaySuggestedAction = {
   suggestion_id: string
+  action_type?: "story" | "control"
+  label: string
+  prompt: string
+}
+
+export type PlayControlAction = {
+  action_id: string
+  action_type: "press" | "redirect" | "detonate" | "none"
+  target_mode?: ControlTargetKind | null
+  target_kind?: LatentEventKind | null
+  target_id?: string | null
   label: string
   prompt: string
 }
@@ -341,6 +387,9 @@ export type PlayProtagonist = {
   title: string
   mandate: string
   identity_summary: string
+  role_label?: string | null
+  core_desire?: string | null
+  hidden_risk?: string | null
 }
 
 export type PlaySuccessLedger = {
@@ -358,14 +407,19 @@ export type PlayCostLedger = {
 }
 
 export type PlayFeedback = {
-  ledgers: {
-    success: PlaySuccessLedger
-    cost: PlayCostLedger
-  }
+  ledgers: PlayLedgerSnapshot
   last_turn_axis_deltas: Record<string, number>
   last_turn_stance_deltas: Record<string, number>
+  last_turn_global_deltas: Record<string, number>
+  last_turn_relationship_deltas: Record<string, Record<string, number>>
   last_turn_tags: string[]
   last_turn_consequences: string[]
+  last_turn_revealed_secret_ids: string[]
+}
+
+export type PlayLedgerSnapshot = {
+  success: PlaySuccessLedger
+  cost: PlayCostLedger
 }
 
 export type PlaySessionHistoryEntry = {
@@ -402,9 +456,38 @@ export type PlaySupportSurfaces = {
   map: PlaySupportSurface
 }
 
+export type PlayLatentRadarItem = {
+  kind: LatentEventKind
+  pressure: number
+  trend: LatentRadarTrend
+  note: string
+}
+
+export type PlayRelationshipTargetState = {
+  character_id: string
+  name: string
+  affection: number
+  trust: number
+  tension: number
+  suspicion: number
+  dependency: number
+  is_route_focus: boolean
+}
+
+export type PlayRelationshipStateSnapshot = {
+  scene_heat: number
+  public_image: number
+  secret_exposure: number
+  route_lock: number
+  current_route_target_id?: string | null
+  targets: PlayRelationshipTargetState[]
+}
+
 export type PlaySessionSnapshot = {
   session_id: string
   story_id: string
+  story_mode: PlayStoryMode
+  story_shell_id?: StoryShellId | null
   status: "active" | "completed" | "expired"
   turn_index: number
   beat_index: number
@@ -416,7 +499,12 @@ export type PlaySessionSnapshot = {
   progress?: PlaySessionProgress | null
   support_surfaces?: PlaySupportSurfaces | null
   state_bars: PlayStateBar[]
+  current_route_target_id?: string | null
+  relationship_state?: PlayRelationshipStateSnapshot | null
   suggested_actions: PlaySuggestedAction[]
+  story_actions?: PlaySuggestedAction[]
+  control_actions?: PlayControlAction[]
+  latent_radar: PlayLatentRadarItem[]
   ending?: PlayEnding | null
 }
 

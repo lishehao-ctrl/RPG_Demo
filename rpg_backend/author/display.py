@@ -122,16 +122,32 @@ def build_preview_flashcards(
     expected_beat_count: int,
     title: str,
     conflict: str,
+    route_fantasy: str | None = None,
+    relationship_hook: str | None = None,
+    secret_hook: str | None = None,
+    surface_signal_summary: str | None = None,
+    target_visibility_summary: str | None = None,
 ) -> list[AuthorPreviewFlashcard]:
-    return [
-        AuthorPreviewFlashcard(card_id="theme", kind="stable", label="Theme", value=theme_label(theme)),
-        AuthorPreviewFlashcard(card_id="tone", kind="stable", label="Tone", value=tone),
-        AuthorPreviewFlashcard(card_id="npc_count", kind="stable", label="NPC Count", value=str(expected_npc_count)),
-        AuthorPreviewFlashcard(card_id="beat_count", kind="stable", label="Beat Count", value=str(expected_beat_count)),
-        AuthorPreviewFlashcard(card_id="cast_topology", kind="stable", label="Cast Structure", value=topology_label(cast_topology)),
-        AuthorPreviewFlashcard(card_id="title", kind="draft", label="Working Title", value=title),
-        AuthorPreviewFlashcard(card_id="conflict", kind="draft", label="Core Conflict", value=conflict),
+    cards = [
+        AuthorPreviewFlashcard(card_id="theme", kind="stable", label="故事外壳", value=theme_label(theme)),
+        AuthorPreviewFlashcard(card_id="tone", kind="stable", label="整体气质", value=tone),
+        AuthorPreviewFlashcard(card_id="npc_count", kind="stable", label="关键对象", value=str(expected_npc_count)),
+        AuthorPreviewFlashcard(card_id="beat_count", kind="stable", label="剧情阶段", value=str(expected_beat_count)),
+        AuthorPreviewFlashcard(card_id="cast_topology", kind="stable", label="关系结构", value=topology_label(cast_topology)),
+        AuthorPreviewFlashcard(card_id="title", kind="draft", label="作品标题", value=title),
     ]
+    if route_fantasy:
+        cards.append(AuthorPreviewFlashcard(card_id="route_fantasy", kind="draft", label="路线幻想", value=trim_ellipsis(route_fantasy, 220)))
+    if relationship_hook:
+        cards.append(AuthorPreviewFlashcard(card_id="relationship_hook", kind="draft", label="关系钩子", value=trim_ellipsis(relationship_hook, 220)))
+    if secret_hook:
+        cards.append(AuthorPreviewFlashcard(card_id="secret_hook", kind="draft", label="秘密钩子", value=trim_ellipsis(secret_hook, 220)))
+    if surface_signal_summary:
+        cards.append(AuthorPreviewFlashcard(card_id="surface_signal_summary", kind="stable", label="表层压力", value=trim_ellipsis(surface_signal_summary, 220)))
+    if target_visibility_summary:
+        cards.append(AuthorPreviewFlashcard(card_id="target_visibility_summary", kind="stable", label="目标亮相", value=trim_ellipsis(target_visibility_summary, 220)))
+    cards.append(AuthorPreviewFlashcard(card_id="conflict", kind="draft", label="当前局势", value=trim_ellipsis(conflict, 220)))
+    return cards[:16]
 
 
 def build_loading_cards(

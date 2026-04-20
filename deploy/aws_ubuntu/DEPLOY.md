@@ -57,6 +57,7 @@ Preferred shared-host path:
 
 - build the frontend locally
 - sync the repo, including `frontend/dist`, to the server
+- sync portrait assets under `artifacts/portraits/roster`
 - do not require Node/npm on the shared production host unless you explicitly choose on-host frontend builds
 
 ## App Setup
@@ -94,6 +95,10 @@ Minimum required values:
 - `APP_RESPONSES_MODEL`
 - `APP_STORY_LIBRARY_DB_PATH`
 - `APP_RUNTIME_STATE_DB_PATH`
+- `APP_ROSTER_ENABLED=true`
+- `APP_ROSTER_SOURCE_CATALOG_PATH`
+- `APP_ROSTER_RUNTIME_CATALOG_PATH`
+- `APP_LOCAL_PORTRAIT_BASE_URL`
 - `APP_ENABLE_BENCHMARK_API=0`
 - `APP_AUTH_SESSION_COOKIE_SECURE=true`
 - `APP_AUTH_SESSION_COOKIE_SAMESITE=lax`
@@ -113,6 +118,24 @@ npm run build
 Do not set `VITE_API_MODE=placeholder` in production.
 
 For same-origin nginx serving, `VITE_API_BASE_URL` can stay unset.
+
+## Portrait Assets
+
+Portrait-serving production builds need both the runtime catalog and the rendered PNG assets.
+
+Required production paths:
+
+- `/srv/rpg-demo/app/artifacts/portraits/roster`
+- `/srv/rpg-demo/app/artifacts/portraits/author_jobs`
+- `/srv/rpg-demo/data/character_roster_runtime.json`
+
+Before restarting the backend on production:
+
+1. sync `artifacts/portraits/roster` from the source machine
+2. ensure `artifacts/portraits/author_jobs` exists
+3. rebuild or rewrite `character_roster_runtime.json` so all portrait URLs use the public base URL
+
+If `APP_LOCAL_PORTRAIT_BASE_URL` changes, you must rebuild `character_roster_runtime.json` before restart.
 
 ## systemd Backend
 
@@ -194,6 +217,14 @@ Then rerun:
 ```bash
 cd /srv/rpg-demo/app
 /srv/rpg-demo/venv/bin/python tools/http_product_smoke.py --base-url http://127.0.0.1:8010
+```
+
+Portrait-specific repair/verification helper:
+
+```bash
+cd /path/to/local/repo
+python tools/aws_stable_portrait_repair.py repair
+python tools/aws_stable_portrait_repair.py verify
 ```
 
 ## What Is Still Not Ready For Multi-Instance

@@ -1,10 +1,10 @@
 import type { PublishedStoryCard } from "../../index"
 
 export function formatPublishedAt(value: string): string {
-  return new Date(value).toLocaleString([], {
-    month: "short",
+  return new Date(value).toLocaleString("zh-CN", {
+    month: "numeric",
     day: "numeric",
-    hour: "numeric",
+    hour: "2-digit",
     minute: "2-digit",
   })
 }

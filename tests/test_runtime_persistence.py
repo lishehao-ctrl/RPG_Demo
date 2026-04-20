@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import time
 
+import pytest
+
 import rpg_backend.author.jobs as author_jobs_module
 from rpg_backend.author.checkpointer import AUTHOR_CHECKPOINT_ALLOWLIST, SQLiteCheckpointSaver, graph_config
 from rpg_backend.author.contracts import AuthorJobProgress
@@ -9,7 +11,8 @@ from rpg_backend.author.jobs import AuthorJobService, _AuthorJobRecord
 from rpg_backend.author.storage import SQLiteAuthorJobStorage
 from rpg_backend.author.workflow import build_author_graph
 from rpg_backend.config import Settings
-from rpg_backend.play.service import PlaySessionService
+from rpg_backend.play.contracts import PlayTurnRequest
+from rpg_backend.play.service import PlayServiceError, PlaySessionService
 from rpg_backend.play.storage import SQLitePlaySessionStorage
 from tests.author_fixtures import FakeGateway
 from tests.test_author_product_api import _preview_response
@@ -65,7 +68,7 @@ def test_play_session_service_restores_session_state_after_restart(tmp_path) -> 
     created = service.create_session(story.story_id)
     updated = service.submit_turn(
         created.session_id,
-        type("TurnRequest", (), {"input_text": "I verify the first blackout ledger before anyone can revise it.", "selected_suggestion_id": None})(),
+        PlayTurnRequest(input_text="I verify the first blackout ledger before anyone can revise it."),
     )
 
     restarted = PlaySessionService(
@@ -84,10 +87,77 @@ def test_play_session_service_restores_session_state_after_restart(tmp_path) -> 
 
     continued = restarted.submit_turn(
         created.session_id,
-        type("TurnRequest", (), {"input_text": "I use the verified record to force a public answer from the council floor.", "selected_suggestion_id": None})(),
+        PlayTurnRequest(input_text="I use the verified record to force a public answer from the council floor."),
     )
 
     assert continued.turn_index == updated.turn_index + 1
+
+
+def test_play_session_service_rejects_legacy_v2_state_schema(tmp_path) -> None:
+    library_service, story = _publish_story(tmp_path)
+    settings = Settings(
+        runtime_state_db_path=str(tmp_path / "runtime.sqlite3"),
+        play_session_ttl_seconds=900,
+    )
+    storage = SQLitePlaySessionStorage(settings.runtime_state_db_path)
+
+    service = PlaySessionService(
+        story_library_service=library_service,
+        gateway_factory=_no_gateway,
+        settings=settings,
+        storage=storage,
+    )
+    created = service.create_session(story.story_id)
+    payload = storage.get_session(created.session_id)
+    assert payload is not None
+    state_payload = dict(payload["state"])
+    state_payload.pop("schema_version", None)
+    payload["state"] = state_payload
+    storage.save_session(payload)
+
+    restarted = PlaySessionService(
+        story_library_service=library_service,
+        gateway_factory=_no_gateway,
+        settings=settings,
+        storage=storage,
+    )
+    with pytest.raises(PlayServiceError) as exc_info:
+        restarted.get_session(created.session_id)
+
+    assert exc_info.value.code == "play_session_version_unsupported"
+
+
+def test_play_session_service_rejects_legacy_v2_plan_contract(tmp_path) -> None:
+    library_service, story = _publish_story(tmp_path)
+    settings = Settings(
+        runtime_state_db_path=str(tmp_path / "runtime.sqlite3"),
+        play_session_ttl_seconds=900,
+    )
+    storage = SQLitePlaySessionStorage(settings.runtime_state_db_path)
+    service = PlaySessionService(
+        story_library_service=library_service,
+        gateway_factory=_no_gateway,
+        settings=settings,
+        storage=storage,
+    )
+    created = service.create_session(story.story_id)
+    payload = storage.get_session(created.session_id)
+    assert payload is not None
+    plan_payload = dict(payload["plan"])
+    plan_payload.pop("delta_pack_contract_version", None)
+    payload["plan"] = plan_payload
+    storage.save_session(payload)
+
+    restarted = PlaySessionService(
+        story_library_service=library_service,
+        gateway_factory=_no_gateway,
+        settings=settings,
+        storage=storage,
+    )
+    with pytest.raises(PlayServiceError) as exc_info:
+        restarted.get_session(created.session_id)
+
+    assert exc_info.value.code == "play_plan_version_unsupported"
 
 
 def test_sqlite_checkpoint_saver_restores_author_graph_snapshot(tmp_path) -> None:

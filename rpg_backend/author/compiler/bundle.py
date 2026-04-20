@@ -16,6 +16,7 @@ from rpg_backend.author.contracts import (
     EndingItem,
     EndingRule,
     FocusedBrief,
+    NormalizedSeedPacket,
     OverviewFlagDraft,
     RulePack,
     StateSchema,
@@ -24,6 +25,7 @@ from rpg_backend.author.contracts import (
     TruthItem,
 )
 from rpg_backend.author.normalize import slugify, trim_ellipsis, unique_preserve
+from rpg_backend.author.seed_normalization import relationship_drama_shell_defaults
 
 
 AXIS_TEMPLATE_CATALOG: dict[str, dict[str, str | int]] = {
@@ -53,6 +55,8 @@ def build_design_bundle(
     cast_draft: CastDraft,
     beat_plan_draft: BeatPlanDraft,
     focused_brief: FocusedBrief,
+    *,
+    normalized_seed: NormalizedSeedPacket | None = None,
 ) -> DesignBundle:
     cast = [
         CastMember(
@@ -189,6 +193,22 @@ def build_design_bundle(
         )
     return DesignBundle(
         focused_brief=focused_brief,
+        normalized_seed=normalized_seed,
+        story_shell_id=normalized_seed.accepted_shell if normalized_seed is not None and normalized_seed.fit_mode != "out_of_range" else None,
+        relationship_hook=normalized_seed.relationship_hook if normalized_seed is not None and normalized_seed.fit_mode != "out_of_range" else None,
+        secret_hook=normalized_seed.secret_hook if normalized_seed is not None and normalized_seed.fit_mode != "out_of_range" else None,
+        surface_signal_ids=(
+            list(relationship_drama_shell_defaults(normalized_seed.accepted_shell).surface_signal_ids)
+            if normalized_seed is not None and normalized_seed.fit_mode != "out_of_range"
+            else []
+        ),
+        surface_signal_summary=normalized_seed.surface_signal_summary if normalized_seed is not None and normalized_seed.fit_mode != "out_of_range" else None,
+        target_visibility_summary=(
+            relationship_drama_shell_defaults(normalized_seed.accepted_shell).target_visibility_summary
+            if normalized_seed is not None and normalized_seed.fit_mode != "out_of_range"
+            else None
+        ),
+        route_target_ids=[member.npc_id for member in cast[:5]] if normalized_seed is not None and normalized_seed.fit_mode != "out_of_range" else [],
         story_bible=bible,
         state_schema=state_schema,
         beat_spine=beat_spine,

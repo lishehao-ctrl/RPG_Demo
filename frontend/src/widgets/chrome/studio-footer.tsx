@@ -1,21 +1,24 @@
 export function StudioFooter() {
   return (
     <footer className="studio-footer">
-      <div className="studio-footer-line" />
-      <div className="studio-footer-links">
+      <div className="studio-footer__brand">
+        <span className="studio-footer__wordmark">流言与荣光</span>
+        <p>一座收纳都市关系戏、禁忌秘密与可游玩丑闻案卷的限制档案库。</p>
+      </div>
+
+      <div className="studio-footer__links">
         <button className="studio-footer-link" type="button">
-          Library
+          档案库
         </button>
         <button className="studio-footer-link" type="button">
-          Methodology
+          方法论
         </button>
         <button className="studio-footer-link" type="button">
-          Privacy
+          隐私
         </button>
       </div>
-      <p className="studio-footer-copy">
-        © 2026 Narrative Studio. <span>The Modern Archivist.</span>
-      </p>
+
+      <p className="studio-footer-copy">© 2026 流言与荣光。所有案卷，保留余波。</p>
     </footer>
   )
 }

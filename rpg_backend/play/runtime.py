@@ -223,6 +223,20 @@ class PlaySessionState:
     collapse_pressure_streak: int = 0
     primary_axis_history: list[str] = field(default_factory=list)
     negative_stance_history: list[str] = field(default_factory=list)
+    scene_heat: int = 0
+    public_image: int = 0
+    secret_exposure: int = 0
+    route_lock: int = 0
+    current_route_target_id: str | None = None
+    relationship_values: dict[str, dict[str, int]] = field(default_factory=dict)
+    known_secret_ids: list[str] = field(default_factory=list)
+    public_event_ids: list[str] = field(default_factory=list)
+    private_scene_ids: list[str] = field(default_factory=list)
+    promise_ids: list[str] = field(default_factory=list)
+    betrayal_ids: list[str] = field(default_factory=list)
+    last_turn_global_deltas: dict[str, int] = field(default_factory=dict)
+    last_turn_relationship_deltas: dict[str, dict[str, int]] = field(default_factory=dict)
+    last_turn_revealed_secret_ids: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -364,6 +378,10 @@ def _suggestion_template_for_tag(tag: str, state: PlaySessionState) -> tuple[str
 
 
 def build_suggested_actions(plan: PlayPlan, state: PlaySessionState) -> list[PlaySuggestedAction]:
+    if getattr(plan, "story_mode", "relationship_drama") == "relationship_drama":
+        from rpg_backend.play.relationship_runtime import build_relationship_suggested_actions
+
+        return build_relationship_suggested_actions(plan, state)
     if state.status != "active":
         return []
     beat = _current_beat(plan, state)
@@ -393,6 +411,10 @@ def build_suggested_actions(plan: PlayPlan, state: PlaySessionState) -> list[Pla
 
 
 def build_initial_session_state(plan: PlayPlan, *, session_id: str) -> PlaySessionState:
+    if getattr(plan, "story_mode", "relationship_drama") == "relationship_drama":
+        from rpg_backend.play.relationship_runtime import build_initial_relationship_session_state
+
+        return build_initial_relationship_session_state(plan, session_id=session_id)
     state = PlaySessionState(
         session_id=session_id,
         story_id=plan.story_id,
@@ -440,8 +462,11 @@ def _feedback_snapshot(state: PlaySessionState) -> PlayFeedbackSnapshot:
         ),
         last_turn_axis_deltas=dict(state.last_turn_axis_deltas),
         last_turn_stance_deltas=dict(state.last_turn_stance_deltas),
+        last_turn_global_deltas=dict(state.last_turn_global_deltas),
+        last_turn_relationship_deltas={key: dict(value) for key, value in state.last_turn_relationship_deltas.items()},
         last_turn_tags=list(state.last_turn_tags),
         last_turn_consequences=list(state.last_turn_consequences),
+        last_turn_revealed_secret_ids=list(state.last_turn_revealed_secret_ids),
     )
 
 
@@ -511,6 +536,10 @@ def _update_collapse_pressure_streak(
 
 
 def build_state_bars(plan: PlayPlan, state: PlaySessionState) -> list[PlayStateBar]:
+    if getattr(plan, "story_mode", "relationship_drama") == "relationship_drama":
+        from rpg_backend.play.relationship_runtime import build_relationship_state_bars
+
+        return build_relationship_state_bars(plan, state)
     bars = [
         PlayStateBar(
             bar_id=axis.axis_id,
@@ -573,10 +602,16 @@ def _support_surfaces() -> PlaySupportSurfaces:
 
 
 def build_session_snapshot(plan: PlayPlan, state: PlaySessionState) -> PlaySessionSnapshot:
+    if getattr(plan, "story_mode", "relationship_drama") == "relationship_drama":
+        from rpg_backend.play.relationship_runtime import build_relationship_session_snapshot
+
+        return build_relationship_session_snapshot(plan, state)
     beat = _current_beat(plan, state)
     return PlaySessionSnapshot(
         session_id=state.session_id,
         story_id=state.story_id,
+        story_mode=plan.story_mode,
+        story_shell_id=plan.story_shell_id,
         status=state.status,  # type: ignore[arg-type]
         turn_index=state.turn_index,
         beat_index=state.beat_index + 1,
@@ -621,6 +656,14 @@ def heuristic_turn_intent(
     state: PlaySessionState,
     selected_prompt: str | None = None,
 ) -> PlayTurnIntentDraft:
+    if getattr(plan, "story_mode", "relationship_drama") == "relationship_drama":
+        from rpg_backend.play.relationship_runtime import heuristic_relationship_turn_intent
+
+        return heuristic_relationship_turn_intent(
+            input_text=input_text,
+            plan=plan,
+            state=state,
+        ).intent
     text = " ".join([selected_prompt or "", input_text]).casefold()
     tag = available_affordance_tags(plan, state)[0]
     execution_frame = "procedural"
@@ -1390,6 +1433,16 @@ def apply_turn_resolution(
     intent: PlayTurnIntentDraft,
     use_tuned_ending_policy: bool = True,
 ) -> tuple[PlayResolutionEffect, TurnEndingGateContext]:
+    if getattr(plan, "story_mode", "relationship_drama") == "relationship_drama":
+        from rpg_backend.play.relationship_runtime import apply_relationship_turn_resolution
+
+        resolution = apply_relationship_turn_resolution(plan=plan, state=state, intent=intent)
+        ending_context = TurnEndingGateContext(
+            final_beat_completed=bool(resolution.beat_completed and state.beat_index >= len(plan.beats) - 1),
+            final_beat_handoff=bool(resolution.advanced_to_next_beat and state.beat_index >= len(plan.beats) - 1),
+            turn_cap_reached=state.turn_index >= plan.max_turns,
+        )
+        return resolution, ending_context
     beat = _current_beat(plan, state)
     execution_frame = getattr(intent, "execution_frame", "procedural")
     target_npc_ids = [

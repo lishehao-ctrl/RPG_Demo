@@ -1,13 +1,17 @@
 import { useEffect, useMemo, useState } from "react"
-import type { AuthorPreviewResponse } from "../../../../index"
+import type { AuthorPreviewResponse, PlayLengthPreset, TargetGenderPref } from "../../../../index"
 import { useApiClient } from "../../../../app/providers/api-client-provider"
 import { toErrorMessage } from "../../../../shared/lib/errors"
 
 const DEFAULT_SEED = ""
+const DEFAULT_PLAY_LENGTH_PRESET: PlayLengthPreset = "12_15"
+const DEFAULT_TARGET_GENDER_PREF: TargetGenderPref | null = null
 
 export function useCreateStoryFlow() {
   const api = useApiClient()
   const [seed, setSeed] = useState(DEFAULT_SEED)
+  const [playLengthPreset, setPlayLengthPreset] = useState<PlayLengthPreset>(DEFAULT_PLAY_LENGTH_PRESET)
+  const [targetGenderPref, setTargetGenderPref] = useState<TargetGenderPref | null>(DEFAULT_TARGET_GENDER_PREF)
   const [preview, setPreview] = useState<AuthorPreviewResponse | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [jobLoading, setJobLoading] = useState(false)
@@ -29,10 +33,24 @@ export function useCreateStoryFlow() {
     }
   }
 
+  const updatePlayLengthPreset = (nextPreset: PlayLengthPreset) => {
+    setPlayLengthPreset(nextPreset)
+    if (preview && preview.play_length_preset !== nextPreset) {
+      setPreview(null)
+    }
+  }
+
+  const updateTargetGenderPref = (nextPref: TargetGenderPref | null) => {
+    setTargetGenderPref(nextPref)
+    if (preview) {
+      setPreview(null)
+    }
+  }
+
   const requestPreview = async () => {
     const trimmedSeed = seed.trim()
     if (!trimmedSeed) {
-      setError("Enter a story seed first.")
+      setError("先写下一句故事种子，再生成预览。")
       return null
     }
 
@@ -40,7 +58,11 @@ export function useCreateStoryFlow() {
     setError(null)
 
     try {
-      const nextPreview = await api.createStoryPreview({ prompt_seed: trimmedSeed })
+      const nextPreview = await api.createStoryPreview({
+        prompt_seed: trimmedSeed,
+        play_length_preset: playLengthPreset,
+        target_gender_pref: targetGenderPref,
+      })
       setPreview(nextPreview)
       return nextPreview
     } catch (nextError) {
@@ -53,7 +75,7 @@ export function useCreateStoryFlow() {
 
   const createAuthorJob = async () => {
     if (!preview) {
-      setError("Generate a preview before starting the author job.")
+      setError("先生成预览，再开始正式编写。")
       return null
     }
 
@@ -64,6 +86,7 @@ export function useCreateStoryFlow() {
       const job = await api.createAuthorJob({
         prompt_seed: preview.prompt_seed,
         preview_id: preview.preview_id,
+        play_length_preset: playLengthPreset,
       })
       return job.job_id
     } catch (nextError) {
@@ -76,12 +99,16 @@ export function useCreateStoryFlow() {
 
   return {
     seed,
+    playLengthPreset,
+    targetGenderPref,
     preview,
     flashcards,
     previewLoading,
     jobLoading,
     error,
     updateSeed,
+    updatePlayLengthPreset,
+    updateTargetGenderPref,
     requestPreview,
     createAuthorJob,
   }

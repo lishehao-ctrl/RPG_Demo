@@ -11,11 +11,14 @@
 5. 从 library 进入 play session
 6. 用自然语言推进剧情
 
-当前项目已经完成 MVP 收尾。
+当前项目正在从旧的 civic procedural 叙事方向转向新的关系戏剧方向。
 
-收尾结论、真实 smoke、benchmark 稳定性数据见：
+当前有效的产品 / 重构文档见：
 
-- `specs/mvp_closeout_20260321.md`
+- `specs/relationship_drama_pivot_strategy_20260328.md`
+- `specs/backend/2026-03-28-relationship-drama-backend-refactor/SPEC.md`
+- `specs/backend/2026-03-28-relationship-drama-runtime-architecture/SPEC.md`
+- `specs/frontend/2026-03-28-relationship-drama-ui-refactor/SPEC.md`
 
 ## 技术栈
 
@@ -99,7 +102,10 @@ AWS 单机部署材料：
 
 ## 相关文档
 
-- `specs/mvp_closeout_20260321.md`
+- `specs/relationship_drama_pivot_strategy_20260328.md`
+- `specs/backend/2026-03-28-relationship-drama-backend-refactor/SPEC.md`
+- `specs/backend/2026-03-28-relationship-drama-runtime-architecture/SPEC.md`
+- `specs/frontend/2026-03-28-relationship-drama-ui-refactor/SPEC.md`
 - `specs/interface_governance_20260319.md`
 - `specs/interface_stability_matrix_20260319.md`
 - `frontend/specs/FRONTEND_PRODUCT_SPEC.md`

@@ -4,67 +4,15 @@ import sqlite3
 
 from fastapi.testclient import TestClient
 
-from rpg_backend.author.contracts import AuthorPreviewResponse
+from rpg_backend.author.display import theme_label, topology_label
+from rpg_backend.author_v2.preview import apply_blueprint_edits, run_preview_blueprint_graph
+from rpg_backend.author_v2.product_adapters import author_preview_from_blueprint, author_story_summary_from_package, package_from_pipeline
+from rpg_backend.author_v2.workflow import run_author_play_graph
 from rpg_backend.author.jobs import AuthorJobPublishSource
-from rpg_backend.author.preview import build_author_story_summary
 from rpg_backend.library.service import StoryLibraryService
 from rpg_backend.library.storage import SQLiteStoryLibraryStorage
 from rpg_backend.main import app
-from tests.author_fixtures import author_fixture_bundle
 from tests.auth_helpers import ensure_authenticated_client
-
-
-def _preview_response(
-    *,
-    bundle=None,
-    prompt_seed: str = "An envoy tries to hold an archive city together.",
-    primary_theme: str = "legitimacy_crisis",
-    modifiers: list[str] | None = None,
-) -> AuthorPreviewResponse:
-    fixture = author_fixture_bundle()
-    bundle = bundle or fixture.design_bundle
-    return AuthorPreviewResponse.model_validate(
-        {
-            "preview_id": "preview-lib-1",
-            "prompt_seed": prompt_seed,
-            "focused_brief": bundle.focused_brief.model_dump(mode="json"),
-            "theme": {
-                "primary_theme": primary_theme,
-                "modifiers": modifiers or ["succession", "blackout"],
-                "router_reason": "test_fixture",
-            },
-            "strategies": {
-                "story_frame_strategy": "legitimacy_story",
-                "cast_strategy": "legitimacy_cast",
-                "beat_plan_strategy": "single_semantic_compile",
-            },
-            "structure": {
-                "cast_topology": "three_slot",
-                "expected_npc_count": len(bundle.story_bible.cast),
-                "expected_beat_count": len(bundle.beat_spine),
-            },
-            "story": {
-                "title": bundle.story_bible.title,
-                "premise": bundle.story_bible.premise,
-                "tone": bundle.story_bible.tone,
-                "stakes": bundle.story_bible.stakes,
-            },
-            "cast_slots": [
-                {"slot_label": member.name, "public_role": member.role}
-                for member in bundle.story_bible.cast
-            ],
-            "beats": [
-                {
-                    "title": beat.title,
-                    "goal": beat.goal,
-                    "milestone_kind": beat.milestone_kind,
-                }
-                for beat in bundle.beat_spine
-            ],
-            "flashcards": [],
-            "stage": "brief_parsed",
-        }
-    )
 
 
 def _publish_source(
@@ -77,28 +25,43 @@ def _publish_source(
     primary_theme: str = "legitimacy_crisis",
     modifiers: list[str] | None = None,
 ) -> AuthorJobPublishSource:
-    fixture = author_fixture_bundle()
-    story_bible = fixture.design_bundle.story_bible.model_copy(
+    base = _publish_v2_source()
+    resolved_title = title or base.summary.title
+    resolved_premise = premise or base.summary.premise
+    resolved_tone = tone or base.summary.tone
+    summary = base.summary.model_copy(
         update={
-            "title": title or fixture.design_bundle.story_bible.title,
-            "premise": premise or fixture.design_bundle.story_bible.premise,
-            "tone": tone or fixture.design_bundle.story_bible.tone,
+            "title": resolved_title,
+            "premise": resolved_premise,
+            "tone": resolved_tone,
+            "theme": theme_label(primary_theme),
         }
     )
-    bundle = fixture.design_bundle.model_copy(update={"story_bible": story_bible})
-    summary = build_author_story_summary(bundle, primary_theme=primary_theme)
+    preview = base.preview.model_copy(
+        update={
+            "prompt_seed": prompt_seed,
+            "story": base.preview.story.model_copy(
+                update={
+                    "title": resolved_title,
+                    "premise": resolved_premise,
+                    "tone": resolved_tone,
+                }
+            ),
+            "theme": base.preview.theme.model_copy(
+                update={
+                    "primary_theme": primary_theme,
+                    "modifiers": modifiers or ["succession", "blackout"],
+                }
+            ),
+        }
+    )
     return AuthorJobPublishSource(
         source_job_id=job_id,
         owner_user_id="local-dev",
         prompt_seed=prompt_seed,
-        preview=_preview_response(
-            bundle=bundle,
-            prompt_seed=prompt_seed,
-            primary_theme=primary_theme,
-            modifiers=modifiers,
-        ),
+        preview=preview,
         summary=summary,
-        bundle=bundle,
+        bundle=base.bundle,
     )
 
 
@@ -110,6 +73,27 @@ class _FakeAuthorJobService:
         del actor_user_id
         assert job_id == self._source.source_job_id
         return self._source
+
+
+def _publish_v2_source(
+    seed: str = "董事会前夜，项目负责人被上司、对手和法务一起拖进并购黑账与暧昧站队里。想要一个12到15分钟的职场修罗场。",
+) -> AuthorJobPublishSource:
+    preview_blueprint, _ = run_preview_blueprint_graph(seed, live_mode="deterministic")
+    accepted = apply_blueprint_edits(preview_blueprint)
+    pipeline = run_author_play_graph(accepted, live_mode="deterministic")
+    package = package_from_pipeline(preview_blueprint=preview_blueprint, accepted_blueprint=accepted, pipeline=pipeline)
+    return AuthorJobPublishSource(
+        source_job_id="job-v2-123",
+        owner_user_id="local-dev",
+        prompt_seed=seed,
+        preview=author_preview_from_blueprint(
+            preview_blueprint,
+            bound_cast=package.urban_bundle.bound_cast,
+            arc_template_id=package.urban_bundle.arc_template_id,
+        ),
+        summary=author_story_summary_from_package(package),
+        bundle=package,
+    )
 
 
 def test_publish_route_is_idempotent_and_story_routes_read_persisted_story(tmp_path) -> None:
@@ -135,7 +119,7 @@ def test_publish_route_is_idempotent_and_story_routes_read_persisted_story(tmp_p
     assert publish_first.status_code == 200
     assert publish_second.status_code == 200
     assert publish_first.json()["story_id"] == publish_second.json()["story_id"]
-    assert publish_first.json()["topology"] == "3-slot pressure triangle"
+    assert publish_first.json()["topology"] == topology_label(source.preview.structure.cast_topology)
 
     assert listing.status_code == 200
     assert len(listing.json()["stories"]) == 1
@@ -150,7 +134,7 @@ def test_publish_route_is_idempotent_and_story_routes_read_persisted_story(tmp_p
     assert detail.json()["presentation"]["status"] == "open_for_play"
     assert detail.json()["presentation"]["status_label"] == "Open for play"
     assert detail.json()["presentation"]["dossier_ref"].startswith("Dossier N°")
-    assert detail.json()["presentation"]["engine_label"] == "LangGraph play runtime"
+    assert detail.json()["presentation"]["engine_label"] == "Relationship Drama V2 runtime"
     assert detail.json()["play_overview"]["protagonist"]["title"]
     assert detail.json()["play_overview"]["opening_narration"]
     assert detail.json()["play_overview"]["max_turns"] >= 4
@@ -225,6 +209,30 @@ def test_private_story_is_hidden_from_other_actor_until_visibility_changes(tmp_p
     assert public_detail.status_code == 200
     assert public_detail.json()["presentation"]["visibility"] == "public"
     assert public_detail.json()["presentation"]["viewer_can_manage"] is False
+
+
+def test_story_detail_uses_v2_canonical_package_for_play_overview(tmp_path) -> None:
+    import rpg_backend.main as main_module
+
+    source = _publish_v2_source()
+    library_service = StoryLibraryService(SQLiteStoryLibraryStorage(str(tmp_path / "stories.sqlite3")))
+    original_author_service = main_module.author_job_service
+    original_library_service = main_module.story_library_service
+    main_module.author_job_service = _FakeAuthorJobService(source)
+    main_module.story_library_service = library_service
+    client = TestClient(app)
+    try:
+        ensure_authenticated_client(client, email="library-v2@example.com", display_name="V2 Owner")
+        published = client.post(f"/author/jobs/{source.source_job_id}/publish")
+        detail = client.get(f"/stories/{published.json()['story_id']}")
+    finally:
+        main_module.author_job_service = original_author_service
+        main_module.story_library_service = original_library_service
+
+    assert published.status_code == 200
+    assert detail.status_code == 200
+    assert detail.json()["presentation"]["engine_label"] == "Relationship Drama V2 runtime"
+    assert detail.json()["play_overview"]["play_length_preset"] == "12_15"
 
 
 def test_story_listing_supports_accessible_mine_and_public_views(tmp_path) -> None:

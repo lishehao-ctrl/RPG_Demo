@@ -72,7 +72,10 @@ class BenchmarkPlayTraceSummary(BaseModel):
     used_previous_response_turn_count: int = Field(ge=0)
     session_cache_enabled: bool = False
     usage_totals: dict[str, int] = Field(default_factory=dict)
+    lane_usage_distribution: dict[str, int] = Field(default_factory=dict)
+    input_mode_distribution: dict[str, int] = Field(default_factory=dict)
     ending_id: str | None = None
+    ending_family: str | None = Field(default=None, max_length=80)
     end_reason: str | None = Field(default=None, max_length=120)
 
 

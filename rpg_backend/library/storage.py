@@ -8,6 +8,7 @@ from pathlib import Path
 
 from rpg_backend.author.display import topology_label
 from rpg_backend.config import get_settings
+from rpg_backend.author_v2.product_package import RelationshipDramaV2Package
 from rpg_backend.library.contracts import (
     PublishedStoryCard,
     PublishedStoryRecord,
@@ -66,6 +67,7 @@ class SQLiteStoryLibraryStorage:
                 topology TEXT NOT NULL DEFAULT '',
                 owner_user_id TEXT NOT NULL DEFAULT '',
                 visibility TEXT NOT NULL DEFAULT 'private',
+                package_version TEXT NOT NULL DEFAULT 'relationship_drama_v2',
                 summary_json TEXT NOT NULL,
                 preview_json TEXT NOT NULL,
                 bundle_json TEXT NOT NULL,
@@ -74,6 +76,7 @@ class SQLiteStoryLibraryStorage:
             """
         )
         self._migrate_story_columns(connection)
+        self._purge_non_v2_records(connection)
         self._backfill_owner_visibility(connection)
         self._backfill_story_cards(connection)
         connection.execute(
@@ -84,6 +87,30 @@ class SQLiteStoryLibraryStorage:
         )
         self._ensure_search_index(connection)
         connection.commit()
+
+    def _purge_non_v2_records(self, connection: sqlite3.Connection) -> None:
+        story_rows = connection.execute(
+            """
+            SELECT story_id
+            FROM published_stories
+            WHERE package_version IS NULL OR package_version != 'relationship_drama_v2'
+            """
+        ).fetchall()
+        story_ids = [str(row["story_id"]) for row in story_rows]
+        if not story_ids:
+            return
+        connection.executemany(
+            "DELETE FROM published_stories WHERE story_id = ?",
+            [(story_id,) for story_id in story_ids],
+        )
+        if self._fts_enabled:
+            try:
+                connection.executemany(
+                    "DELETE FROM published_story_search WHERE story_id = ?",
+                    [(story_id,) for story_id in story_ids],
+                )
+            except sqlite3.OperationalError:
+                self._fts_enabled = False
 
     def _migrate_story_columns(self, connection: sqlite3.Connection) -> None:
         required_columns = {
@@ -97,6 +124,7 @@ class SQLiteStoryLibraryStorage:
             "topology": "TEXT NOT NULL DEFAULT ''",
             "owner_user_id": f"TEXT NOT NULL DEFAULT '{get_settings().default_actor_id}'",
             "visibility": "TEXT NOT NULL DEFAULT 'private'",
+            "package_version": "TEXT NOT NULL DEFAULT 'relationship_drama_v2'",
         }
         existing_columns = set()
         for row in connection.execute("PRAGMA table_info(published_stories)").fetchall():
@@ -162,9 +190,10 @@ class SQLiteStoryLibraryStorage:
                 "source_job_id": row["source_job_id"],
                 "prompt_seed": row["prompt_seed"],
                 "visibility": row["visibility"],
+                "package_version": "relationship_drama_v2",
                 "summary": summary_payload,
                 "preview": preview_payload,
-                "bundle": bundle_payload,
+                "bundle": RelationshipDramaV2Package.model_validate(bundle_payload),
             }
         )
 
@@ -706,11 +735,12 @@ class SQLiteStoryLibraryStorage:
                     topology,
                     owner_user_id,
                     visibility,
+                    package_version,
                     summary_json,
                     preview_json,
                     bundle_json,
                     published_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record.story.story_id,
@@ -726,6 +756,7 @@ class SQLiteStoryLibraryStorage:
                     record.story.topology,
                     record.owner_user_id,
                     record.visibility,
+                    record.package_version,
                     record.summary.model_dump_json(),
                     record.preview.model_dump_json(),
                     record.bundle.model_dump_json(),
@@ -767,3 +798,30 @@ class SQLiteStoryLibraryStorage:
                     self._fts_enabled = False
             connection.commit()
             return cursor.rowcount > 0
+
+    def delete_non_v2_stories(self) -> list[str]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT story_id
+                FROM published_stories
+                WHERE package_version IS NULL OR package_version != 'relationship_drama_v2'
+                """
+            ).fetchall()
+            story_ids = [str(row["story_id"]) for row in rows]
+            if not story_ids:
+                return []
+            connection.executemany(
+                "DELETE FROM published_stories WHERE story_id = ?",
+                [(story_id,) for story_id in story_ids],
+            )
+            if self._fts_enabled:
+                try:
+                    connection.executemany(
+                        "DELETE FROM published_story_search WHERE story_id = ?",
+                        [(story_id,) for story_id in story_ids],
+                    )
+                except sqlite3.OperationalError:
+                    self._fts_enabled = False
+            connection.commit()
+            return story_ids

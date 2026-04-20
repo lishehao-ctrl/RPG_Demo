@@ -1,61 +1,16 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react"
-import { EndingSummary } from "../../entities/play/ui/ending-summary"
-import { StateBarList } from "../../entities/play/ui/state-bar-list"
-import { SuggestedActions } from "../../entities/play/ui/suggested-actions"
-import { TranscriptView } from "../../entities/play/ui/transcript-view"
+import { useState, type FormEvent } from "react"
+import { motion } from "motion/react"
 import { usePlaySession } from "../../features/play/session/model/use-play-session"
-import { PlayDomainSidebar } from "../../widgets/chrome/play-domain-sidebar"
-import { StudioFooter } from "../../widgets/chrome/studio-footer"
+import { getEditorialThemeImage } from "../../shared/lib/editorial-assets"
+import { useStorylineMotion } from "../../shared/ui/storyline-motion"
 
-function formatLedgerLabel(key: string): string {
-  return key.replace(/_/g, " ")
-}
+type PlayTab = "story" | "relations" | "signals"
 
-function formatDelta(value: number): string {
-  return value > 0 ? `+${value}` : String(value)
-}
-
-function surfaceState(snapshot: ReturnType<typeof usePlaySession>["snapshot"], key: "inventory" | "map") {
-  const surface = snapshot?.support_surfaces?.[key]
-  if (surface) {
-    return surface
+function meterWidth(value: number, min: number, max: number) {
+  if (max <= min) {
+    return 50
   }
-  return {
-    enabled: false,
-    disabled_reason: `${formatLedgerLabel(key)} is not available in the current public session snapshot.`,
-  }
-}
-
-function PlayMetaPanel({
-  title,
-  sectionId,
-  defaultOpen = false,
-  children,
-}: {
-  title: string
-  sectionId?: string
-  defaultOpen?: boolean
-  children: ReactNode
-}) {
-  const [open, setOpen] = useState(defaultOpen)
-
-  return (
-    <section className={`play-session-meta__card play-meta-panel play-anchor-target ${open ? "is-open" : "is-collapsed"}`} id={sectionId}>
-      <button
-        aria-expanded={open}
-        className="play-meta-panel__toggle"
-        onClick={() => setOpen((current) => !current)}
-        type="button"
-      >
-        <span className="editorial-metadata-label">{title}</span>
-        <span aria-hidden="true" className="material-symbols-outlined play-meta-panel__icon">
-          {open ? "remove" : "add"}
-        </span>
-      </button>
-
-      {open ? <div className="play-meta-panel__body">{children}</div> : null}
-    </section>
-  )
+  return Math.max(0, Math.min(100, ((value - min) / (max - min)) * 100))
 }
 
 export function PlaySessionPage({
@@ -66,334 +21,272 @@ export function PlaySessionPage({
   onOpenLibrary: (storyId?: string) => void
 }) {
   const playSession = usePlaySession(sessionId)
-  const [activeNavSection, setActiveNavSection] = useState<"transcript" | "chapters" | "research" | "settings">("transcript")
-  const inventorySurface = surfaceState(playSession.snapshot, "inventory")
-  const mapSurface = surfaceState(playSession.snapshot, "map")
-  const hasAvailableSupportSurface = inventorySurface.enabled || mapSurface.enabled
-  const scrollToSection = (sectionId: string, navSection: "transcript" | "chapters" | "research" | "settings") => {
-    setActiveNavSection(navSection)
-    document.getElementById(sectionId)?.scrollIntoView({ behavior: "smooth", block: "start" })
-  }
+  const motionPreset = useStorylineMotion()
+  const [activeTab, setActiveTab] = useState<PlayTab>("story")
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     void playSession.submitTurn()
   }
 
-  useEffect(() => {
-    if (!playSession.loading && !playSession.snapshot && playSession.error) {
-      onOpenLibrary()
-    }
-  }, [onOpenLibrary, playSession.error, playSession.loading, playSession.snapshot])
+  if (playSession.loading) {
+    return (
+      <main className="mag-page">
+        <div className="mag-empty">
+          <div>
+            <h3>正在接入当前会话</h3>
+            <p>正在获取场面、转录与关系状态。</p>
+          </div>
+        </div>
+      </main>
+    )
+  }
+
+  if (!playSession.snapshot) {
+    return (
+      <main className="mag-page">
+        <div className="mag-error">
+          <div>
+            <h3>会话暂不可用</h3>
+            <p>{playSession.error ?? "这场会话当前不可访问。"}</p>
+          </div>
+        </div>
+      </main>
+    )
+  }
+
+  const snapshot = playSession.snapshot
+  const storyActions = snapshot.story_actions?.length ? snapshot.story_actions : snapshot.suggested_actions
+  const themeImage = getEditorialThemeImage(snapshot.story_shell_id ?? snapshot.story_title, 1)
 
   return (
-    <main className="editorial-page editorial-page--play">
-      <div className="play-domain-layout">
-        <PlayDomainSidebar
-          footer={
-            playSession.snapshot ? (
-              <div className="play-sidebar-stats">
-                <div>
-                  <div className="play-sidebar-stats__row">
-                    <span>Progress</span>
-                    <span>{playSession.snapshot.progress?.display_percent ?? 0}%</span>
-                  </div>
-                  <div className="play-sidebar-stats__track">
-                    <div className="play-sidebar-stats__fill" style={{ width: `${playSession.snapshot.progress?.display_percent ?? 0}%` }} />
-                  </div>
-                </div>
-                <div className="play-sidebar-stats__meta">
-                  <div>
-                    <span className="editorial-metadata-label">Story</span>
-                    <p>{playSession.snapshot.story_title}</p>
-                  </div>
-                  <div>
-                    <span className="editorial-metadata-label">Beat</span>
-                    <p>{playSession.snapshot.beat_title}</p>
-                  </div>
-                </div>
-              </div>
-            ) : null
-          }
-          items={[
-            {
-              icon: "menu_book",
-              label: "Story So Far",
-              active: activeNavSection === "transcript",
-              onSelect: () => scrollToSection("play-transcript", "transcript"),
-            },
-            {
-              icon: "reorder",
-              label: "Progress",
-              active: activeNavSection === "chapters",
-              onSelect: () => scrollToSection("play-session-meta", "chapters"),
-            },
-            {
-              icon: "history_edu",
-              label: "Consequences",
-              active: activeNavSection === "research",
-              onSelect: () => scrollToSection("play-consequences", "research"),
-            },
-            ...(hasAvailableSupportSurface
-              ? [
-                  {
-                    icon: "settings",
-                    label: "Tools",
-                    active: activeNavSection === "settings",
-                    onSelect: () => scrollToSection("play-support-surfaces", "settings"),
-                  },
-                ]
-              : []),
-          ]}
-          subtitle={playSession.snapshot?.beat_title ?? "Live story navigation"}
-          title={playSession.snapshot?.story_title ?? "Play Session"}
-        />
-
-        <section className="play-canvas">
-          {playSession.loading ? (
-            <div className="editorial-empty-state">
-              <h3>Loading play session</h3>
-              <p>Fetching the current snapshot and transcript state.</p>
+    <main className="mag-page">
+      <section className="mag-play-hero">
+        <div className="mag-hero__media" style={{ backgroundImage: `url("${themeImage}")` }} />
+        <div className="mag-hero__veil" />
+        <div className="mag-play-hero__inner">
+          <motion.div className="mag-play-hero__copy" {...motionPreset.reveal({ y: 24, duration: 0.76 })}>
+            <div className="mag-badge-row">
+              <span className="mag-chip mag-chip--accent">{snapshot.beat_title}</span>
+              <span className="mag-chip mag-chip--gold">{`${snapshot.progress?.display_percent ?? 0}% 进度`}</span>
             </div>
-          ) : !playSession.snapshot ? (
-            <div className="editorial-empty-state">
-              <h3>Session unavailable</h3>
-              <p>{playSession.error ?? "This session is not visible to the current account."}</p>
+            <span className="mag-kicker">{snapshot.protagonist?.role_label ?? "进行中的关系会话"}</span>
+            <h1 className="mag-stage-title">{snapshot.story_title}</h1>
+            <p>{snapshot.narration}</p>
+            <div className="mag-action-row">
+              <button className="mag-button mag-button--secondary" onClick={() => onOpenLibrary(snapshot.story_id)} type="button">
+                返回案卷详情
+              </button>
             </div>
-          ) : (
-            <>
-              <div className="play-content-grid">
-                <section className="play-transcript-column play-anchor-target" id="play-transcript">
-                  <TranscriptView entries={playSession.transcript} pendingPlayerText={playSession.pendingTurnInput} submitting={playSession.submitting} />
-                </section>
+          </motion.div>
 
-                <aside className="play-session-meta">
-                  {playSession.snapshot?.protagonist ? (
-                    <PlayMetaPanel defaultOpen title="Protagonist">
-                      <div className="play-session-meta__headline">
-                        <strong>{playSession.snapshot.protagonist.title}</strong>
-                        <p>{playSession.snapshot.protagonist.mandate}</p>
-                      </div>
-                      <p className="editorial-support">{playSession.snapshot.protagonist.identity_summary}</p>
-                    </PlayMetaPanel>
-                  ) : null}
-
-                  <PlayMetaPanel sectionId="play-session-meta" title="Session Metadata">
-                    <div className="play-session-meta__headline">
-                      <strong>{playSession.snapshot?.story_title}</strong>
-                      <p>{playSession.snapshot?.beat_title}</p>
-                    </div>
-                    {playSession.snapshot?.progress ? (
-                      <div className="play-feedback-ledgers">
-                        <div>
-                          <span className="editorial-metadata-label">Progress Breakdown</span>
-                          <ul className="play-feedback-ledgers__list">
-                            <li>
-                              <span>Completed beats</span>
-                              <strong>
-                                {playSession.snapshot.progress.completed_beats}/{playSession.snapshot.progress.total_beats}
-                              </strong>
-                            </li>
-                            <li>
-                              <span>Current beat</span>
-                              <strong>
-                                {playSession.snapshot.progress.current_beat_progress}/{playSession.snapshot.progress.current_beat_goal}
-                              </strong>
-                            </li>
-                            <li>
-                              <span>Turns</span>
-                              <strong>
-                                {playSession.snapshot.progress.turn_index}/{playSession.snapshot.progress.max_turns}
-                              </strong>
-                            </li>
-                          </ul>
-                        </div>
-                      </div>
-                    ) : null}
-                  </PlayMetaPanel>
-
-                  <PlayMetaPanel defaultOpen title="State Bars">
-                    {playSession.snapshot ? <StateBarList bars={playSession.snapshot.state_bars} /> : null}
-                  </PlayMetaPanel>
-
-                  {playSession.snapshot?.feedback ? (
-                    <PlayMetaPanel sectionId="play-consequences" title="Recent Consequences">
-                      <div className="play-feedback-summary">
-                        {playSession.snapshot.feedback.last_turn_consequences.length > 0 ? (
-                          <ul className="play-feedback-summary__list">
-                            {playSession.snapshot.feedback.last_turn_consequences.map((consequence) => (
-                              <li key={consequence}>{consequence}</li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <p className="editorial-support">No turn consequences recorded yet.</p>
-                        )}
-
-                        <div className="play-feedback-ledgers">
-                          <div>
-                            <span className="editorial-metadata-label">Success Ledger</span>
-                            <ul className="play-feedback-ledgers__list">
-                              {Object.entries(playSession.snapshot.feedback.ledgers.success).map(([key, value]) => (
-                                <li key={key}>
-                                  <span>{formatLedgerLabel(key)}</span>
-                                  <strong>{value}</strong>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                          <div>
-                            <span className="editorial-metadata-label">Cost Ledger</span>
-                            <ul className="play-feedback-ledgers__list">
-                              {Object.entries(playSession.snapshot.feedback.ledgers.cost).map(([key, value]) => (
-                                <li key={key}>
-                                  <span>{formatLedgerLabel(key)}</span>
-                                  <strong>{value}</strong>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        </div>
-
-                        {Object.keys(playSession.snapshot.feedback.last_turn_axis_deltas).length > 0 ? (
-                          <div>
-                            <span className="editorial-metadata-label">Axis Deltas</span>
-                            <ul className="play-feedback-ledgers__list">
-                              {Object.entries(playSession.snapshot.feedback.last_turn_axis_deltas).map(([key, value]) => (
-                                <li key={key}>
-                                  <span>{formatLedgerLabel(key)}</span>
-                                  <strong>{formatDelta(value)}</strong>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        ) : null}
-
-                        {Object.keys(playSession.snapshot.feedback.last_turn_stance_deltas).length > 0 ? (
-                          <div>
-                            <span className="editorial-metadata-label">Stance Deltas</span>
-                            <ul className="play-feedback-ledgers__list">
-                              {Object.entries(playSession.snapshot.feedback.last_turn_stance_deltas).map(([key, value]) => (
-                                <li key={key}>
-                                  <span>{formatLedgerLabel(key)}</span>
-                                  <strong>{formatDelta(value)}</strong>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        ) : null}
-
-                        {playSession.snapshot.feedback.last_turn_tags.length > 0 ? (
-                          <div>
-                            <span className="editorial-metadata-label">Turn Tags</span>
-                            <div className="detail-header__chips">
-                              {playSession.snapshot.feedback.last_turn_tags.map((tag) => (
-                                <span className="editorial-muted-chip" key={tag}>
-                                  {formatLedgerLabel(tag)}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        ) : null}
-                      </div>
-                    </PlayMetaPanel>
-                  ) : null}
-
-                  <PlayMetaPanel defaultOpen title="Suggested Actions">
-                    {playSession.snapshot ? (
-                      <SuggestedActions
-                        actions={playSession.snapshot.suggested_actions}
-                        onSelect={playSession.selectSuggestedAction}
-                        selectedSuggestionId={playSession.selectedSuggestionId}
-                      />
-                    ) : null}
-                  </PlayMetaPanel>
-
-                  <PlayMetaPanel sectionId="play-support-surfaces" title="Support Surfaces">
-                    <div className="play-support-surfaces">
-                      <button className={`play-support-surface ${inventorySurface.enabled ? "is-enabled" : "is-disabled"}`} disabled={!inventorySurface.enabled} type="button">
-                        <strong>Inventory</strong>
-                        <span>{inventorySurface.enabled ? "Available" : "Disabled"}</span>
-                      </button>
-                      <button className={`play-support-surface ${mapSurface.enabled ? "is-enabled" : "is-disabled"}`} disabled={!mapSurface.enabled} type="button">
-                        <strong>Map</strong>
-                        <span>{mapSurface.enabled ? "Available" : "Disabled"}</span>
-                      </button>
-                    </div>
-                    <div className="play-support-surfaces__notes">
-                      {!inventorySurface.enabled && inventorySurface.disabled_reason ? <p>{inventorySurface.disabled_reason}</p> : null}
-                      {!mapSurface.enabled && mapSurface.disabled_reason ? <p>{mapSurface.disabled_reason}</p> : null}
-                    </div>
-                  </PlayMetaPanel>
-
-                  {playSession.snapshot?.ending ? <EndingSummary ending={playSession.snapshot.ending} /> : null}
-                </aside>
+          <motion.aside className="mag-detail-rail" {...motionPreset.reveal({ delay: 0.12, x: 18, y: 0, duration: 0.76 })}>
+            <span className="mag-overline">当前主角</span>
+            <div className="mag-side-stack">
+              <div className="mag-mini-stat">
+                <span>身份</span>
+                <strong>{snapshot.protagonist?.title ?? "未知主角"}</strong>
               </div>
-
-              <form className={`play-input-dock ${playSession.submitting ? "is-submitting" : ""}`} onSubmit={handleSubmit}>
-                {playSession.submitting ? (
-                  <div className="play-input-dock__status" aria-live="polite">
-                    <div className="play-input-dock__signal" aria-hidden="true">
-                      <span />
-                      <span />
-                      <span />
-                    </div>
-                    <div className="play-input-dock__status-copy">
-                      <strong>Resolving consequences</strong>
-                      <p>The system is updating pressure, witnesses, and scene fallout before returning the next beat.</p>
-                    </div>
-                  </div>
-                ) : null}
-
-                <div className="play-input-dock__field">
-                  <textarea
-                    className="play-input-dock__textarea"
-                    disabled={playSession.submitting || playSession.snapshot?.status === "completed"}
-                    onChange={(event) => playSession.setInputText(event.target.value)}
-                    placeholder="Describe your intent..."
-                    rows={1}
-                    value={playSession.inputText}
-                  />
-                  <button className="play-input-dock__submit" disabled={playSession.submitting || playSession.snapshot?.status === "completed"} type="submit">
-                    <span className="material-symbols-outlined">north_east</span>
-                  </button>
+              <div className="mag-mini-stat">
+                <span>当前任务</span>
+                <strong>{snapshot.protagonist?.mandate ?? "等待后端补全"}</strong>
+              </div>
+              {snapshot.ending ? (
+                <div className="mag-mini-stat">
+                  <span>结局状态</span>
+                  <strong>{snapshot.ending.label}</strong>
                 </div>
+              ) : null}
+            </div>
+          </motion.aside>
+        </div>
+      </section>
 
-                <div className="play-input-dock__meta">
-                  <div className="play-input-dock__tools">
+      <section className="mag-play-body">
+        <div className="mag-section__inner">
+          <div className="mag-play-tabs">
+            <button className={`mag-play-tab ${activeTab === "story" ? "is-active" : ""}`} onClick={() => setActiveTab("story")} type="button">
+              当前场面
+            </button>
+            <button className={`mag-play-tab ${activeTab === "relations" ? "is-active" : ""}`} onClick={() => setActiveTab("relations")} type="button">
+              人物关系
+            </button>
+            <button className={`mag-play-tab ${activeTab === "signals" ? "is-active" : ""}`} onClick={() => setActiveTab("signals")} type="button">
+              余波与天气
+            </button>
+          </div>
+
+          <div className="mag-play-layout">
+            <div className="mag-side-stack">
+              <motion.section className="mag-panel" {...motionPreset.inView({ y: 20, duration: 0.58 })}>
+                <span className="mag-panel__eyebrow">场面正文</span>
+                <h2 className="mag-panel__title">当前场面</h2>
+                <div className="mag-transcript">
+                  {playSession.transcript.map((entry) => (
+                    <article className={`mag-transcript__entry ${entry.speaker === "player" ? "is-player" : ""}`} key={entry.id}>
+                      <span>{entry.speaker === "player" ? "你的动作" : "场面旁白"}</span>
+                      <p>{entry.text}</p>
+                    </article>
+                  ))}
+                  {playSession.pendingTurnInput ? (
+                    <article className="mag-transcript__entry is-player">
+                      <span>正在提交</span>
+                      <p>{playSession.pendingTurnInput}</p>
+                    </article>
+                  ) : null}
+                </div>
+              </motion.section>
+
+              <motion.section className="mag-panel" {...motionPreset.inView({ delay: 0.08, y: 20, duration: 0.58 })}>
+                <span className="mag-panel__eyebrow">下一手</span>
+                <h2 className="mag-panel__title">把选择做成真正的牌面</h2>
+                <div className="mag-choice-grid">
+                  {storyActions.map((action) => (
                     <button
-                      className={!inventorySurface.enabled ? "is-disabled" : ""}
-                      disabled={!inventorySurface.enabled}
-                      title={inventorySurface.disabled_reason ?? undefined}
+                      className={`mag-choice-card ${playSession.selectedSuggestionId === action.suggestion_id ? "is-selected" : ""}`}
+                      key={action.suggestion_id}
+                      onClick={() => playSession.selectSuggestedAction(action)}
                       type="button"
                     >
-                      Inventory
+                      <span className="mag-label">剧情走法</span>
+                      <strong>{action.label}</strong>
+                      <p>{action.prompt}</p>
                     </button>
+                  ))}
+
+                  {(snapshot.control_actions ?? []).map((action) => (
                     <button
-                      className={!mapSurface.enabled ? "is-disabled" : ""}
-                      disabled={!mapSurface.enabled}
-                      title={mapSurface.disabled_reason ?? undefined}
+                      className={`mag-choice-card is-control ${playSession.selectedControlActionId === action.action_id ? "is-selected" : ""}`}
+                      key={action.action_id}
+                      onClick={() => playSession.selectControlAction(action)}
                       type="button"
                     >
-                      Map
+                      <span className="mag-label">{action.action_type}</span>
+                      <strong>{action.label}</strong>
+                      <p>{action.prompt}</p>
                     </button>
-                  </div>
-
-                  <div className="play-input-dock__actions">
-                    <button className="studio-button studio-button--ghost" onClick={() => playSession.snapshot && onOpenLibrary(playSession.snapshot.story_id)} type="button">
-                      Leave Session
-                    </button>
-                    <span>{playSession.submitting ? "Submitting turn..." : "Alt + Enter to submit"}</span>
-                  </div>
+                  ))}
                 </div>
+              </motion.section>
 
-                {playSession.error ? <p className="editorial-error">{playSession.error}</p> : null}
-              </form>
-            </>
-          )}
+              <motion.section className="mag-panel" {...motionPreset.inView({ delay: 0.14, y: 20, duration: 0.58 })}>
+                <span className="mag-panel__eyebrow">输入试探</span>
+                <h2 className="mag-panel__title">用一句话推进这一轮</h2>
+                <form className="mag-compose" onSubmit={handleSubmit}>
+                  <div className="mag-form-field">
+                    <label htmlFor="play-input">你的下一句</label>
+                    <textarea
+                      id="play-input"
+                      onChange={(event) => playSession.setInputText(event.target.value)}
+                      placeholder="写下你的试探、站队、安抚或引爆。"
+                      value={playSession.inputText}
+                    />
+                  </div>
+                  {playSession.error ? <p className="editorial-error">{playSession.error}</p> : null}
+                  <div className="mag-compose__footer">
+                    <span className="mag-label">后端 turn contract 未改，只更换前台输入壳。</span>
+                    <button className="mag-button mag-button--primary" disabled={playSession.submitting} type="submit">
+                      {playSession.submitting ? "发送中..." : "发送下一手"}
+                    </button>
+                  </div>
+                </form>
+              </motion.section>
+            </div>
 
-          <StudioFooter />
-        </section>
-      </div>
+            <aside className="mag-side-stack">
+              {activeTab === "story" ? (
+                <motion.section className="mag-side-card" {...motionPreset.inView({ delay: 0.1, x: 18, y: 0, duration: 0.58 })}>
+                  <div className="mag-section__header">
+                    <span className="mag-panel__eyebrow">场面元信息</span>
+                    <h2>这一轮最重要的几件事</h2>
+                  </div>
+                  <div className="mag-side-stack">
+                    <div className="mag-mini-stat">
+                      <span>当前 beat</span>
+                      <strong>{snapshot.beat_title}</strong>
+                    </div>
+                    <div className="mag-mini-stat">
+                      <span>进度</span>
+                      <strong>{`${snapshot.progress?.completed_beats ?? 0}/${snapshot.progress?.total_beats ?? 0} 幕`}</strong>
+                    </div>
+                    <div className="mag-mini-stat">
+                      <span>回合</span>
+                      <strong>{`${snapshot.turn_index}/${snapshot.progress?.max_turns ?? snapshot.turn_index}`}</strong>
+                    </div>
+                  </div>
+                </motion.section>
+              ) : null}
+
+              {activeTab === "relations" ? (
+                <motion.section className="mag-side-card" {...motionPreset.inView({ delay: 0.1, x: 18, y: 0, duration: 0.58 })}>
+                  <div className="mag-section__header">
+                    <span className="mag-panel__eyebrow">人物关系</span>
+                    <h2>这一手会影响谁</h2>
+                  </div>
+                  <div className="mag-relation-grid">
+                    {(snapshot.relationship_state?.targets ?? []).map((target) => (
+                      <article className="mag-relation-card" key={target.character_id}>
+                        <span className="mag-label">{target.is_route_focus ? "路线焦点" : "关系节点"}</span>
+                        <strong>{target.name}</strong>
+                        <p>{`亲密 ${target.affection} / 信任 ${target.trust} / 拉扯 ${target.tension} / 怀疑 ${target.suspicion}`}</p>
+                      </article>
+                    ))}
+                  </div>
+                </motion.section>
+              ) : null}
+
+              {activeTab === "signals" ? (
+                <motion.section className="mag-side-card" {...motionPreset.inView({ delay: 0.1, x: 18, y: 0, duration: 0.58 })}>
+                  <div className="mag-section__header">
+                    <span className="mag-panel__eyebrow">余波与天气</span>
+                    <h2>后果已经如何回流</h2>
+                  </div>
+
+                  <div className="mag-side-stack">
+                    {(snapshot.feedback?.last_turn_consequences ?? []).map((item) => (
+                      <article className="mag-radar-item" key={item}>
+                        <strong>{item}</strong>
+                      </article>
+                    ))}
+                  </div>
+
+                  <div className="mag-radar-list">
+                    {snapshot.latent_radar.map((item) => (
+                      <article className="mag-radar-item" key={item.kind}>
+                        <span className="mag-label">{item.kind}</span>
+                        <strong>{item.note}</strong>
+                        <div className="mag-state-meter__track">
+                          <div className="mag-state-meter__fill" style={{ width: `${item.pressure}%` }} />
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </motion.section>
+              ) : null}
+
+              <motion.section className="mag-side-card" {...motionPreset.inView({ delay: 0.16, x: 18, y: 0, duration: 0.58 })}>
+                <div className="mag-section__header">
+                  <span className="mag-panel__eyebrow">状态条</span>
+                  <h2>补充判断信息</h2>
+                </div>
+                <div className="mag-state-list">
+                  {snapshot.state_bars.map((bar) => (
+                    <article className="mag-state-meter" key={bar.bar_id}>
+                      <div className="mag-state-meter__head">
+                        <strong>{bar.label}</strong>
+                        <span>{bar.current_value}</span>
+                      </div>
+                      <div className="mag-state-meter__track">
+                        <div className="mag-state-meter__fill" style={{ width: `${meterWidth(bar.current_value, bar.min_value, bar.max_value)}%` }} />
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </motion.section>
+            </aside>
+          </div>
+        </div>
+      </section>
     </main>
   )
 }

@@ -125,7 +125,7 @@ def estimate_token_cost(metrics: AuthorCacheMetrics) -> AuthorTokenCostEstimate 
         cache_creation_input_tokens = 0
         estimated_input_cost = uncached_input_tokens * input_rate
     return AuthorTokenCostEstimate(
-        model=settings.responses_model,
+        model=settings.resolved_author_responses_model(),
         currency="RMB",
         input_price_per_million_tokens_rmb=settings.responses_input_price_per_million_tokens_rmb,
         output_price_per_million_tokens_rmb=settings.responses_output_price_per_million_tokens_rmb,

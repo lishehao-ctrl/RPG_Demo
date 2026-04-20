@@ -1,12 +1,34 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 AxisKind = Literal["pressure", "resource", "relationship", "exposure", "time"]
 StoryFunction = Literal["advance", "reveal", "stabilize", "detour", "pay_cost"]
 BeatMilestoneKind = Literal["reveal", "exposure", "fracture", "concession", "containment", "commitment"]
+RelationshipBeatPhase = Literal["hook", "misread", "pressure", "reveal", "lock"]
+RelationshipMoveFamily = Literal[
+    "flirt",
+    "probe_secret",
+    "comfort",
+    "deflect",
+    "accuse",
+    "ally_with",
+    "betray",
+    "public_reveal",
+    "private_confession",
+    "jealousy_trigger",
+]
+StoryShellId = Literal[
+    "wealth_families",
+    "entertainment_scandal",
+    "office_power",
+    "campus_romance",
+    "urban_supernatural",
+]
+PlayLengthPresetId = Literal["5_8", "10_12", "12_15", "15_20", "20_25", "30_45"]
+SeedFitMode = Literal["direct_fit", "soft_fit", "out_of_range"]
 AxisTemplateId = Literal[
     "external_pressure",
     "public_panic",
@@ -38,6 +60,20 @@ class FocusedBrief(BaseModel):
     tone_signal: str = Field(min_length=1, max_length=120)
     hard_constraints: list[str] = Field(default_factory=list, max_length=4)
     forbidden_tones: list[str] = Field(default_factory=list, max_length=4)
+
+
+class NormalizedSeedPacket(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    accepted_shell: StoryShellId
+    fit_mode: SeedFitMode = "soft_fit"
+    relationship_hook: str = Field(min_length=1, max_length=320)
+    secret_hook: str = Field(min_length=1, max_length=320)
+    surface_signal_ids: list[str] = Field(default_factory=list, max_length=8)
+    surface_signal_summary: str = Field(min_length=1, max_length=320)
+    target_visibility_summary: str = Field(min_length=1, max_length=320)
+    rewritten_seed: str = Field(min_length=1, max_length=4000)
+    rewrite_reason: str = Field(min_length=1, max_length=220)
 
 
 class CastMember(BaseModel):
@@ -144,6 +180,17 @@ class BeatSpec(BaseModel):
     return_hooks: list[str] = Field(min_length=1, max_length=3)
     affordances: list[AffordanceWeight] = Field(min_length=2, max_length=6)
     blocked_affordances: list[AffordanceTag] = Field(default_factory=list, max_length=4)
+    phase: RelationshipBeatPhase | None = None
+    scene_goal: str | None = Field(default=None, max_length=220)
+    emotional_goal: str | None = Field(default=None, max_length=220)
+    required_heat: int | None = Field(default=None, ge=1, le=6)
+    required_secret_ids: list[str] = Field(default_factory=list, max_length=4)
+    focus_character_ids: list[str] = Field(default_factory=list, max_length=3)
+    rival_character_ids: list[str] = Field(default_factory=list, max_length=3)
+    preferred_move_families: list[RelationshipMoveFamily] = Field(default_factory=list, max_length=6)
+    blocked_move_families: list[RelationshipMoveFamily] = Field(default_factory=list, max_length=4)
+    reveal_candidates: list[str] = Field(default_factory=list, max_length=4)
+    fallback_scene_prompt: str | None = Field(default=None, max_length=240)
 
 
 class ConditionBlock(BaseModel):
@@ -268,6 +315,14 @@ class DesignBundle(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     focused_brief: FocusedBrief
+    normalized_seed: NormalizedSeedPacket | None = None
+    story_shell_id: StoryShellId | None = None
+    relationship_hook: str | None = Field(default=None, max_length=320)
+    secret_hook: str | None = Field(default=None, max_length=320)
+    surface_signal_ids: list[str] = Field(default_factory=list, max_length=8)
+    surface_signal_summary: str | None = Field(default=None, max_length=320)
+    target_visibility_summary: str | None = Field(default=None, max_length=320)
+    route_target_ids: list[str] = Field(default_factory=list, max_length=5)
     story_bible: StoryBible
     state_schema: StateSchema
     beat_spine: list[BeatSpec] = Field(min_length=1, max_length=6)
@@ -346,6 +401,12 @@ class BeatDraftSpec(BaseModel):
     return_hooks: list[str] = Field(min_length=1, max_length=3)
     affordance_tags: list[AffordanceTag] = Field(min_length=2, max_length=6)
     blocked_affordances: list[AffordanceTag] = Field(default_factory=list, max_length=4)
+    phase: RelationshipBeatPhase | None = None
+    emotional_center: str | None = Field(default=None, max_length=220)
+    shell_pressure_note: str | None = Field(default=None, max_length=220)
+    preferred_move_families: list[RelationshipMoveFamily] = Field(default_factory=list, max_length=6)
+    reveal_candidates: list[str] = Field(default_factory=list, max_length=4)
+    fallback_scene_prompt: str | None = Field(default=None, max_length=240)
 
 
 class BeatSkeletonSpec(BaseModel):
@@ -363,6 +424,12 @@ class BeatSkeletonSpec(BaseModel):
     progress_required: int = Field(default=2, ge=1, le=3)
     affordance_tags: list[AffordanceTag] = Field(min_length=2, max_length=6)
     blocked_affordances: list[AffordanceTag] = Field(default_factory=list, max_length=4)
+    phase: RelationshipBeatPhase | None = None
+    emotional_center: str | None = Field(default=None, max_length=220)
+    shell_pressure_note: str | None = Field(default=None, max_length=220)
+    preferred_move_families: list[RelationshipMoveFamily] = Field(default_factory=list, max_length=6)
+    reveal_candidates: list[str] = Field(default_factory=list, max_length=4)
+    fallback_scene_prompt: str | None = Field(default=None, max_length=240)
 
 
 class BeatPlanSkeletonDraft(BaseModel):
@@ -430,6 +497,8 @@ class AuthorPreviewRequest(BaseModel):
 
     prompt_seed: str = Field(min_length=1, max_length=4000)
     random_seed: int | None = None
+    play_length_preset: PlayLengthPresetId | None = None
+    target_gender_pref: Literal["male", "female"] | None = None
 
 
 class AuthorPreviewFlashcard(BaseModel):
@@ -495,6 +564,7 @@ class AuthorPreviewStory(BaseModel):
     premise: str = Field(min_length=1, max_length=320)
     tone: str = Field(min_length=1, max_length=120)
     stakes: str = Field(min_length=1, max_length=240)
+    route_fantasy: str | None = Field(default=None, max_length=240)
 
 
 class AuthorPreviewCastSlotSummary(BaseModel):
@@ -517,13 +587,21 @@ class AuthorPreviewResponse(BaseModel):
 
     preview_id: str = Field(min_length=1)
     prompt_seed: str = Field(min_length=1, max_length=4000)
+    play_length_preset: PlayLengthPresetId | None = None
+    normalized_seed: NormalizedSeedPacket | None = None
+    story_shell_id: StoryShellId | None = None
+    relationship_hook: str | None = Field(default=None, max_length=320)
+    secret_hook: str | None = Field(default=None, max_length=320)
+    surface_signal_ids: list[str] = Field(default_factory=list, max_length=8)
+    surface_signal_summary: str | None = Field(default=None, max_length=320)
+    target_visibility_summary: str | None = Field(default=None, max_length=320)
     focused_brief: FocusedBrief
     theme: AuthorPreviewTheme
     strategies: AuthorPreviewStrategies
     structure: AuthorPreviewStructure
     story: AuthorPreviewStory
-    cast_slots: list[AuthorPreviewCastSlotSummary] = Field(default_factory=list, max_length=5)
-    beats: list[AuthorPreviewBeatSummary] = Field(default_factory=list, max_length=4)
+    cast_slots: list[AuthorPreviewCastSlotSummary] = Field(default_factory=list, max_length=7)
+    beats: list[AuthorPreviewBeatSummary] = Field(default_factory=list, max_length=8)
     flashcards: list[AuthorPreviewFlashcard] = Field(default_factory=list, max_length=16)
     stage: str = Field(min_length=1, max_length=64)
 
@@ -565,6 +643,7 @@ class AuthorJobCreateRequest(BaseModel):
     prompt_seed: str = Field(min_length=1, max_length=4000)
     random_seed: int | None = None
     preview_id: str | None = None
+    play_length_preset: PlayLengthPresetId | None = None
 
 
 class AuthorJobStatusResponse(BaseModel):
@@ -598,7 +677,7 @@ class AuthorJobResultResponse(BaseModel):
     job_id: str = Field(min_length=1)
     status: Literal["queued", "running", "completed", "failed"]
     summary: AuthorStorySummary | None = None
-    bundle: DesignBundle | None = None
+    bundle: DesignBundle | dict[str, Any] | None = None
     progress_snapshot: AuthorJobProgressSnapshot | None = None
     cache_metrics: AuthorCacheMetrics | None = None
 

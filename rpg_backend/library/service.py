@@ -8,7 +8,9 @@ from datetime import datetime, timezone
 from threading import Lock
 from uuid import uuid4
 
-from rpg_backend.author.display import humanize_identifier, theme_label, topology_label
+from rpg_backend.author.display import theme_label, topology_label
+from rpg_backend.author_v2.product_adapters import play_overview_from_package
+from rpg_backend.author_v2.product_package import RelationshipDramaV2Package
 from rpg_backend.config import Settings, get_settings
 from rpg_backend.library.contracts import (
     PublishedStoryCard,
@@ -25,7 +27,6 @@ from rpg_backend.library.contracts import (
     UpdateStoryVisibilityRequest,
 )
 from rpg_backend.library.storage import SQLiteStoryLibraryStorage
-from rpg_backend.play.compiler import compile_play_plan
 
 
 class LibraryServiceError(RuntimeError):
@@ -101,21 +102,17 @@ class StoryLibraryService:
 
     @staticmethod
     def _build_play_overview(record: PublishedStoryRecord) -> tuple[PublishedStoryPlayOverview, str]:
-        plan = compile_play_plan(
-            story_id=record.story.story_id,
-            bundle=record.bundle,
-        )
-        runtime_profile_label = humanize_identifier(plan.runtime_policy_profile)
-        engine_label = "LangGraph play runtime"
+        protagonist, opening_narration, runtime_profile, runtime_profile_label, max_turns = play_overview_from_package(record.bundle)
         return (
             PublishedStoryPlayOverview(
-                protagonist=plan.protagonist,
-                opening_narration=plan.opening_narration,
-                runtime_profile=plan.runtime_policy_profile,
+                protagonist=protagonist,
+                opening_narration=opening_narration,
+                runtime_profile=runtime_profile,
                 runtime_profile_label=runtime_profile_label,
-                max_turns=plan.max_turns,
+                play_length_preset=record.bundle.compiled_play_plan.play_length_preset,
+                max_turns=max_turns,
             ),
-            engine_label,
+            "Relationship Drama V2 runtime",
         )
 
     def publish_story(
@@ -134,12 +131,21 @@ class StoryLibraryService:
             existing = self._storage.get_by_source_job_id(source_job_id)
             if existing is not None:
                 return existing.story.model_copy(update={"viewer_can_manage": existing.owner_user_id == resolved_owner_user_id})
+            if not isinstance(bundle, RelationshipDramaV2Package):
+                raise LibraryServiceError(
+                    code="story_package_unsupported",
+                    message="only relationship_drama_v2 package can be published",
+                    status_code=400,
+                )
             published_at = datetime.now(timezone.utc)
+            package_version = "relationship_drama_v2"
+            resolved_summary = summary
+            resolved_preview = preview
             record = PublishedStoryRecord(
                 story=self._build_story_card(
                     story_id=str(uuid4()),
-                    summary=summary,
-                    preview=preview,
+                    summary=resolved_summary,
+                    preview=resolved_preview,
                     published_at=published_at,
                     visibility=visibility,
                     viewer_can_manage=True,
@@ -148,8 +154,9 @@ class StoryLibraryService:
                 source_job_id=source_job_id,
                 prompt_seed=prompt_seed,
                 visibility=visibility,
-                summary=summary,
-                preview=preview,
+                package_version=package_version,
+                summary=resolved_summary,
+                preview=resolved_preview,
                 bundle=bundle,
             )
             try:

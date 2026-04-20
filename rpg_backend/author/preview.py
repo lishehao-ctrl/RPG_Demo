@@ -20,7 +20,9 @@ from rpg_backend.author.contracts import (
     AuthorPreviewTheme,
     AuthorStorySummary,
     DesignBundle,
+    NormalizedSeedPacket,
 )
+from rpg_backend.author.seed_normalization import normalize_seed_packet, relationship_drama_shell_defaults
 from rpg_backend.author.display import build_preview_flashcards, theme_label
 from rpg_backend.product_text import (
     build_product_premise_fallback,
@@ -136,7 +138,12 @@ def build_author_preview_from_seed(prompt_seed: str) -> AuthorPreviewResponse:
     # Product preview traffic goes through AuthorJobService._run_preview_workflow()
     # and build_author_preview_from_state() so preview data always comes from the
     # real author checkpoint state rather than a parallel preview-only path.
-    focused_brief = focus_brief(prompt_seed)
+    normalized_seed = normalize_seed_packet(prompt_seed)
+    shell_defaults = relationship_drama_shell_defaults(normalized_seed.accepted_shell)
+    route_fantasy = shell_defaults.route_fantasy if normalized_seed.fit_mode != "out_of_range" else None
+    surface_signal_summary = normalized_seed.surface_signal_summary if normalized_seed.fit_mode != "out_of_range" else None
+    target_visibility_summary = shell_defaults.target_visibility_summary if normalized_seed.fit_mode != "out_of_range" else None
+    focused_brief = focus_brief(normalized_seed.rewritten_seed)
     brief_theme = plan_brief_theme(focused_brief)
     preview_story = build_default_story_frame_draft(focused_brief)
     preview_premise = preview_story.premise
@@ -197,7 +204,12 @@ def build_author_preview_from_seed(prompt_seed: str) -> AuthorPreviewResponse:
             premise=preview_premise,
             tone=preview_tone,
             stakes=preview_story.stakes,
+            route_fantasy=route_fantasy,
         ),
+        normalized_seed=normalized_seed,
+        story_shell_id=normalized_seed.accepted_shell if normalized_seed.fit_mode != "out_of_range" else None,
+        surface_signal_summary=surface_signal_summary,
+        target_visibility_summary=target_visibility_summary,
         cast_slots=[
             AuthorPreviewCastSlotSummary(
                 slot_label=item.slot_label,
@@ -270,7 +282,22 @@ def build_author_preview_from_state(
     state: dict[str, Any],
     existing_preview: AuthorPreviewResponse | None = None,
 ) -> AuthorPreviewResponse:
-    focused_brief = state.get("focused_brief") or (existing_preview.focused_brief if existing_preview is not None else focus_brief(prompt_seed))
+    normalized_seed = state.get("normalized_seed")
+    if isinstance(normalized_seed, dict):
+        normalized_seed = NormalizedSeedPacket.model_validate(normalized_seed)
+    if normalized_seed is None:
+        normalized_seed = (
+            existing_preview.normalized_seed
+            if existing_preview is not None and existing_preview.normalized_seed is not None
+            else normalize_seed_packet(prompt_seed)
+        )
+    shell_defaults = relationship_drama_shell_defaults(normalized_seed.accepted_shell)
+    route_fantasy = shell_defaults.route_fantasy if normalized_seed.fit_mode != "out_of_range" else None
+    surface_signal_summary = normalized_seed.surface_signal_summary if normalized_seed.fit_mode != "out_of_range" else None
+    target_visibility_summary = shell_defaults.target_visibility_summary if normalized_seed.fit_mode != "out_of_range" else None
+    focused_brief = state.get("focused_brief") or (
+        existing_preview.focused_brief if existing_preview is not None else focus_brief(normalized_seed.rewritten_seed)
+    )
     primary_theme = (
         state.get("primary_theme")
         or state.get("brief_primary_theme")
@@ -300,6 +327,11 @@ def build_author_preview_from_state(
                 story_frame,
                 "stakes",
                 existing_preview.story.stakes if existing_preview is not None else "If the crisis is mishandled, civic order and public trust can fail at the same time.",
+            ),
+            route_fantasy=getattr(
+                story_frame,
+                "route_fantasy",
+                existing_preview.story.route_fantasy if existing_preview is not None else route_fantasy,
             ),
         )
     cast_overview = state.get("cast_overview_draft")
@@ -377,6 +409,10 @@ def build_author_preview_from_state(
     return AuthorPreviewResponse(
         preview_id=preview_id,
         prompt_seed=prompt_seed,
+        normalized_seed=normalized_seed,
+        story_shell_id=normalized_seed.accepted_shell if normalized_seed.fit_mode != "out_of_range" else None,
+        surface_signal_summary=surface_signal_summary,
+        target_visibility_summary=target_visibility_summary,
         focused_brief=focused_brief,
         theme=AuthorPreviewTheme(
             primary_theme=primary_theme,

@@ -16,6 +16,7 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const client = useMemo(() => getDefaultApiClient(), [])
+  const conceptRoute = typeof window !== "undefined" && window.location.hash.startsWith("#/concept/")
   const [loading, setLoading] = useState(true)
   const [session, setSession] = useState<AuthSessionResponse>({
     authenticated: false,
@@ -32,6 +33,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let active = true
 
     const loadSession = async () => {
+      if (conceptRoute) {
+        if (active) {
+          setSession({
+            authenticated: false,
+            user: null,
+          })
+          setLoading(false)
+        }
+        return
+      }
+
       try {
         const nextSession = await client.getAuthSession()
         if (active) {
@@ -49,7 +61,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       active = false
     }
-  }, [client])
+  }, [client, conceptRoute])
 
   const value = useMemo<AuthContextValue>(
     () => ({

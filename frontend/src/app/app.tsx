@@ -4,12 +4,15 @@ import { AuthProvider, useAuth } from "./providers/auth-provider"
 import { ApiClientProvider } from "./providers/api-client-provider"
 import { buildHash, type AppRoute, useAppRoute } from "./routes"
 import type { PublishedStoryListView } from "../index"
+import { LandingPage } from "../pages/landing/landing-page"
 import { AuthPage } from "../pages/auth/auth-page"
 import { CreateStoryPage } from "../pages/authoring/create-story-page"
 import { AuthorLoadingPage } from "../pages/authoring/author-loading-page"
 import { StoryLibraryPage } from "../pages/play/story-library-page"
 import { StoryDetailPage } from "../pages/play/story-detail-page"
 import { PlaySessionPage } from "../pages/play/play-session-page"
+import { ConceptAuthorPage } from "../pages/concepts/concept-author-page"
+import { ConceptPlayPage } from "../pages/concepts/concept-play-page"
 import { AppShell } from "../shared/ui/app-shell"
 import { AppHeader } from "../widgets/chrome/app-header"
 
@@ -39,6 +42,17 @@ function AppScene({
   onResolveAuth: (nextHash?: string) => void
 }) {
   switch (route.name) {
+    case "landing":
+      return (
+        <LandingPage
+          authenticated={authenticated}
+          onOpenCreateStory={() => navigate({ name: "create-story" })}
+          onOpenLibrary={() => openLibrary(undefined, { preserveFilters: true })}
+          onOpenPlaySession={(sessionId) => navigate({ name: "play-session", sessionId })}
+          onOpenStoryDetail={(storyId) => navigate({ name: "story-detail", storyId })}
+        />
+      )
+
     case "auth":
       return (
         <AuthPage
@@ -63,6 +77,26 @@ function AppScene({
           jobId={route.jobId}
           onOpenCreateStory={() => navigate({ name: "create-story" })}
           onOpenLibrary={(storyId) => openLibrary(storyId, { preserveFilters: false })}
+        />
+      )
+
+    case "concept-author":
+      return (
+        <ConceptAuthorPage
+          onOpenPlayConcept={(variant) => navigate({ name: "concept-play", variant })}
+          onSelectStage={(stage) => navigate({ name: "concept-author", variant: route.variant, stage })}
+          onSelectVariant={(variant) => navigate({ name: "concept-author", variant, stage: route.stage })}
+          stage={route.stage}
+          variant={route.variant}
+        />
+      )
+
+    case "concept-play":
+      return (
+        <ConceptPlayPage
+          onOpenAuthorConcept={(variant) => navigate({ name: "concept-author", variant, stage: "create" })}
+          onSelectVariant={(variant) => navigate({ name: "concept-play", variant })}
+          variant={route.variant}
         />
       )
 
@@ -108,6 +142,7 @@ function AppInner() {
   const auth = useAuth()
   const client = useMemo(() => getDefaultApiClient(), [])
   const { route, navigate } = useAppRoute()
+  const conceptRoute = route.name === "concept-author" || route.name === "concept-play"
   const [librarySearchQuery, setLibrarySearchQuery] = useState(route.name === "story-library" ? route.q ?? "" : "")
   const [libraryTheme, setLibraryTheme] = useState<string | null>(route.name === "story-library" ? route.theme ?? null : null)
   const [libraryView, setLibraryView] = useState<PublishedStoryListView>(route.name === "story-library" ? route.view ?? (auth.authenticated ? "accessible" : "public") : (auth.authenticated ? "accessible" : "public"))
@@ -144,6 +179,10 @@ function AppInner() {
       theme: preserveFilters ? libraryTheme ?? undefined : undefined,
       view: preserveFilters ? effectiveLibraryView : (auth.authenticated ? "accessible" : "public"),
     })
+  }
+
+  const openLanding = () => {
+    navigate({ name: "landing" })
   }
 
   const openAuth = (mode: "login" | "register", nextHash?: string) => {
@@ -218,25 +257,28 @@ function AppInner() {
   return (
     <ApiClientProvider client={client}>
       <AppShell>
-        <AppHeader
-          authenticated={auth.authenticated}
-          authLoading={auth.loading}
-          user={auth.user}
-          onLogout={() => {
-            void handleLogout()
-          }}
-          onOpenAuth={openAuth}
-          routeName={route.name}
-          onOpenCreateStory={handleOpenCreateStory}
-          onOpenLibrary={() => openLibrary(undefined, { preserveFilters: true })}
-          onSearchChange={handleLibrarySearchChange}
-          searchEnabled={
-            route.name === "story-library" ||
-            route.name === "story-detail" ||
-            route.name === "play-session"
-          }
-          searchValue={librarySearchQuery}
-        />
+        {conceptRoute ? null : (
+          <AppHeader
+            authenticated={auth.authenticated}
+            authLoading={auth.loading}
+            user={auth.user}
+            onLogout={() => {
+              void handleLogout()
+            }}
+            onOpenLanding={openLanding}
+            onOpenAuth={openAuth}
+            routeName={route.name}
+            onOpenCreateStory={handleOpenCreateStory}
+            onOpenLibrary={() => openLibrary(undefined, { preserveFilters: true })}
+            onSearchChange={handleLibrarySearchChange}
+            searchEnabled={
+              route.name === "story-library" ||
+              route.name === "story-detail" ||
+              route.name === "play-session"
+            }
+            searchValue={librarySearchQuery}
+          />
+        )}
         <AppScene
           authenticated={auth.authenticated}
           librarySearchQuery={librarySearchQuery}

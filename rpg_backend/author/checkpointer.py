@@ -29,6 +29,7 @@ from rpg_backend.author.contracts import (
     EndingIntentDraft,
     EndingRulesDraft,
     FocusedBrief,
+    NormalizedSeedPacket,
     OverviewCastDraft,
     RouteAffordancePackDraft,
     RouteOpportunityPlanDraft,
@@ -43,6 +44,7 @@ from rpg_backend.sqlite_utils import connect_sqlite
 
 AUTHOR_CHECKPOINT_ALLOWLIST = (
     FocusedBrief,
+    NormalizedSeedPacket,
     StoryFrameDraft,
     CastOverviewDraft,
     OverviewCastDraft,

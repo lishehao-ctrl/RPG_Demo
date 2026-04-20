@@ -5,6 +5,7 @@ import re
 from fastapi.testclient import TestClient
 
 from rpg_backend.author.jobs import AuthorJobService
+from rpg_backend.author_v2.product_jobs import ProductAuthorJobService
 from rpg_backend.author.contracts import (
     AuthorCacheMetrics,
     AuthorJobProgress,
@@ -15,6 +16,7 @@ from rpg_backend.author.contracts import (
     AuthorPreviewFlashcard,
     AuthorPreviewResponse,
 )
+from rpg_backend.author_v2.product_package import RelationshipDramaV2Package
 from rpg_backend.config import get_settings
 from rpg_backend.main import app
 from tests.author_fixtures import FakeGateway
@@ -218,6 +220,83 @@ def test_auth_session_and_me_route_reflect_logged_in_user() -> None:
     assert response.json()["display_name"] == "Alice"
     assert response.json()["email"] == "author-me@example.com"
     assert response.json()["is_default"] is False
+
+
+def test_product_author_service_returns_v2_canonical_package(tmp_path, monkeypatch) -> None:
+    service = ProductAuthorJobService(
+        settings=get_settings().model_copy(
+            update={
+                "runtime_state_db_path": str(tmp_path / "runtime.sqlite3"),
+                "author_product_run_mode": "deterministic",
+            }
+        )
+    )
+
+    preview = service.create_preview(type("PreviewRequest", (), {"prompt_seed": "董事会前夜，项目负责人被上司、对手和法务一起拖进并购黑账与暧昧站队里。", "random_seed": None})(), actor_user_id="usr_v2")
+    response = service.create_job(
+        type("JobRequest", (), {"prompt_seed": "董事会前夜，项目负责人被上司、对手和法务一起拖进并购黑账与暧昧站队里。", "preview_id": preview.preview_id, "random_seed": None})(),
+        actor_user_id="usr_v2",
+    )
+    for _ in range(100):
+        status = service.get_job(response.job_id, actor_user_id="usr_v2")
+        if status.status in {"completed", "failed"}:
+            break
+        import time
+
+        time.sleep(0.01)
+    assert status.status == "completed"
+    result = service.get_job_result(response.job_id, actor_user_id="usr_v2")
+    assert result.bundle is not None
+    assert result.bundle["package_version"] == "relationship_drama_v2"
+    package = RelationshipDramaV2Package.model_validate(result.bundle)
+    assert package.preview_blueprint.story_shell_id == "office_power"
+    assert package.compiled_play_plan.play_length_preset == "12_15"
+    diagnostics = service.get_job_diagnostics(response.job_id, actor_user_id="usr_v2")
+    assert diagnostics.source_summary["package_version"] == "relationship_drama_v2"
+    assert diagnostics.source_summary["preview_promise_gate"] == "accepted"
+    assert diagnostics.source_summary["surface_signal_readability_gate"] == "accepted"
+
+
+def test_product_author_service_honors_play_length_preset_override(tmp_path, monkeypatch) -> None:
+    service = ProductAuthorJobService(
+        settings=get_settings().model_copy(
+            update={
+                "runtime_state_db_path": str(tmp_path / "runtime.sqlite3"),
+                "author_product_run_mode": "deterministic",
+            }
+        )
+    )
+
+    preview = service.create_preview(
+        type(
+            "PreviewRequest",
+            (),
+            {"prompt_seed": "豪门订婚宴上，未婚夫、旧爱和律师一起逼她在众目睽睽下选边。", "random_seed": None, "play_length_preset": "20_25"},
+        )(),
+        actor_user_id="usr_v2",
+    )
+    response = service.create_job(
+        type(
+            "JobRequest",
+            (),
+            {"prompt_seed": preview.prompt_seed, "preview_id": preview.preview_id, "random_seed": None, "play_length_preset": "20_25"},
+        )(),
+        actor_user_id="usr_v2",
+    )
+    for _ in range(100):
+        status = service.get_job(response.job_id, actor_user_id="usr_v2")
+        if status.status in {"completed", "failed"}:
+            break
+        import time
+
+        time.sleep(0.01)
+
+    assert preview.play_length_preset == "20_25"
+    assert status.status == "completed"
+    result = service.get_job_result(response.job_id, actor_user_id="usr_v2")
+    package = RelationshipDramaV2Package.model_validate(result.bundle)
+    assert package.preview_blueprint.play_length_preset == "20_25"
+    assert package.compiled_play_plan.play_length_preset == "20_25"
 
 
 def _contains_cjk(value: str) -> bool:

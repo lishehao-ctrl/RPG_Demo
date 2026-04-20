@@ -1,19 +1,27 @@
 import { useEffect, useState } from "react"
 import type { PublishedStoryListView } from "../index"
+import { normalizeAuthorConceptStage, normalizeConceptVariant, type AuthorConceptStage, type ConceptVariant } from "../shared/lib/concept-review-types"
 
 export type AppRoute =
+  | { name: "landing" }
   | { name: "auth"; mode?: "login" | "register"; next?: string }
   | { name: "create-story" }
   | { name: "author-loading"; jobId: string }
+  | { name: "concept-author"; variant: ConceptVariant; stage: AuthorConceptStage }
+  | { name: "concept-play"; variant: ConceptVariant }
   | { name: "story-library"; selectedStoryId?: string; q?: string; theme?: string; view?: PublishedStoryListView }
   | { name: "story-detail"; storyId: string }
   | { name: "play-session"; sessionId: string }
 
 function parseRoute(hash: string): AppRoute {
-  const raw = hash.replace(/^#/, "") || "/stories"
+  const raw = hash.replace(/^#/, "") || "/"
   const [pathname, search = ""] = raw.split("?")
   const segments = pathname.split("/").filter(Boolean)
   const params = new URLSearchParams(search)
+
+  if (segments.length === 0 || segments[0] === "landing") {
+    return { name: "landing" }
+  }
 
   if (segments[0] === "auth") {
     const mode = params.get("mode")
@@ -24,8 +32,27 @@ function parseRoute(hash: string): AppRoute {
     }
   }
 
+  if (segments[0] === "create-story") {
+    return { name: "create-story" }
+  }
+
   if (segments[0] === "author-jobs" && segments[1]) {
     return { name: "author-loading", jobId: segments[1] }
+  }
+
+  if (segments[0] === "concept" && segments[1] === "author") {
+    return {
+      name: "concept-author",
+      variant: normalizeConceptVariant(params.get("variant")),
+      stage: normalizeAuthorConceptStage(params.get("stage")),
+    }
+  }
+
+  if (segments[0] === "concept" && segments[1] === "play") {
+    return {
+      name: "concept-play",
+      variant: normalizeConceptVariant(params.get("variant")),
+    }
   }
 
   if (segments[0] === "stories" && segments[1]) {
@@ -46,11 +73,14 @@ function parseRoute(hash: string): AppRoute {
     return { name: "play-session", sessionId: segments[2] }
   }
 
-  return { name: "create-story" }
+  return { name: "landing" }
 }
 
 export function buildHash(route: AppRoute): string {
   switch (route.name) {
+    case "landing":
+      return "#/"
+
     case "auth": {
       const params = new URLSearchParams()
       if (route.mode) {
@@ -65,6 +95,19 @@ export function buildHash(route: AppRoute): string {
 
     case "author-loading":
       return `#/author-jobs/${route.jobId}`
+
+    case "concept-author": {
+      const params = new URLSearchParams()
+      params.set("variant", route.variant)
+      params.set("stage", route.stage)
+      return `#/concept/author?${params.toString()}`
+    }
+
+    case "concept-play": {
+      const params = new URLSearchParams()
+      params.set("variant", route.variant)
+      return `#/concept/play?${params.toString()}`
+    }
 
     case "story-library": {
       const params = new URLSearchParams()
@@ -106,8 +149,8 @@ export function useAppRoute() {
     window.addEventListener("hashchange", handleHashChange)
 
     if (!window.location.hash) {
-      window.history.replaceState(null, "", buildHash({ name: "story-library" }))
-      setRoute({ name: "story-library" })
+      window.history.replaceState(null, "", buildHash({ name: "landing" }))
+      setRoute({ name: "landing" })
     }
 
     return () => {

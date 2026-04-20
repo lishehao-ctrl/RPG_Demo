@@ -1,0 +1,15 @@
+[profiles.beecode]
+description = "Beecode unified profile (author/play/helper)."
+
+[profiles.beecode.default]
+base_url = "https://beecode.cc/"
+model = "gpt-5.4-mini"
+keys = ["${APP_PROFILE_BEECODE_KEY_1}", "${APP_PROFILE_BEECODE_KEY_2}", "${APP_PROFILE_BEECODE_KEY_3}"]
+
+[profiles.xcode]
+description = "Xcode unified profile (author/play/helper)."
+
+[profiles.xcode.default]
+base_url = "https://api.xcode.best/v1"
+model = "gpt-5.4-mini"
+keys = ["${APP_PROFILE_XCODE_KEY_1}", "${APP_PROFILE_XCODE_KEY_2}"]

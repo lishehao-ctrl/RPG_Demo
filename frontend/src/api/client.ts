@@ -1,0 +1,44 @@
+import type {
+  AuthLoginRequest,
+  AuthRegisterRequest,
+  AuthSessionResponse,
+  AuthorJobEvent,
+  AuthorJobCreateRequest,
+  AuthorJobResultResponse,
+  AuthorJobStatusResponse,
+  AuthorPreviewRequest,
+  AuthorPreviewResponse,
+  CurrentActorResponse,
+  DeleteStoryResponse,
+  ListStoriesParams,
+  PlaySessionCreateRequest,
+  PlaySessionHistoryResponse,
+  PlaySessionSnapshot,
+  PlayTurnRequest,
+  PublishedStoryCard,
+  PublishedStoryDetailResponse,
+  PublishedStoryListResponse,
+  UpdateStoryVisibilityRequest,
+} from "./contracts"
+
+export type FrontendApiClient = {
+  getAuthSession(): Promise<AuthSessionResponse>
+  registerAuth(request: AuthRegisterRequest): Promise<AuthSessionResponse>
+  loginAuth(request: AuthLoginRequest): Promise<AuthSessionResponse>
+  logoutAuth(): Promise<void>
+  getCurrentActor(): Promise<CurrentActorResponse>
+  createStoryPreview(request: AuthorPreviewRequest): Promise<AuthorPreviewResponse>
+  createAuthorJob(request: AuthorJobCreateRequest): Promise<AuthorJobStatusResponse>
+  getAuthorJob(jobId: string): Promise<AuthorJobStatusResponse>
+  streamAuthorJobEvents(jobId: string, lastEventId?: number): AsyncGenerator<AuthorJobEvent, void, void>
+  getAuthorJobResult(jobId: string): Promise<AuthorJobResultResponse>
+  publishAuthorJob(jobId: string, visibility?: "private" | "public"): Promise<PublishedStoryCard>
+  listStories(params?: ListStoriesParams): Promise<PublishedStoryListResponse>
+  getStory(storyId: string): Promise<PublishedStoryDetailResponse>
+  updateStoryVisibility(storyId: string, request: UpdateStoryVisibilityRequest): Promise<PublishedStoryCard>
+  deleteStory(storyId: string): Promise<DeleteStoryResponse>
+  createPlaySession(request: PlaySessionCreateRequest): Promise<PlaySessionSnapshot>
+  getPlaySession(sessionId: string): Promise<PlaySessionSnapshot>
+  getPlaySessionHistory(sessionId: string): Promise<PlaySessionHistoryResponse>
+  submitPlayTurn(sessionId: string, request: PlayTurnRequest): Promise<PlaySessionSnapshot>
+}

@@ -49,6 +49,7 @@ from rpg_backend.author.contracts import (
     EndingIntentDraft,
     EndingRulesDraft,
     FocusedBrief,
+    NormalizedSeedPacket,
     OverviewCastDraft,
     RouteAffordancePackDraft,
     RouteOpportunityPlanDraft,
@@ -75,6 +76,7 @@ from rpg_backend.author.quality.story import (
     story_frame_quality_reasons,
     story_frame_should_repair,
 )
+from rpg_backend.author.seed_normalization import normalize_seed_packet, relationship_drama_shell_defaults
 from rpg_backend.author.quality.telemetry import QualityTraceRecord, append_quality_trace
 from rpg_backend.story_profiles import play_runtime_profile_from_bundle
 
@@ -82,6 +84,7 @@ from rpg_backend.story_profiles import play_runtime_profile_from_bundle
 class AuthorState(TypedDict, total=False):
     run_id: str
     raw_brief: str
+    normalized_seed: NormalizedSeedPacket
     focused_brief: FocusedBrief
     author_session_response_id: str
     story_frame_draft: StoryFrameDraft
@@ -233,7 +236,21 @@ def build_author_graph(*, gateway: AuthorLLMGateway | None = None, checkpointer=
     def focus_brief_node(state: AuthorState) -> dict[str, Any]:
         if state.get("focused_brief") is not None:
             return {"focused_brief": state["focused_brief"]}
-        return {"focused_brief": focus_brief(state["raw_brief"])}
+        normalized_seed = state.get("normalized_seed") or normalize_seed_packet(state["raw_brief"])
+        if isinstance(normalized_seed, dict):
+            normalized_seed = NormalizedSeedPacket.model_validate(normalized_seed)
+        return {
+            "normalized_seed": normalized_seed,
+            "focused_brief": focus_brief(normalized_seed.rewritten_seed),
+        }
+
+    def normalize_seed_node(state: AuthorState) -> dict[str, Any]:
+        if state.get("normalized_seed") is not None:
+            normalized_seed = state["normalized_seed"]
+            if isinstance(normalized_seed, dict):
+                normalized_seed = NormalizedSeedPacket.model_validate(normalized_seed)
+            return {"normalized_seed": normalized_seed}
+        return {"normalized_seed": normalize_seed_packet(state["raw_brief"])}
 
     def generate_story_frame_node(state: AuthorState) -> dict[str, Any]:
         prior_response_id = state.get("author_session_response_id")
@@ -341,6 +358,18 @@ def build_author_graph(*, gateway: AuthorLLMGateway | None = None, checkpointer=
                 "cast_strategy": state["cast_strategy"],
                 "beat_plan_strategy": state["beat_plan_strategy"],
             }
+        normalized_seed = state.get("normalized_seed")
+        if isinstance(normalized_seed, dict):
+            normalized_seed = NormalizedSeedPacket.model_validate(normalized_seed)
+        if normalized_seed is not None and normalized_seed.fit_mode != "out_of_range":
+            defaults = relationship_drama_shell_defaults(normalized_seed.accepted_shell)
+            return {
+                "primary_theme": defaults.primary_theme,
+                "theme_modifiers": list(state.get("theme_modifiers") or []),
+                "theme_router_reason": state.get("theme_router_reason") or normalized_seed.rewrite_reason,
+                "cast_strategy": defaults.cast_strategy,
+                "beat_plan_strategy": defaults.beat_plan_strategy,
+            }
         decision = plan_story_theme(
             state["focused_brief"],
             state["story_frame_draft"],
@@ -365,6 +394,22 @@ def build_author_graph(*, gateway: AuthorLLMGateway | None = None, checkpointer=
                 "theme_modifiers": list(state.get("theme_modifiers") or state.get("brief_theme_modifiers") or []),
                 "theme_router_reason": state.get("theme_router_reason") or state.get("brief_theme_router_reason") or "preview_locked_theme",
                 "beat_plan_strategy": state.get("beat_plan_strategy") or "conservative_direct_draft",
+            }
+        normalized_seed = state.get("normalized_seed")
+        if isinstance(normalized_seed, dict):
+            normalized_seed = NormalizedSeedPacket.model_validate(normalized_seed)
+        if normalized_seed is not None and normalized_seed.fit_mode != "out_of_range":
+            defaults = relationship_drama_shell_defaults(normalized_seed.accepted_shell)
+            return {
+                "brief_primary_theme": defaults.primary_theme,
+                "brief_theme_modifiers": [normalized_seed.accepted_shell],
+                "brief_theme_router_reason": normalized_seed.rewrite_reason,
+                "story_frame_strategy": defaults.story_frame_strategy,
+                "cast_strategy": defaults.cast_strategy,
+                "primary_theme": defaults.primary_theme,
+                "theme_modifiers": [normalized_seed.accepted_shell],
+                "theme_router_reason": normalized_seed.rewrite_reason,
+                "beat_plan_strategy": defaults.beat_plan_strategy,
             }
         decision = plan_brief_theme(state["focused_brief"])
         return {
@@ -597,11 +642,15 @@ def build_author_graph(*, gateway: AuthorLLMGateway | None = None, checkpointer=
         }
 
     def build_design_bundle_node(state: AuthorState) -> dict[str, Any]:
+        normalized_seed = state.get("normalized_seed")
+        if isinstance(normalized_seed, dict):
+            normalized_seed = NormalizedSeedPacket.model_validate(normalized_seed)
         bundle = build_design_bundle(
             state["story_frame_draft"],
             state["cast_draft"],
             state["beat_plan_draft"],
             state["focused_brief"],
+            normalized_seed=normalized_seed,
         )
         return {"design_bundle": bundle}
 
@@ -821,7 +870,9 @@ def build_author_graph(*, gateway: AuthorLLMGateway | None = None, checkpointer=
     graph.add_node("generate_ending_rules", generate_ending_rules_node)
     graph.add_node("merge_rule_pack", merge_rule_pack_node)
     graph.add_node("repair_gameplay_semantics", repair_gameplay_semantics_node)
-    graph.add_edge(START, "focus_brief")
+    graph.add_node("normalize_seed", normalize_seed_node)
+    graph.add_edge(START, "normalize_seed")
+    graph.add_edge("normalize_seed", "focus_brief")
     graph.add_edge("focus_brief", "plan_brief_theme")
     graph.add_edge("plan_brief_theme", "generate_story_frame")
     graph.add_edge("generate_story_frame", "plan_story_theme")

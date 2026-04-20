@@ -13,6 +13,9 @@
 
 Choose a language to view the full documentation.
 
-MVP closeout note:
+Current active direction docs:
 
-- `specs/mvp_closeout_20260321.md`
+- `specs/relationship_drama_pivot_strategy_20260328.md`
+- `specs/backend/2026-03-28-relationship-drama-backend-refactor/SPEC.md`
+- `specs/backend/2026-03-28-relationship-drama-runtime-architecture/SPEC.md`
+- `specs/frontend/2026-03-28-relationship-drama-ui-refactor/SPEC.md`

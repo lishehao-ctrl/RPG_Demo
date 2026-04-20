@@ -1,4 +1,5 @@
 import type { AuthorLoadingCard } from "../../../index"
+import { localizeStorylineLabel, localizeStorylineValue } from "../../../shared/lib/storyline"
 
 export function LoadingCardSpotlight({
   activeCard,
@@ -18,13 +19,13 @@ export function LoadingCardSpotlight({
 
   return (
     <div aria-live="polite" className="loading-spotlight">
-      <div className={`loading-spotlight-card emphasis-${activeCard.emphasis}`} key={`${activeCard.card_id}:${activeCard.value}`}>
-        <span className="loading-spotlight-label">{activeCard.label}</span>
-        <strong>{activeCard.value}</strong>
+      <div className={`loading-spotlight-card emphasis-${activeCard.emphasis}`}>
+        <span className="loading-spotlight-label">{localizeStorylineLabel(activeCard.label)}</span>
+        <strong>{localizeStorylineValue(activeCard.value)}</strong>
       </div>
       <div className="loading-spotlight-meta">
         <span>
-          Card {activeIndex + 1} / {cardPool.length}
+          卡片 {activeIndex + 1} / {cardPool.length}
         </span>
       </div>
     </div>

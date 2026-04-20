@@ -33,6 +33,8 @@ class PlayLLMGateway:
     max_output_tokens_render_repair: int | None
     use_session_cache: bool = False
     enable_thinking: bool = False
+    json_content_type_hint: bool = False
+    json_object_prompt_only: bool = False
     call_trace: list[dict[str, Any]] = field(default_factory=list, repr=False, compare=False)
     _transport: ResponsesJSONTransport = field(init=False, repr=False, compare=False)
 
@@ -47,6 +49,9 @@ class PlayLLMGateway:
                 use_session_cache=self.use_session_cache,
                 temperature=0.4,
                 enable_thinking=self.enable_thinking,
+                explicit_disable_thinking=self.model.startswith("qwen") and not self.enable_thinking,
+                json_content_type_hint=self.json_content_type_hint,
+                json_object_prompt_only=self.json_object_prompt_only,
                 provider_failed_code="play_llm_provider_failed",
                 invalid_response_code="play_llm_invalid_response",
                 invalid_json_code="play_llm_invalid_json",
@@ -85,24 +90,40 @@ class PlayLLMGateway:
 
 def get_play_llm_gateway(settings: Settings | None = None) -> PlayLLMGateway:
     resolved = settings or get_settings()
-    base_url = (resolved.responses_base_url or "").strip()
-    api_key = (resolved.responses_api_key or "").strip()
-    model = (resolved.responses_model or "").strip()
+    base_url = resolved.resolved_play_responses_base_url()
+    api_key = resolved.resolved_play_responses_api_key()
+    model = resolved.resolved_play_responses_model()
     if not base_url or not api_key or not model:
         raise PlayGatewayError(
             code="play_llm_config_missing",
-            message="APP_RESPONSES_BASE_URL, APP_RESPONSES_API_KEY, and APP_RESPONSES_MODEL are required",
+            message=(
+                "Either APP_RESPONSES_PLAY_BASE_URL / APP_RESPONSES_PLAY_API_KEY / APP_RESPONSES_PLAY_MODEL "
+                "(or generic APP_RESPONSES_BASE_URL / APP_RESPONSES_API_KEY / APP_RESPONSES_MODEL), "
+                "or legacy APP_GATEWAY_PLAY_BASE_URL / APP_GATEWAY_PLAY_API_KEY / APP_GATEWAY_PLAY_MODEL "
+                "(or APP_GATEWAY_BASE_URL / APP_GATEWAY_API_KEY / APP_GATEWAY_PLAY_MODEL / APP_GATEWAY_MODEL) are required"
+            ),
             status_code=500,
         )
-    use_session_cache = resolved.responses_use_session_cache
-    if use_session_cache is None:
-        use_session_cache = "dashscope" in base_url.casefold()
+    use_session_cache = resolved.resolved_play_responses_use_session_cache()
     client = build_openai_client(
         base_url=base_url,
         api_key=api_key,
+        api_keys=resolved.play_responses_api_key_pool(),
         use_session_cache=bool(use_session_cache),
         session_cache_header=resolved.responses_session_cache_header,
         session_cache_value=resolved.responses_session_cache_value,
+        requests_per_minute=(
+            int(resolved.responses_play_requests_per_minute)
+            if resolved.responses_play_requests_per_minute is not None
+            else None
+        ),
+        rate_limit_scope=(
+            "play"
+            if resolved.responses_play_requests_per_minute is not None
+            else None
+        ),
+        chat_json_stream_mode=resolved.responses_chat_json_stream_mode,
+        chat_json_stream_hosts=resolved.responses_chat_json_stream_host_list(),
     )
     return PlayLLMGateway(
         client=client,
@@ -117,4 +138,6 @@ def get_play_llm_gateway(settings: Settings | None = None) -> PlayLLMGateway:
         max_output_tokens_render_repair=resolved.responses_max_output_tokens_play_render_repair,
         use_session_cache=bool(use_session_cache),
         enable_thinking=bool(resolved.responses_enable_thinking_play),
+        json_content_type_hint=bool(resolved.responses_json_content_type_hint),
+        json_object_prompt_only=bool(resolved.responses_json_object_prompt_only),
     )

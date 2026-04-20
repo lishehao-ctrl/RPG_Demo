@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import type { PlaySessionHistoryEntry, PlaySessionSnapshot, PlaySuggestedAction } from "../../../../index"
+import type { PlayControlAction, PlaySessionHistoryEntry, PlaySessionSnapshot, PlaySuggestedAction } from "../../../../index"
 import { useApiClient } from "../../../../app/providers/api-client-provider"
 import { toErrorMessage } from "../../../../shared/lib/errors"
 
@@ -51,6 +51,8 @@ export function usePlaySession(sessionId: string) {
   const [inputText, setInputText] = useState("")
   const [pendingTurnInput, setPendingTurnInput] = useState<string | null>(null)
   const [selectedSuggestionId, setSelectedSuggestionId] = useState<string | null>(null)
+  const [selectedStoryActionId, setSelectedStoryActionId] = useState<string | null>(null)
+  const [selectedControlAction, setSelectedControlAction] = useState<PlayControlAction | null>(null)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -94,6 +96,15 @@ export function usePlaySession(sessionId: string) {
 
   const selectSuggestedAction = (action: PlaySuggestedAction) => {
     setSelectedSuggestionId(action.suggestion_id)
+    setSelectedStoryActionId(action.suggestion_id)
+    setSelectedControlAction(null)
+    setInputText(action.prompt)
+  }
+
+  const selectControlAction = (action: PlayControlAction) => {
+    setSelectedControlAction(action)
+    setSelectedSuggestionId(null)
+    setSelectedStoryActionId(null)
     setInputText(action.prompt)
   }
 
@@ -101,14 +112,31 @@ export function usePlaySession(sessionId: string) {
     setInputText(nextText)
     if (!nextText.trim()) {
       setSelectedSuggestionId(null)
+      setSelectedStoryActionId(null)
+      setSelectedControlAction(null)
       return
     }
     if (snapshot) {
-      const matched = snapshot.suggested_actions.find((item) => item.prompt === nextText)
-      setSelectedSuggestionId(matched?.suggestion_id ?? null)
-      return
+      const storyPool = snapshot.story_actions?.length ? snapshot.story_actions : snapshot.suggested_actions
+      const matchedStory = storyPool.find((item) => item.prompt === nextText)
+      if (matchedStory) {
+        setSelectedSuggestionId(matchedStory.suggestion_id)
+        setSelectedStoryActionId(matchedStory.suggestion_id)
+        setSelectedControlAction(null)
+        return
+      }
+
+      const matchedControl = snapshot.control_actions?.find((item) => item.prompt === nextText)
+      if (matchedControl) {
+        setSelectedSuggestionId(null)
+        setSelectedStoryActionId(null)
+        setSelectedControlAction(matchedControl)
+        return
+      }
     }
     setSelectedSuggestionId(null)
+    setSelectedStoryActionId(null)
+    setSelectedControlAction(null)
   }
 
   const submitTurn = async () => {
@@ -131,10 +159,18 @@ export function usePlaySession(sessionId: string) {
       const nextSnapshot = await api.submitPlayTurn(sessionId, {
         input_text: trimmedInput,
         selected_suggestion_id: selectedSuggestionId,
+        selected_story_action_id: selectedStoryActionId,
+        selected_control_action_id: selectedControlAction?.action_id,
+        control_action: selectedControlAction?.action_type,
+        control_target_kind: selectedControlAction?.target_kind ?? null,
+        control_target_id: selectedControlAction?.target_id ?? null,
+        control_target_mode: selectedControlAction?.target_mode ?? null,
       })
       setSnapshot(nextSnapshot)
       setPendingTurnInput(null)
       setSelectedSuggestionId(null)
+      setSelectedStoryActionId(null)
+      setSelectedControlAction(null)
       setTranscript((current) =>
         optimisticTranscriptAppend(current, {
           turnIndex: nextSnapshot.turn_index,
@@ -165,11 +201,13 @@ export function usePlaySession(sessionId: string) {
     inputText,
     pendingTurnInput,
     selectedSuggestionId,
+    selectedControlActionId: selectedControlAction?.action_id ?? null,
     loading,
     submitting,
     error,
     setInputText: updateInputText,
     selectSuggestedAction,
+    selectControlAction,
     submitTurn,
   }
 }

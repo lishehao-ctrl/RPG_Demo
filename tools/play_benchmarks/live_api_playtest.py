@@ -48,16 +48,37 @@ PERSONAS: tuple[AgentPersona, ...] = (
     AgentPersona(
         persona_id="assertive_operator",
         label="Assertive Operator",
-        turn_style="Push pressure into the open, force public commitments, and prefer decisive moves over caution.",
-        decision_lens="Escalate toward visible leverage, confrontation, and rapid closure when the fiction supports it.",
-        report_lens="Judge whether the game rewarded aggressive public pressure with coherent consequences.",
+        turn_style="Push conflicts into the open and force clear commitments in emotionally volatile scenes.",
+        decision_lens="Prioritize leverage, confrontation, and fast route shifts over slow compromise.",
+        report_lens="Judge whether aggressive escalation produced coherent relationship consequences and visible stakes.",
     ),
     AgentPersona(
         persona_id="coalition_builder",
         label="Coalition Builder",
-        turn_style="Stabilize institutions, reconcile witnesses, and prefer evidence-backed coordination over threat displays.",
-        decision_lens="Look for multi-party alignment, procedural legitimacy, and durable settlements before escalation.",
-        report_lens="Judge whether the game supported negotiation, evidence work, and coalition maintenance without going flat.",
+        turn_style="Repair trust fractures, stabilize alliances, and keep multi-party coordination alive under pressure.",
+        decision_lens="Prefer durable alignment and negotiated route control over dramatic but brittle spikes.",
+        report_lens="Judge whether reconciliation and alliance maintenance remain playable without flattening drama.",
+    ),
+    AgentPersona(
+        persona_id="evidence_archivist",
+        label="Evidence Archivist",
+        turn_style="Lock facts, preserve receipts, and use verified details to corner hidden motives.",
+        decision_lens="Prioritize auditable evidence trails and institutional memory over impulsive emotional bets.",
+        report_lens="Judge whether evidence-first play reliably unlocks secrets and forces accountable consequences.",
+    ),
+    AgentPersona(
+        persona_id="resource_broker",
+        label="Resource Broker",
+        turn_style="Control scarce access, gate key resources, and trade relief for strategic concessions.",
+        decision_lens="Exploit bottlenecks and exchange leverage to shape alignment, loyalty, and route lock.",
+        report_lens="Judge whether resource control creates meaningful pressure, differentiated responses, and payoff.",
+    ),
+    AgentPersona(
+        persona_id="legitimacy_guardian",
+        label="Legitimacy Guardian",
+        turn_style="Protect mandate clarity, expose procedural abuse, and push contested choices into formal settlement.",
+        decision_lens="Prioritize enforceable legitimacy and clean adjudication when authority signals are unstable.",
+        report_lens="Judge whether mandate-focused play can force settlement without collapsing narrative coherence.",
     ),
 )
 
@@ -336,25 +357,43 @@ class _PlaytestAgentError(RuntimeError):
 
 
 class PlaytestAgentClient:
-    def __init__(self, persona: AgentPersona, settings: Settings | None = None) -> None:
+    def __init__(self, persona: AgentPersona, settings: Settings | None = None, *, provider: str = "primary") -> None:
         self.persona = persona
         self._settings = settings or get_settings()
-        base_url = (self._settings.responses_base_url or "").strip()
-        api_key = (self._settings.responses_api_key or "").strip()
-        model = (self._settings.responses_model or "").strip()
-        if not base_url or not api_key or not model:
-            raise _PlaytestAgentError(
-                "APP_RESPONSES_BASE_URL, APP_RESPONSES_API_KEY, and APP_RESPONSES_MODEL are required for benchmark agents"
+        resolved_provider = "helper" if provider == "helper" else "primary"
+        if resolved_provider == "helper":
+            base_url = self._settings.resolved_helper_responses_base_url()
+            api_key = self._settings.resolved_helper_responses_api_key()
+            api_keys = self._settings.helper_responses_api_key_pool()
+            model = self._settings.resolved_helper_responses_model()
+            use_session_cache = self._settings.resolved_helper_responses_use_session_cache()
+            missing_message = (
+                "Either APP_HELPER_RESPONSES_BASE_URL / APP_HELPER_RESPONSES_API_KEY / APP_HELPER_RESPONSES_MODEL "
+                "or legacy APP_HELPER_GATEWAY_BASE_URL / APP_HELPER_GATEWAY_API_KEY / APP_HELPER_GATEWAY_MODEL "
+                "are required for helper benchmark agents"
             )
-        use_session_cache = self._settings.responses_use_session_cache
-        if use_session_cache is None:
-            use_session_cache = "dashscope" in base_url.casefold()
+        else:
+            base_url = self._settings.resolved_play_responses_base_url()
+            api_key = self._settings.resolved_play_responses_api_key()
+            api_keys = self._settings.play_responses_api_key_pool()
+            model = self._settings.resolved_play_responses_model()
+            use_session_cache = self._settings.resolved_play_responses_use_session_cache()
+            missing_message = (
+                "Either APP_RESPONSES_PLAY_BASE_URL / APP_RESPONSES_PLAY_API_KEY / APP_RESPONSES_PLAY_MODEL "
+                "(or generic APP_RESPONSES_BASE_URL / APP_RESPONSES_API_KEY / APP_RESPONSES_MODEL), "
+                "or legacy APP_GATEWAY_PLAY_BASE_URL / APP_GATEWAY_PLAY_API_KEY / APP_GATEWAY_PLAY_MODEL "
+                "(or APP_GATEWAY_BASE_URL / APP_GATEWAY_API_KEY / APP_GATEWAY_PLAY_MODEL / APP_GATEWAY_MODEL) are required for benchmark agents"
+            )
+        if not base_url or not api_key or not model:
+            raise _PlaytestAgentError(missing_message)
         self.call_trace: list[dict[str, Any]] = []
         self._previous_response_id: str | None = None
+        self._provider = resolved_provider
         self._transport = ResponsesJSONTransport(
             client=build_openai_client(
                 base_url=base_url,
                 api_key=api_key,
+                api_keys=api_keys,
                 use_session_cache=bool(use_session_cache),
                 session_cache_header=self._settings.responses_session_cache_header,
                 session_cache_value=self._settings.responses_session_cache_value,
@@ -364,6 +403,7 @@ class PlaytestAgentClient:
             use_session_cache=bool(use_session_cache),
             temperature=0.45,
             enable_thinking=False,
+            json_object_prompt_only=bool(self._settings.responses_json_object_prompt_only),
             provider_failed_code="playtest_agent_provider_failed",
             invalid_response_code="playtest_agent_invalid_response",
             invalid_json_code="playtest_agent_invalid_json",
@@ -390,8 +430,14 @@ class PlaytestAgentClient:
     def _fallback_turn(persona: AgentPersona, snapshot: dict[str, Any]) -> str:
         beat_title = str(snapshot.get("beat_title") or "the crisis")
         if persona.persona_id == "assertive_operator":
-            return f"I force the key officials to face the evidence around {beat_title} in public before anyone can hide behind procedure again."
-        return f"I gather the opposing sides around the strongest record tied to {beat_title} and make them reconcile the facts before the room fractures."
+            return f"I force a direct public confrontation around {beat_title} and demand a clear commitment before anyone can stall again."
+        if persona.persona_id == "coalition_builder":
+            return f"I pull the most hostile sides into one room on {beat_title} and broker a short-term trust pact before the coalition breaks."
+        if persona.persona_id == "evidence_archivist":
+            return f"I lock the key receipts tied to {beat_title} and force each side to answer the same documented facts on record."
+        if persona.persona_id == "resource_broker":
+            return f"I control the chokepoint tied to {beat_title} and trade access only for explicit concessions from both camps."
+        return f"I force a formal settlement step on {beat_title}, with clear accountability, before rumor takes over the route."
 
     def propose_turn(
         self,
@@ -888,7 +934,12 @@ def _build_scorecard(stories: list[dict[str, Any]], *, target_story_count: int, 
     author_successes = sum(1 for story in stories if story.get("published_story"))
     target_session_count = target_story_count * personas_per_story
     all_sessions = [session for story in stories for session in story.get("sessions", [])]
-    completed_sessions = sum(1 for session in all_sessions if session["final_snapshot"].get("status") == "completed" and not session["forced_stop"])
+    completed_session_records = [
+        session
+        for session in all_sessions
+        if session["final_snapshot"].get("status") == "completed" and not session["forced_stop"]
+    ]
+    completed_sessions = len(completed_session_records)
     expired_sessions = sum(1 for session in all_sessions if session["final_snapshot"].get("status") == "expired")
     create_session_seconds = [float(session["create_elapsed_seconds"]) for session in all_sessions]
     submit_turn_seconds = [
@@ -929,6 +980,50 @@ def _build_scorecard(stories: list[dict[str, Any]], *, target_story_count: int, 
         int((session["agent_report"].get("ratings") or {}).get("content_richness") or 0)
         for session in all_sessions
     ]
+    judge_sources = [str((session.get("agent_report") or {}).get("source") or "fallback") for session in completed_session_records]
+    judge_llm_count = sum(1 for source in judge_sources if source == "llm")
+    judge_llm_salvage_partial_count = sum(1 for source in judge_sources if source in {"llm_salvage_partial", "salvage_partial"})
+    judge_fallback_count = sum(1 for source in judge_sources if source == "fallback")
+    agent_trace_covered_sessions = sum(
+        1
+        for session in completed_session_records
+        if bool(list(session.get("agent_call_trace") or []))
+    )
+    play_trace_covered_sessions = sum(
+        1
+        for session in completed_session_records
+        if bool(list((session.get("diagnostics") or {}).get("turn_traces") or []))
+    )
+    trace_failure_candidate_turns = 0
+    trace_labeled_failure_turns = 0
+    for session in completed_session_records:
+        for trace in list((session.get("diagnostics") or {}).get("turn_traces") or []):
+            if not isinstance(trace, dict):
+                continue
+            interpret_source = str(trace.get("interpret_source") or "").casefold()
+            render_source = str(trace.get("render_source") or "").casefold()
+            repaired_or_fallback = (
+                interpret_source in {"heuristic", "fallback", "repair", "llm_repair"}
+                or render_source in {"heuristic", "fallback", "repair", "llm_repair"}
+                or bool(trace.get("render_narration_stage2_rescue"))
+                or bool(trace.get("render_plan_stage2_rescue"))
+                or bool(trace.get("ending_judge_stage2_rescue"))
+                or bool(trace.get("pyrrhic_critic_stage2_rescue"))
+            )
+            if not repaired_or_fallback:
+                continue
+            trace_failure_candidate_turns += 1
+            failure_reason = (
+                trace.get("interpret_failure_reason")
+                or trace.get("render_failure_reason")
+                or trace.get("render_primary_failure_reason")
+                or trace.get("render_quality_reason_before_repair")
+                or trace.get("render_repair_failure_reason")
+                or trace.get("ending_judge_failure_reason")
+                or trace.get("pyrrhic_critic_failure_reason")
+            )
+            if isinstance(failure_reason, str) and failure_reason.strip():
+                trace_labeled_failure_turns += 1
     author_total_estimated_cost_rmb = round(
         sum(
             float((((story.get("diagnostics") or {}).get("token_cost_estimate") or {}).get("estimated_total_cost_rmb") or 0.0))
@@ -965,6 +1060,13 @@ def _build_scorecard(stories: list[dict[str, Any]], *, target_story_count: int, 
         "mean_narration_word_count_per_turn": round(statistics.mean(narration_word_counts), 3) if narration_word_counts else 0.0,
         "axis_diversity_per_session": _axis_diversity_per_session(all_sessions),
         "stance_target_diversity_per_session": _stance_target_diversity_per_session(all_sessions),
+        "benchmark_agent_report_llm_rate": round(judge_llm_count / completed_sessions, 3) if completed_sessions else 0.0,
+        "benchmark_agent_report_llm_salvage_partial_rate": round(judge_llm_salvage_partial_count / completed_sessions, 3) if completed_sessions else 0.0,
+        "judge_nonfallback_rate": round((judge_llm_count + judge_llm_salvage_partial_count) / completed_sessions, 3) if completed_sessions else 0.0,
+        "judge_fallback_rate": round(judge_fallback_count / completed_sessions, 3) if completed_sessions else 0.0,
+        "agent_trace_coverage_rate": round(agent_trace_covered_sessions / completed_sessions, 3) if completed_sessions else 0.0,
+        "play_trace_coverage_rate": round(play_trace_covered_sessions / completed_sessions, 3) if completed_sessions else 0.0,
+        "trace_labeled_failure_rate": round(trace_labeled_failure_turns / trace_failure_candidate_turns, 3) if trace_failure_candidate_turns else 0.0,
         "state_feedback_distinctness": round(
             statistics.mean(
                 [
@@ -981,9 +1083,9 @@ def _build_scorecard(stories: list[dict[str, Any]], *, target_story_count: int, 
         {
             "metric": "play_completed_sessions",
             "actual": actuals["play_completed_sessions"],
-            "threshold": min(target_session_count, 9),
+            "threshold": target_session_count,
             "operator": ">=",
-            "passed": actuals["play_completed_sessions"] >= min(target_session_count, 9),
+            "passed": actuals["play_completed_sessions"] >= target_session_count,
         },
         {"metric": "expired_sessions", "actual": actuals["expired_sessions"], "threshold": 0, "operator": "<=", "passed": actuals["expired_sessions"] <= 0},
         {"metric": "median_create_session_seconds", "actual": actuals["median_create_session_seconds"], "threshold": 5.0, "operator": "<=", "passed": actuals["median_create_session_seconds"] <= 5.0},
@@ -1020,6 +1122,18 @@ def _build_scorecard(stories: list[dict[str, Any]], *, target_story_count: int, 
             "author": author_source_distribution,
             "play_interpret": play_interpret_distribution,
             "play_render": play_render_distribution,
+        },
+        "judge_trace_evaluation": {
+            "completed_session_count": completed_sessions,
+            "benchmark_agent_report_llm_rate": actuals["benchmark_agent_report_llm_rate"],
+            "benchmark_agent_report_llm_salvage_partial_rate": actuals["benchmark_agent_report_llm_salvage_partial_rate"],
+            "judge_nonfallback_rate": actuals["judge_nonfallback_rate"],
+            "judge_fallback_rate": actuals["judge_fallback_rate"],
+            "agent_trace_coverage_rate": actuals["agent_trace_coverage_rate"],
+            "play_trace_coverage_rate": actuals["play_trace_coverage_rate"],
+            "trace_failure_candidate_turns": trace_failure_candidate_turns,
+            "trace_labeled_failure_turns": trace_labeled_failure_turns,
+            "trace_labeled_failure_rate": actuals["trace_labeled_failure_rate"],
         },
         "ending_distribution": ending_distribution,
     }
@@ -1144,10 +1258,30 @@ def _managed_server(config: LiveApiPlaytestConfig, library_db_path: Path | None)
                 process.wait(timeout=5)
 
 
+def _runtime_config_snapshot(settings: Settings) -> dict[str, Any]:
+    return {
+        "runtime_profile": str(settings.runtime_profile or "").strip() or None,
+        "author": {
+            "base_url": settings.resolved_author_responses_base_url() or None,
+            "model": settings.resolved_author_responses_model() or None,
+        },
+        "play": {
+            "base_url": settings.resolved_play_responses_base_url() or None,
+            "model": settings.resolved_play_responses_model() or None,
+        },
+        "helper": {
+            "base_url": settings.resolved_helper_responses_base_url() or None,
+            "model": settings.resolved_helper_responses_model() or None,
+        },
+    }
+
+
 def run_live_api_playtest(config: LiveApiPlaytestConfig) -> dict[str, Any]:
     rng = Random(config.seed) if config.seed is not None else Random()
     generated_seeds = build_story_seed_batch(rng=rng, story_count=config.story_count)
     stories: list[dict[str, Any]] = []
+    runtime_settings = get_settings()
+    runtime_config = _runtime_config_snapshot(runtime_settings)
     with tempfile.TemporaryDirectory() as tmpdir:
         library_db_path = Path(tmpdir) / "stories.sqlite3" if config.launch_server else None
         with _managed_server(config, library_db_path):
@@ -1190,6 +1324,8 @@ def run_live_api_playtest(config: LiveApiPlaytestConfig) -> dict[str, Any]:
         "story_count_requested": config.story_count,
         "story_count": len(generated_seeds),
         "stories": stories,
+        "runtime_profile": runtime_config.get("runtime_profile"),
+        "runtime_config": runtime_config,
         "scorecard": _build_scorecard(
             stories,
             target_story_count=len(generated_seeds),
@@ -1209,10 +1345,12 @@ def write_artifacts(config: LiveApiPlaytestConfig, payload: dict[str, Any]) -> t
     scorecard = dict(payload.get("scorecard") or {})
     actuals = dict(scorecard.get("actuals") or {})
     subjective_summary = dict(scorecard.get("subjective_summary") or {})
+    judge_trace = dict(scorecard.get("judge_trace_evaluation") or {})
     lines = [
         "# Live Author->Play Benchmark",
         "",
         f"- Base URL: `{payload['base_url']}`",
+        f"- Runtime profile: `{payload.get('runtime_profile')}`",
         f"- Phase: `{payload.get('phase_id')}`",
         f"- Seed set: `{payload.get('seed_set_id')}`",
         f"- Arm: `{payload.get('arm')}`",
@@ -1220,6 +1358,18 @@ def write_artifacts(config: LiveApiPlaytestConfig, payload: dict[str, Any]) -> t
         f"- Personas per story: `{len(payload.get('personas') or [])}`",
         f"- Overall pass: `{scorecard.get('passed')}`",
         "",
+        "## Runtime Config",
+        "",
+    ]
+    runtime_config = dict(payload.get("runtime_config") or {})
+    for channel in ("author", "play", "helper"):
+        channel_payload = dict(runtime_config.get(channel) or {})
+        lines.append(
+            f"- {channel}: base=`{channel_payload.get('base_url')}` model=`{channel_payload.get('model')}`"
+        )
+    lines.extend(
+        [
+            "",
         "## Scorecard",
         "",
         f"- Author publish success rate: `{actuals.get('author_publish_success_rate')}`",
@@ -1233,6 +1383,16 @@ def write_artifacts(config: LiveApiPlaytestConfig, payload: dict[str, Any]) -> t
         f"- Flat state feedback flag rate: `{actuals.get('flat_state_feedback_flag_rate')}`",
         f"- Mean narration words per turn: `{actuals.get('mean_narration_word_count_per_turn')}`",
         "",
+        "## Judge + Trace Evaluation",
+        "",
+        f"- Session coverage: `{actuals.get('play_completed_sessions')}` / `{scorecard.get('target_session_count')}`",
+        f"- Judge non-fallback rate: `{actuals.get('judge_nonfallback_rate')}`",
+        f"- Judge fallback rate: `{actuals.get('judge_fallback_rate')}`",
+        f"- Agent trace coverage rate: `{actuals.get('agent_trace_coverage_rate')}`",
+        f"- Play trace coverage rate: `{actuals.get('play_trace_coverage_rate')}`",
+        f"- Trace labeled failure rate: `{actuals.get('trace_labeled_failure_rate')}`",
+        f"- Trace labeled failures: `{judge_trace.get('trace_labeled_failure_turns')}` / `{judge_trace.get('trace_failure_candidate_turns')}`",
+        "",
         "## Subjective",
         "",
         f"- Avg narration coherence: `{subjective_summary.get('avg_narration_coherence')}`",
@@ -1243,7 +1403,8 @@ def write_artifacts(config: LiveApiPlaytestConfig, payload: dict[str, Any]) -> t
         "",
         "## Stories",
         "",
-    ]
+        ]
+    )
     for story in payload["stories"]:
         result = story.get("result") or {}
         published_story = story.get("published_story") or {}

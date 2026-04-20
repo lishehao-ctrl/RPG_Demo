@@ -15,6 +15,7 @@ from rpg_backend.author.contracts import (
     AxisDefinition,
     BeatSpec,
     DesignBundle,
+    EndingItem,
     EndingRulesDraft,
     RouteAffordancePackDraft,
 )
@@ -605,6 +606,7 @@ def _compress_runtime_beats(bundle: DesignBundle) -> list[BeatSpec]:
 
 
 def compile_play_plan(*, story_id: str, bundle: DesignBundle) -> PlayPlan:
+    is_relationship_drama = bundle.story_shell_id is not None
     route_pack = _compiled_route_pack(bundle)
     closeout = play_closeout_profile_from_bundle(bundle)
     runtime_policy = play_runtime_profile_from_bundle(bundle)
@@ -628,20 +630,31 @@ def compile_play_plan(*, story_id: str, bundle: DesignBundle) -> PlayPlan:
     stances = [stance for stance in bundle.state_schema.stances if stance.npc_id != protagonist_npc_id]
     return PlayPlan(
         story_id=story_id,
+        story_mode="relationship_drama" if is_relationship_drama else "legacy_civic",
+        story_shell_id=bundle.story_shell_id,
         story_title=bundle.story_bible.title,
         protagonist=protagonist,
         protagonist_name=protagonist_name,
         protagonist_npc_id=protagonist_npc_id,
-        closeout_profile=closeout.play_closeout_profile,
-        closeout_router_reason=closeout.router_reason,
-        runtime_policy_profile=runtime_policy.runtime_policy_profile,
-        runtime_router_reason=runtime_policy.router_reason,
+        closeout_profile="relationship_drama_default" if is_relationship_drama else closeout.play_closeout_profile,
+        closeout_router_reason="normalized_seed_shell" if is_relationship_drama else closeout.router_reason,
+        runtime_policy_profile="relationship_drama_default" if is_relationship_drama else runtime_policy.runtime_policy_profile,
+        runtime_router_reason="normalized_seed_shell" if is_relationship_drama else runtime_policy.router_reason,
         premise=premise,
         tone=bundle.story_bible.tone,
         style_guard=bundle.story_bible.style_guard,
         cast=bundle.story_bible.cast,
         truths=bundle.story_bible.truth_catalog,
-        endings=bundle.story_bible.ending_catalog,
+        endings=(
+            [
+                EndingItem(ending_id="route_lock", label="路线锁定", summary="你终于把这段关系推到了无法退回的地方。"),
+                EndingItem(ending_id="bittersweet", label="苦涩成局", summary="你得到了想要的人，但代价被所有人看见。"),
+                EndingItem(ending_id="breakdown", label="关系翻车", summary="秘密和关系一起爆炸，谁都没能体面退场。"),
+                EndingItem(ending_id="open_loop", label="悬而未决", summary="没人真正离开，但真正的结局还没有发生。"),
+            ]
+            if is_relationship_drama
+            else bundle.story_bible.ending_catalog
+        ),
         axes=axes,
         stances=stances,
         flags=bundle.state_schema.flags,
@@ -652,4 +665,7 @@ def compile_play_plan(*, story_id: str, bundle: DesignBundle) -> PlayPlan:
         available_affordance_tags=[profile.affordance_tag for profile in route_pack.affordance_effect_profiles],
         max_turns=max_turns,
         opening_narration=_opening_narration(bundle, protagonist=protagonist),
+        relationship_hook=bundle.relationship_hook,
+        secret_hook=bundle.secret_hook,
+        route_target_ids=list(bundle.route_target_ids),
     )

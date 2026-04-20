@@ -20,11 +20,11 @@ from rpg_backend.author.contracts import (
     AuthorPreviewResponse,
 )
 from rpg_backend.author.gateway import AuthorGatewayError
-from rpg_backend.author.jobs import AuthorJobService
 from rpg_backend.benchmark.contracts import (
     BenchmarkAuthorJobDiagnosticsResponse,
     BenchmarkPlaySessionDiagnosticsResponse,
 )
+from rpg_backend.author_v2.product_jobs import ProductAuthorJobService
 from rpg_backend.config import get_settings
 from rpg_backend.library.contracts import (
     DeleteStoryResponse,
@@ -38,6 +38,8 @@ from rpg_backend.library.contracts import (
 )
 from rpg_backend.library.service import LibraryServiceError, get_story_library_service
 from rpg_backend.play.contracts import (
+    PlayDraftIntentRequest,
+    PlayDraftIntentResponse,
     PlaySessionHistoryResponse,
     PlaySessionCreateRequest,
     PlaySessionSnapshot,
@@ -48,7 +50,7 @@ from rpg_backend.play.service import PlayServiceError, PlaySessionService
 app = FastAPI(title="rpg-demo-rebuild")
 settings = get_settings()
 auth_service = AuthService(settings=settings)
-author_job_service = AuthorJobService(settings=settings)
+author_job_service = ProductAuthorJobService(settings=settings)
 story_library_service = get_story_library_service(settings)
 play_session_service = PlaySessionService(story_library_service=story_library_service, settings=settings)
 
@@ -310,6 +312,15 @@ def get_play_session_history(
     user=Depends(get_required_request_user),
 ) -> PlaySessionHistoryResponse:
     return play_session_service.get_session_history(session_id, actor_user_id=user.user_id)
+
+
+@app.post("/play/sessions/{session_id}/draft-intent", response_model=PlayDraftIntentResponse)
+def draft_play_turn_intent(
+    session_id: str,
+    payload: PlayDraftIntentRequest,
+    user=Depends(get_required_request_user),
+) -> PlayDraftIntentResponse:
+    return play_session_service.draft_intent(session_id, payload, actor_user_id=user.user_id)
 
 
 @app.post("/play/sessions/{session_id}/turns", response_model=PlaySessionSnapshot)

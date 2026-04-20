@@ -3,6 +3,7 @@ import type { AuthUserResponse } from "../../index"
 
 export function AppHeader({
   routeName,
+  onOpenLanding,
   onOpenCreateStory,
   onOpenLibrary,
   authenticated,
@@ -14,7 +15,17 @@ export function AppHeader({
   searchValue = "",
   onSearchChange,
 }: {
-  routeName: "auth" | "create-story" | "author-loading" | "story-library" | "story-detail" | "play-session"
+  routeName:
+    | "landing"
+    | "auth"
+    | "create-story"
+    | "author-loading"
+    | "concept-author"
+    | "concept-play"
+    | "story-library"
+    | "story-detail"
+    | "play-session"
+  onOpenLanding: () => void
   onOpenCreateStory: () => void
   onOpenLibrary: () => void
   authenticated: boolean
@@ -26,75 +37,75 @@ export function AppHeader({
   searchValue?: string
   onSearchChange?: (value: string) => void
 }) {
+  const landingActive = routeName === "landing"
   const createActive = routeName === "create-story" || routeName === "author-loading"
-  const libraryActive = !createActive
+  const libraryActive = routeName === "story-library" || routeName === "story-detail" || routeName === "play-session"
+
   const handleSearchChange = (event: ChangeEvent<HTMLInputElement>) => {
     onSearchChange?.(event.target.value)
   }
 
   return (
-    <header className="studio-topbar">
-      <div className="studio-topbar__brand">
-        <button className="studio-brand-mark" onClick={onOpenCreateStory} type="button">
-          Narrative Studio
+    <header className={`mag-topbar ${landingActive ? "is-landing" : ""}`}>
+      <div className="mag-topbar__brand">
+        <button className="mag-brand-mark" onClick={onOpenLanding} type="button">
+          <span className="mag-brand-mark__kicker">流言与荣光</span>
+          <strong>案卷剧场</strong>
         </button>
 
-        <nav className="studio-topbar__nav">
-          <button className={`studio-topbar__link ${createActive ? "is-active" : ""}`} onClick={onOpenCreateStory} type="button">
-            Create
+        <nav className="mag-topbar__nav">
+          <button className={`mag-topbar__link ${landingActive ? "is-active" : ""}`} onClick={onOpenLanding} type="button">
+            首页
           </button>
-          <button className={`studio-topbar__link ${libraryActive ? "is-active" : ""}`} onClick={onOpenLibrary} type="button">
-            Library
+          <button className={`mag-topbar__link ${libraryActive ? "is-active" : ""}`} onClick={onOpenLibrary} type="button">
+            档案库
+          </button>
+          <button className={`mag-topbar__link ${createActive ? "is-active" : ""}`} onClick={onOpenCreateStory} type="button">
+            新建
           </button>
         </nav>
       </div>
 
-      <div className="studio-topbar__tools">
-        <label className="studio-search">
-          <span aria-hidden="true" className="material-symbols-outlined studio-search__icon">
+      <div className="mag-topbar__tools">
+        <label className="mag-search">
+          <span aria-hidden="true" className="material-symbols-outlined mag-search__icon">
             search
           </span>
           <input
             disabled={!searchEnabled}
             onChange={handleSearchChange}
-            placeholder="Search Library..."
+            placeholder="搜索案卷"
             type="text"
             value={searchEnabled ? searchValue : ""}
           />
         </label>
 
         {authLoading ? (
-          <div className="studio-account-switcher">
-            <div className="studio-account-switcher__current">
-              <span className="material-symbols-outlined">hourglass_top</span>
-              <div>
-                <strong>Loading session</strong>
-                <span>Checking account</span>
-              </div>
+          <div className="mag-account">
+            <span className="material-symbols-outlined">hourglass_top</span>
+            <div className="mag-account__identity">
+              <strong>验证中</strong>
+              <span>档案权限核对中</span>
             </div>
           </div>
         ) : authenticated && user ? (
-          <div className="studio-account-switcher">
-            <div className="studio-account-switcher__current">
-              <span className="material-symbols-outlined">account_circle</span>
-              <div>
-                <strong>{user.display_name}</strong>
-                <span>{user.email}</span>
-              </div>
+          <div className="mag-account">
+            <span className="material-symbols-outlined">account_circle</span>
+            <div className="mag-account__identity">
+              <strong>{user.display_name}</strong>
+              <span>{user.email}</span>
             </div>
-            <div className="studio-account-actions">
-              <button className="studio-button studio-button--secondary" onClick={onLogout} type="button">
-                Sign Out
-              </button>
-            </div>
+            <button className="mag-button mag-button--secondary" onClick={onLogout} type="button">
+              退出登录
+            </button>
           </div>
         ) : (
-          <div className="studio-auth-actions">
-            <button className="studio-button studio-button--secondary" onClick={() => onOpenAuth("login")} type="button">
-              Sign In
+          <div className="mag-account">
+            <button className="mag-button mag-button--secondary" onClick={() => onOpenAuth("login")} type="button">
+              登录
             </button>
-            <button className="studio-button studio-button--primary" onClick={() => onOpenAuth("register")} type="button">
-              Create Account
+            <button className="mag-button mag-button--primary" onClick={() => onOpenAuth("register")} type="button">
+              注册账户
             </button>
           </div>
         )}

@@ -86,12 +86,13 @@ def _hook_status_distribution(state: UrbanWorldState) -> dict[str, int]:
     return {status: counts.get(status, 0) for status in HOOK_STATUSES}
 
 
-def _run_demo_sequence(plan: CompiledPlayPlan) -> tuple[list[str], bool, bool, UrbanWorldState]:
+def _run_demo_sequence(plan: CompiledPlayPlan) -> tuple[list[str], bool, bool, bool, UrbanWorldState]:
     target_id = _find_demo_hook_target(plan)
     state = build_initial_world_state(plan, session_id="v3_cost_routing_demo")
     prior_statuses = {hook_id: hook.status for hook_id, hook in state.hook_states.items()}
     dormant_to_suspected_seen = False
     hook_callback_fired_seen = False
+    callback_queue_non_empty_seen = False
     output_lines: list[str] = []
 
     for turn_number, (move_family, input_text, effect_types) in enumerate(DEMO_TURN_SEQUENCE, start=1):
@@ -116,6 +117,8 @@ def _run_demo_sequence(plan: CompiledPlayPlan) -> tuple[list[str], bool, bool, U
         ]
         if hooks_fired_this_turn:
             hook_callback_fired_seen = True
+        if state.callback_queue:
+            callback_queue_non_empty_seen = True
         line = (
             f"Turn {turn_number}: move_family={move_family} "
             f"target={target_id} "
@@ -126,7 +129,7 @@ def _run_demo_sequence(plan: CompiledPlayPlan) -> tuple[list[str], bool, bool, U
         print(line)
         output_lines.append(line)
 
-    return output_lines, dormant_to_suspected_seen, hook_callback_fired_seen, state
+    return output_lines, dormant_to_suspected_seen, hook_callback_fired_seen, callback_queue_non_empty_seen, state
 
 
 def test_v3_plan_cost_routing_matrix_has_one_rule_per_move_family(v3_plan: CompiledPlayPlan) -> None:
@@ -161,9 +164,16 @@ def test_apply_turn_resolution_supports_each_move_family_in_v3_plan(
 def test_v3_cost_routing_demo_sequence_prints_and_keeps_runtime_paths_alive(
     v3_plan: CompiledPlayPlan,
 ) -> None:
-    output_lines, dormant_to_suspected_seen, hook_callback_fired_seen, final_state = _run_demo_sequence(v3_plan)
+    (
+        output_lines,
+        dormant_to_suspected_seen,
+        hook_callback_fired_seen,
+        callback_queue_non_empty_seen,
+        final_state,
+    ) = _run_demo_sequence(v3_plan)
 
     assert len(output_lines) == len(DEMO_TURN_SEQUENCE)
     assert dormant_to_suspected_seen
-    assert final_state.callback_queue
+    assert callback_queue_non_empty_seen
     assert hook_callback_fired_seen
+    assert final_state.turn_index == len(DEMO_TURN_SEQUENCE)

@@ -2973,16 +2973,18 @@ def _try_compile_with_llm(
             if attempt + 1 < max_attempts:
                 continue
             break
-        previous_response_id = response.response_id or previous_response_id
-        last_usage = response.usage if isinstance(response.usage, dict) else {}
-        candidate, invalid_reason = _parse_candidate_payload(response.payload)
+        response_id = getattr(response, "response_id", None)
+        response_usage = getattr(response, "usage", {})
+        previous_response_id = response_id or previous_response_id
+        last_usage = response_usage if isinstance(response_usage, dict) else {}
+        candidate, invalid_reason = _parse_candidate_payload(getattr(response, "payload", None))
         if candidate is not None:
             if diagnostics is not None:
                 diagnostics["intent_llm_status"] = "completed_retry" if retry_mode else "completed"
                 diagnostics["intent_llm_latency_ms"] = round((time.perf_counter() - started) * 1000, 4)
-                diagnostics["intent_llm_input_tokens"] = _usage_token_count(response.usage, "input_tokens")
-                diagnostics["intent_llm_output_tokens"] = _usage_token_count(response.usage, "output_tokens")
-                diagnostics["intent_llm_total_tokens"] = _usage_token_count(response.usage, "total_tokens")
+                diagnostics["intent_llm_input_tokens"] = _usage_token_count(response_usage, "input_tokens")
+                diagnostics["intent_llm_output_tokens"] = _usage_token_count(response_usage, "output_tokens")
+                diagnostics["intent_llm_total_tokens"] = _usage_token_count(response_usage, "total_tokens")
                 diagnostics["intent_llm_attempts"] = attempt + 1
                 diagnostics["intent_llm_retry_count"] = attempt
                 diagnostics["intent_llm_invalid_reason"] = ""

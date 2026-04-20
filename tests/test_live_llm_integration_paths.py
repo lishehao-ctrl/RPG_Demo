@@ -62,7 +62,7 @@ class _FakeResponse:
         }
 
 
-class _QueuedGateway:
+class _QueuedTransport:
     def __init__(self, queued_payloads: list[dict[str, object]]) -> None:
         self.queued_payloads = list(queued_payloads)
         self.calls: list[dict[str, object]] = []
@@ -169,7 +169,7 @@ def test_live_llm_intent_compile_retries_after_invalid_payload(monkeypatch: pyte
     state = build_initial_world_state(plan, session_id="live_intent_compile_case")
     suggestions = build_suggested_actions(plan, state)
     expected = suggestions[0]
-    gateway = _QueuedGateway(
+    gateway = _QueuedTransport(
         [
             {"move_family": "not_allowed", "intent_confidence": 0.8},
             {
@@ -229,7 +229,7 @@ def test_live_llm_compose_retries_after_schema_invalid_payload(monkeypatch: pyte
     plan = _v2_plan()
     state = build_initial_world_state(plan, session_id="live_compose_case")
     action = build_suggested_actions(plan, state)[0]
-    gateway = _QueuedGateway(
+    gateway = _QueuedTransport(
         [
             {"coverage_marks": {"target": True, "move": True, "consequence": True, "relationship": True}},
             {
@@ -298,7 +298,7 @@ def test_live_llm_ending_judge_repairs_invalid_schema(monkeypatch: pytest.Monkey
         tactic_summary="你当众揭开偷拍视频的来路。",
         pressure_note="这一步稳住了局，但代价已经写在现场表情里。",
     )
-    gateway = _QueuedGateway(
+    gateway = _QueuedTransport(
         [
             {"ending": "pyrrhic"},
             {"ending_id": "pyrrhic"},

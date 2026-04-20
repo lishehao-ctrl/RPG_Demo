@@ -309,7 +309,8 @@ def build_v2_turn_trace(
     submitted_with_selected_ids = bool((selected_suggestion_id or "").strip() or (selected_story_action_id or "").strip())
     submission_input_mode = "select_id" if submitted_with_selected_ids else "free_input"
     semantic_plan = result.state.last_turn_semantic_plan
-    stake_top = semantic_plan.stake_plan.top_shifts[0] if semantic_plan is not None and semantic_plan.stake_plan.top_shifts else None
+    utility_top = list(semantic_plan.stake_plan.top_shifts) if semantic_plan is not None else []
+    stake_top = utility_top[0] if utility_top else None
     story_debug = PlayStoryDebug(
         utility_top_shift=[
             PlayUtilityShiftItem(
@@ -319,7 +320,7 @@ def build_v2_turn_trace(
                 reason_family=item.reason_family,
                 reason_text=item.reason_text,
             )
-            for item in list(result.state.last_turn_utility_delta_top)[:3]
+            for item in utility_top[:3]
         ],
         stake_shift_top=(
             PlayUtilityShiftItem(

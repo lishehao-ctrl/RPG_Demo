@@ -88,46 +88,6 @@ from rpg_backend.play_v2.contracts import (
     UnresolvedCostRecord,
 )
 
-_ORIGINAL_URBAN_WORLD_STATE_MODEL_DUMP = UrbanWorldState.model_dump
-_ORIGINAL_URBAN_WORLD_STATE_MODEL_VALIDATE = UrbanWorldState.model_validate
-_URBAN_WORLD_STATE_NPC_MINDS_COMPAT_APPLIED = False
-
-
-def _world_state_model_dump_with_npc_minds_alias(
-    self: UrbanWorldState,
-    *args: Any,
-    **kwargs: Any,
-) -> dict[str, Any]:
-    payload = _ORIGINAL_URBAN_WORLD_STATE_MODEL_DUMP(self, *args, **kwargs)
-    npc_mind_states = payload.get("npc_mind_states")
-    if isinstance(npc_mind_states, dict) and "npc_minds" not in payload:
-        payload["npc_minds"] = {
-            str(character_id): dict(mind_payload) if isinstance(mind_payload, dict) else mind_payload
-            for character_id, mind_payload in npc_mind_states.items()
-        }
-    return payload
-
-
-def _world_state_model_validate_with_npc_minds_alias(
-    cls: type[UrbanWorldState],
-    obj: Any,
-    *args: Any,
-    **kwargs: Any,
-) -> UrbanWorldState:
-    if isinstance(obj, dict) and "npc_minds" in obj:
-        normalized = dict(obj)
-        if "npc_mind_states" not in normalized:
-            normalized["npc_mind_states"] = normalized.get("npc_minds")
-        normalized.pop("npc_minds", None)
-        obj = normalized
-    return _ORIGINAL_URBAN_WORLD_STATE_MODEL_VALIDATE(obj, *args, **kwargs)
-
-
-if not _URBAN_WORLD_STATE_NPC_MINDS_COMPAT_APPLIED:
-    UrbanWorldState.model_dump = _world_state_model_dump_with_npc_minds_alias  # type: ignore[method-assign]
-    UrbanWorldState.model_validate = classmethod(_world_state_model_validate_with_npc_minds_alias)
-    _URBAN_WORLD_STATE_NPC_MINDS_COMPAT_APPLIED = True
-
 MOVE_KEYWORDS: dict[RelationshipMoveFamily, tuple[str, ...]] = {
     "flirt": ("暧昧", "撩", "靠近", "试着亲近", "调情"),
     "probe_secret": ("试探", "套话", "追问", "调查", "问真相"),
@@ -1443,8 +1403,13 @@ def _story_debug_summary(state: UrbanWorldState) -> str:
         parts.append("仍有后账在队列里发酵。")
     if state.last_turn_causal_receipts:
         parts.append(trim_text(state.last_turn_causal_receipts[0], 120))
-    if state.last_turn_utility_delta_top:
-        top = state.last_turn_utility_delta_top[0]
+    top_shifts = (
+        list(state.last_turn_semantic_plan.stake_plan.top_shifts)
+        if state.last_turn_semantic_plan is not None
+        else []
+    )
+    if top_shifts:
+        top = top_shifts[0]
         parts.append(f"效用变化最大={top.display_name}:{top.utility_delta:+d}")
     return trim_text(" ".join(parts) or "本回合故事调度已完成。", 220)
 
@@ -4764,7 +4729,6 @@ def apply_turn_resolution(
         micro_reason_by_character=micro_reason_by_character,
     )
     state.last_turn_utility_delta_by_character = utility_map
-    state.last_turn_utility_delta_top = utility_top
     state.last_turn_intent_feedback = _derive_intent_feedback(plan, state, intent)
     state.last_turn_consequences = unique_preserve(
         [

@@ -509,7 +509,6 @@ class UrbanWorldState(BaseModel):
     last_turn_triggered_event_id: str | None = Field(default=None, max_length=80)
     last_turn_control_resolution: UrbanControlResolution | None = None
     last_turn_utility_delta_by_character: dict[str, int] = Field(default_factory=dict)
-    last_turn_utility_delta_top: list[NpcUtilityDeltaItem] = Field(default_factory=list, max_length=3)
     last_turn_cost_route: CostRouteRecord | None = None
     last_turn_propagation_edge: ShellPropagationEdgeRecord | None = None
     last_turn_scene_question_state: SceneQuestionStateRecord | None = None

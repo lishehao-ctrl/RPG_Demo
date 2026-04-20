@@ -2373,7 +2373,7 @@ def test_invariant_cost_return_within_window_forces_hook() -> None:
     assert next_state.unresolved_costs[0].status == "returned"
 
 
-def test_last_turn_utility_delta_top_is_recorded() -> None:
+def test_last_turn_utility_delta_summary_is_derived_from_semantic_plan() -> None:
     plan = _play_plan()
     state = build_initial_world_state(plan, session_id="utility_delta_case")
     _move_state_to_segment(plan, state, "reveal")
@@ -2381,8 +2381,10 @@ def test_last_turn_utility_delta_top_is_recorded() -> None:
 
     result = run_turn(plan, state, burst.prompt, selected_suggestion_id=burst.suggestion_id)
 
-    assert result.state.last_turn_utility_delta_top
-    top = result.state.last_turn_utility_delta_top[0]
+    semantic_plan = result.state.last_turn_semantic_plan
+    assert semantic_plan is not None
+    assert semantic_plan.stake_plan.top_shifts
+    top = semantic_plan.stake_plan.top_shifts[0]
     assert top.reason_family in {
         "loss_position",
         "self_preserve",
@@ -2392,6 +2394,8 @@ def test_last_turn_utility_delta_top_is_recorded() -> None:
         "old_debt",
         "opportunity_window",
     }
+    assert top.display_name in result.state.last_turn_story_debug_summary
+    assert top.reason_family in result.state.last_turn_story_debug_summary
 
 
 def test_soft_repair_feedback_and_trace_tags_are_emitted() -> None:

@@ -36,11 +36,11 @@ def test_npc_mind_states_stay_non_none_after_one_turn() -> None:
     assert retained_ids
 
     dumped = state.model_dump(mode="json")
-    assert "npc_minds" in dumped
-    alias_mind = dumped["npc_minds"][retained_ids[0]]
-    assert alias_mind["pressure_load"] is not None
-    assert alias_mind["humiliation_risk"] is not None
-    assert alias_mind["betrayal_readiness"] is not None
+    assert "npc_minds" not in dumped
+    dumped_mind = dumped["npc_mind_states"][retained_ids[0]]
+    assert dumped_mind["pressure_load"] is not None
+    assert dumped_mind["humiliation_risk"] is not None
+    assert dumped_mind["betrayal_readiness"] is not None
 
 
 def test_storylet_prompt_section_uses_mandatory_language() -> None:

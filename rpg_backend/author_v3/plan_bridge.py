@@ -465,10 +465,16 @@ def _build_cast_member(
     )
 
 
-def _build_compiled_segment(seg: MappedSegment) -> CompiledSegment:
+def _build_compiled_segment(
+    seg: MappedSegment,
+    *,
+    source_storylet: dict[str, Any] | None = None,
+) -> CompiledSegment:
     return CompiledSegment(
         segment_id=seg.segment_id,
         segment_role=seg.segment_role,
+        source_storylet_id=seg.source_storylet_id,
+        source_storylet=source_storylet,
         focus_target_ids=seg.focus_target_ids,
         rival_target_ids=seg.rival_target_ids,
         allocated_secret_ids=seg.allocated_secret_ids,
@@ -870,10 +876,17 @@ def bridge_to_plan(
         rel_summary = _relationship_summary_for(char.character_id, config.protagonist_id, config)
         cast.append(_build_cast_member(char, slot, config.protagonist_id, rel_summary))
 
-    compiled_segments = [_build_compiled_segment(seg) for seg in mapped_segments]
-
-    used_storylet_ids = {seg.source_storylet_id for seg in mapped_segments}
-    unused_storylets = [s for s in pool.storylets if s.storylet_id not in used_storylet_ids]
+    storylet_lookup = {
+        storylet.storylet_id: storylet.model_dump(mode="json")
+        for storylet in pool.storylets
+    }
+    compiled_segments = [
+        _build_compiled_segment(
+            seg,
+            source_storylet=storylet_lookup.get(seg.source_storylet_id),
+        )
+        for seg in mapped_segments
+    ]
 
     strategy_pack = _build_semantic_strategy_pack(config.story_shell_id, compiled_segments)
     delta_kernel = _build_delta_kernel(config, cast, arc_template_id, shell_defaults.template_id)
@@ -923,10 +936,7 @@ def bridge_to_plan(
         semantic_strategy_version=9,
         semantic_strategy_pack=strategy_pack,
         author_version="v3",
-        relationship_matrix=matrix.model_dump(),
-        secret_chains=[c.model_dump() for c in web.chains],
-        tension_score=web.narrative_potential_score,
-        storylet_pool=[s.model_dump() for s in unused_storylets],
+        storylet_pool=[s.model_dump(mode="json") for s in pool.storylets],
         organic_secrets=[s.model_dump() for s in web.secrets],
         hooks=[h.model_dump() for h in web.hooks],
     )

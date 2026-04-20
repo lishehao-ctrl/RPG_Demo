@@ -1309,6 +1309,8 @@ class CompiledSegment(BaseModel):
 
     segment_id: str = Field(min_length=1)
     segment_role: SegmentRoleId
+    source_storylet_id: str | None = Field(default=None, max_length=64)
+    source_storylet: dict[str, Any] | None = None
     focus_target_ids: list[str] = Field(default_factory=list, max_length=2)
     rival_target_ids: list[str] = Field(default_factory=list, max_length=2)
     allocated_secret_ids: list[str] = Field(default_factory=list, max_length=3)
@@ -1382,9 +1384,6 @@ class CompiledPlayPlan(BaseModel):
     semantic_strategy_pack: TurnSemanticStrategyPack
     quality_tuning_profile: QualityTuningProfile = Field(default_factory=QualityTuningProfile)
     author_version: Literal["v2", "v3"] = "v2"
-    relationship_matrix: dict[str, Any] | None = None
-    secret_chains: list[dict[str, Any]] | None = None
-    tension_score: float | None = None
     storylet_pool: list[dict[str, Any]] | None = None
     organic_secrets: list[dict[str, Any]] | None = None
     hooks: list[dict[str, Any]] | None = None

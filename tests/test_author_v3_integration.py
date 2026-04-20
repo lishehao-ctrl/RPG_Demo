@@ -58,20 +58,33 @@ class TestDeterministicPipeline:
             assert m.drama_profile
             assert m.strategic_intent
 
-    def test_plan_has_relationship_matrix(self, plan: CompiledPlayPlan) -> None:
-        assert plan.relationship_matrix is not None
-
-    def test_plan_has_secret_chains(self, plan: CompiledPlayPlan) -> None:
-        assert plan.secret_chains is not None
-
-    def test_plan_has_tension_score(self, plan: CompiledPlayPlan) -> None:
-        assert plan.tension_score is not None
-        assert 0.0 <= plan.tension_score <= 1.0
-
     def test_plan_has_storylet_pool(self, plan: CompiledPlayPlan) -> None:
         assert plan.storylet_pool is not None
         assert plan.organic_secrets is not None and len(plan.organic_secrets) >= 2, f"Expected >=2 organic_secrets, got {plan.organic_secrets}"
         assert plan.hooks is not None and len(plan.hooks) >= 1, f"Expected >=1 hooks, got {plan.hooks}"
+
+    def test_plan_segments_preserve_selected_storylet_payload(self, plan: CompiledPlayPlan) -> None:
+        assert all(segment.source_storylet_id for segment in plan.segments)
+        assert all(segment.source_storylet for segment in plan.segments)
+        first_segment = plan.segments[0]
+        source_storylet = dict(first_segment.source_storylet or {})
+        assert source_storylet.get("storylet_id") == first_segment.source_storylet_id
+        assert "preconditions" in source_storylet
+        assert "effects" in source_storylet
+
+    def test_plan_storylet_pool_keeps_selected_storylets(self, plan: CompiledPlayPlan) -> None:
+        pool_storylet_ids = {
+            str(item.get("storylet_id") or "").strip()
+            for item in list(plan.storylet_pool or [])
+            if isinstance(item, dict)
+        }
+        selected_storylet_ids = {
+            str(segment.source_storylet_id or "").strip()
+            for segment in plan.segments
+            if str(segment.source_storylet_id or "").strip()
+        }
+        assert selected_storylet_ids
+        assert selected_storylet_ids.issubset(pool_storylet_ids)
 
     def test_plan_has_ending_matrix(self, plan: CompiledPlayPlan) -> None:
         assert len(plan.ending_matrix.endings) >= 4

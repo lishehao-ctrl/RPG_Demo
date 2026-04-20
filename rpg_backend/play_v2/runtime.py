@@ -60,6 +60,7 @@ from rpg_backend.play_v2.semantic_planners import (
     StylePlanner,
 )
 from rpg_backend.play_v2.shell_propagation import pick_shell_edge
+from rpg_backend.play_v2.turn_reducers import HookLifecycleReducer
 from rpg_backend.play_v2.contracts import (
     CallbackQueueItem,
     CallbackTurnStatusRecord,
@@ -4374,9 +4375,16 @@ def apply_turn_resolution(
         _apply_global_delta(state, key, int(delta))
     for rel_id, rel_deltas in semantic_result["relationship_deltas"].items():
         _apply_relationship_deltas(state, rel_id, rel_deltas)
-    for sid in semantic_result.get("known_secret_ids_to_add", []):
-        if sid not in state.known_secret_ids:
-            state.known_secret_ids = (state.known_secret_ids + [sid])[:8]
+    reducer_result = HookLifecycleReducer.apply(
+        plan=plan,
+        segment=segment,
+        state=state,
+        intent=intent,
+        semantic_result=semantic_result,
+    )
+    if reducer_result.changed_hook_ids:
+        hook_tags = [f"hook_transition:{hook_id}" for hook_id in reducer_result.changed_hook_ids]
+        state.last_turn_tags = unique_preserve([*state.last_turn_tags, *hook_tags])
     consequence_semantic_tags = list(semantic_result.get("tags", []))
     directed_outcome = EventDirector.direct_turn_outcome(
         plan=plan,
@@ -4540,85 +4548,6 @@ def apply_turn_resolution(
         0,
         _segment_progress_cap(segment),
     )
-    hooks_enabled = bool(getattr(plan, "hooks", None) or [])
-    if not hooks_enabled:
-        legacy_secret_ids = list(segment.allocated_secret_ids[:1])
-        if intent.move_family in {"probe_secret", "public_reveal", "private_confession"}:
-            state.known_secret_ids = unique_preserve(state.known_secret_ids + legacy_secret_ids)[:8]
-            state.last_turn_revealed_secret_ids = list(legacy_secret_ids)
-    else:
-        hook_states = getattr(state, "hook_states", None) or {}
-        hook_priority = {
-            "suspected": 0,
-            "dormant": 1,
-            "active": 2,
-            "leveraged": 3,
-            "detonated": 4,
-        }
-
-        def _matching_hook_states(
-            *,
-            holder_id: str | None = None,
-            target_id: str | None = None,
-            statuses: set[str] | None = None,
-        ) -> list[Any]:
-            matches: list[Any] = []
-            for hook in hook_states.values():
-                hook_status = str(getattr(hook, "status", "dormant") or "dormant")
-                if holder_id is not None and str(getattr(hook, "holder_id", "") or "").strip() != holder_id:
-                    continue
-                if target_id is not None and str(getattr(hook, "target_id", "") or "").strip() != target_id:
-                    continue
-                if statuses is not None and hook_status not in statuses:
-                    continue
-                matches.append(hook)
-            return sorted(
-                matches,
-                key=lambda hook: (
-                    hook_priority.get(str(getattr(hook, "status", "dormant") or "dormant"), 99),
-                    -float(getattr(hook, "leverage_value", 0.0) or 0.0),
-                    str(getattr(hook, "hook_id", "") or ""),
-                ),
-            )
-
-        hook_secret_ids: list[str] = []
-        if intent.move_family == "probe_secret" and intent.target_id:
-            hook_secret_ids = [
-                str(getattr(hook, "source_secret_id", "") or "").strip()
-                for hook in _matching_hook_states(holder_id=intent.target_id)[:1]
-                if str(getattr(hook, "source_secret_id", "") or "").strip()
-            ]
-            if hook_secret_ids:
-                state.last_turn_revealed_secret_ids = unique_preserve(
-                    state.last_turn_revealed_secret_ids + hook_secret_ids
-                )[:4]
-        elif intent.move_family == "public_reveal" and intent.target_id:
-            hook_secret_ids = [
-                str(getattr(hook, "source_secret_id", "") or "").strip()
-                for hook in (_matching_hook_states(target_id=intent.target_id) or _matching_hook_states(holder_id=intent.target_id))[:1]
-                if str(getattr(hook, "source_secret_id", "") or "").strip()
-            ]
-            if hook_secret_ids:
-                state.known_secret_ids = unique_preserve(state.known_secret_ids + hook_secret_ids)[:8]
-                state.last_turn_revealed_secret_ids = unique_preserve(
-                    state.last_turn_revealed_secret_ids + hook_secret_ids
-                )[:4]
-        elif intent.move_family == "private_confession" and intent.target_id:
-            hook_secret_ids = [
-                str(getattr(hook, "source_secret_id", "") or "").strip()
-                for hook in _matching_hook_states(holder_id=intent.target_id, statuses={"active", "leveraged", "suspected"})[:1]
-                if str(getattr(hook, "source_secret_id", "") or "").strip()
-            ]
-            if hook_secret_ids:
-                state.known_secret_ids = unique_preserve(state.known_secret_ids + hook_secret_ids)[:8]
-        if not hook_secret_ids:
-            fallback_secret_ids = list(segment.allocated_secret_ids[:1])
-            if intent.move_family in {"probe_secret", "public_reveal", "private_confession"} and fallback_secret_ids:
-                state.known_secret_ids = unique_preserve(state.known_secret_ids + fallback_secret_ids)[:8]
-                if intent.move_family in {"probe_secret", "public_reveal"}:
-                    state.last_turn_revealed_secret_ids = unique_preserve(
-                        state.last_turn_revealed_secret_ids + fallback_secret_ids
-                    )[:4]
     if intent.move_family == "betray":
         state.betrayal_ids = unique_preserve(state.betrayal_ids + [segment.segment_id])[:8]
     if intent.move_family == "ally_with":
@@ -4690,6 +4619,12 @@ def apply_turn_resolution(
     required_turn_tags: list[str] = []
     causal_required_tags = [tag for tag in consequence_tags if isinstance(tag, str) and tag.startswith("causal:")][:3]
     required_turn_tags.extend(causal_required_tags)
+    hook_transition_tags = [
+        tag
+        for tag in list(state.last_turn_tags)
+        if isinstance(tag, str) and tag.startswith("hook_transition:")
+    ][:4]
+    required_turn_tags.extend(hook_transition_tags)
     if fired_hook_callback_tag:
         required_turn_tags.append(fired_hook_callback_tag)
     state.last_turn_tags = _finalize_last_turn_tags(
@@ -4952,149 +4887,6 @@ def apply_turn_resolution(
     )
     state.last_turn_semantic_plan = semantic_plan
     state.last_turn_story_debug_summary = _story_debug_summary(state)
-    from rpg_backend.play_v2.hook_engine import HookTurnEvents, register_hook_callbacks, update_hook_states
-
-    effect_types = [
-        str(effect.effect_type)
-        for effect in getattr(intent, "semantic_effects", [])
-        if str(getattr(effect, "effect_type", "")).strip()
-    ]
-    before_known_secret_ids = set(before_state.known_secret_ids)
-    revealed_secret_ids = unique_preserve(
-        [
-            *list(state.last_turn_revealed_secret_ids),
-            *[
-                secret_id
-                for secret_id in state.known_secret_ids
-                if secret_id not in before_known_secret_ids
-            ],
-        ]
-    )
-    auto_changed_hook_ids = update_hook_states(
-        state,
-        HookTurnEvents(
-            actor_id=str(getattr(state, "protagonist_id", None) or "player"),
-            target_id=intent.target_id,
-            move_family=intent.move_family,
-            effect_types=effect_types,
-            exposed_secret_ids=revealed_secret_ids,
-            is_public_context=intent.scene_frame in {"public", "semi_public"},
-        ),
-        turn_index=state.turn_index,
-    )
-    manual_changed_hook_ids: list[str] = []
-    if hooks_enabled and state.hook_states:
-        hook_states = getattr(state, "hook_states", None) or {}
-        hook_priority = {
-            "suspected": 0,
-            "dormant": 1,
-            "active": 2,
-            "leveraged": 3,
-            "detonated": 4,
-        }
-
-        def _matching_manual_hooks(
-            *,
-            holder_id: str | None = None,
-            target_id: str | None = None,
-            statuses: set[str] | None = None,
-            secret_ids: set[str] | None = None,
-        ) -> list[Any]:
-            matches: list[Any] = []
-            for hook in hook_states.values():
-                hook_status = str(getattr(hook, "status", "dormant") or "dormant")
-                if holder_id is not None and str(getattr(hook, "holder_id", "") or "").strip() != holder_id:
-                    continue
-                if target_id is not None and str(getattr(hook, "target_id", "") or "").strip() != target_id:
-                    continue
-                if statuses is not None and hook_status not in statuses:
-                    continue
-                if secret_ids is not None and str(getattr(hook, "source_secret_id", "") or "").strip() not in secret_ids:
-                    continue
-                matches.append(hook)
-            return sorted(
-                matches,
-                key=lambda hook: (
-                    hook_priority.get(str(getattr(hook, "status", "dormant") or "dormant"), 99),
-                    -float(getattr(hook, "leverage_value", 0.0) or 0.0),
-                    str(getattr(hook, "hook_id", "") or ""),
-                ),
-            )
-
-        def _update_manual_hook_status(hook: Any, next_status: str) -> None:
-            leverage_value = float(getattr(hook, "leverage_value", 0.0) or 0.0)
-            if next_status == "suspected":
-                leverage_value = min(leverage_value + 0.1, 1.0)
-            elif next_status == "active":
-                leverage_value = min(leverage_value + 0.15, 1.0)
-            elif next_status == "leveraged":
-                leverage_value = min(leverage_value + 0.2, 1.0)
-            elif next_status == "detonated":
-                leverage_value = 0.0
-            hook_states[hook.hook_id] = hook.model_copy(
-                update={
-                    "status": next_status,
-                    "leverage_value": leverage_value,
-                }
-            )
-            manual_changed_hook_ids.append(hook.hook_id)
-
-        hook_known_secret_ids: list[str] = []
-        hook_revealed_secret_ids: list[str] = []
-        if intent.move_family == "probe_secret" and intent.target_id:
-            for hook in _matching_manual_hooks(holder_id=intent.target_id)[:1]:
-                hook_status = str(getattr(hook, "status", "dormant") or "dormant")
-                if hook_status == "dormant":
-                    _update_manual_hook_status(hook, "suspected")
-                elif hook_status == "suspected":
-                    _update_manual_hook_status(hook, "active")
-                    hook_known_secret_ids.append(hook.source_secret_id)
-        elif intent.move_family == "ally_with" and intent.target_id:
-            for hook in _matching_manual_hooks(holder_id=intent.target_id, statuses={"active"})[:1]:
-                _update_manual_hook_status(hook, "leveraged")
-        elif intent.move_family in {"accuse", "betray"} and intent.target_id:
-            for hook in _matching_manual_hooks(target_id=intent.target_id, statuses={"leveraged"})[:1]:
-                _update_manual_hook_status(hook, "detonated")
-                hook_known_secret_ids.append(hook.source_secret_id)
-                hook_revealed_secret_ids.append(hook.source_secret_id)
-        elif intent.move_family == "public_reveal":
-            public_reveal_secret_ids = set(state.last_turn_revealed_secret_ids)
-            public_candidates: list[Any] = []
-            if intent.target_id:
-                public_candidates.extend(_matching_manual_hooks(target_id=intent.target_id))
-            if public_reveal_secret_ids:
-                public_candidates.extend(_matching_manual_hooks(secret_ids=public_reveal_secret_ids))
-            seen_hook_ids: set[str] = set()
-            prioritized_public_candidates: list[Any] = []
-            for hook in public_candidates:
-                if hook.hook_id in seen_hook_ids:
-                    continue
-                seen_hook_ids.add(hook.hook_id)
-                prioritized_public_candidates.append(hook)
-            for hook in prioritized_public_candidates[:1]:
-                hook_status = str(getattr(hook, "status", "dormant") or "dormant")
-                if hook_status != "detonated":
-                    _update_manual_hook_status(hook, "detonated")
-                hook_known_secret_ids.append(hook.source_secret_id)
-                hook_revealed_secret_ids.append(hook.source_secret_id)
-        elif intent.move_family == "private_confession" and intent.target_id:
-            for hook in _matching_manual_hooks(holder_id=intent.target_id, statuses={"active", "leveraged"})[:1]:
-                _update_manual_hook_status(hook, "dormant")
-                hook_known_secret_ids.append(hook.source_secret_id)
-        if hook_known_secret_ids:
-            state.known_secret_ids = unique_preserve(state.known_secret_ids + hook_known_secret_ids)[:8]
-        if hook_revealed_secret_ids:
-            state.last_turn_revealed_secret_ids = unique_preserve(
-                state.last_turn_revealed_secret_ids + hook_revealed_secret_ids
-            )[:4]
-        state.hook_states = hook_states
-        manual_changed_hook_ids = unique_preserve(manual_changed_hook_ids)
-        if manual_changed_hook_ids:
-            register_hook_callbacks(state, manual_changed_hook_ids, state.turn_index)
-    changed_hook_ids = unique_preserve([*manual_changed_hook_ids, *auto_changed_hook_ids])
-    if changed_hook_ids:
-        hook_tags = [f"hook_transition:{hook_id}" for hook_id in changed_hook_ids]
-        state.last_turn_tags = unique_preserve([*state.last_turn_tags, *hook_tags])
     return state, consequence_tags
 
 

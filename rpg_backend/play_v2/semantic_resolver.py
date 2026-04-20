@@ -40,6 +40,7 @@ def resolve_semantic_effects(
     global_deltas: dict[str, Delta] = {}
     relationship_deltas: dict[str, dict[str, Delta]] = {}
     secret_ids_to_add: list[str] = []
+    revealed_secret_ids: list[str] = []
     tags: list[str] = []
     hooks_enabled = bool(getattr(plan, "hooks", None) or [])
 
@@ -54,6 +55,7 @@ def resolve_semantic_effects(
             global_deltas=global_deltas,
             relationship_deltas=relationship_deltas,
             secret_ids_to_add=secret_ids_to_add,
+            revealed_secret_ids=revealed_secret_ids,
             tags=tags,
             hook_context=hook_context,
             hooks_enabled=hooks_enabled,
@@ -64,6 +66,7 @@ def resolve_semantic_effects(
         "global_deltas": global_deltas,
         "relationship_deltas": relationship_deltas,
         "known_secret_ids_to_add": secret_ids_to_add[:4],
+        "revealed_secret_ids": revealed_secret_ids[:4],
         "tags": tags[:8],
     }
 
@@ -172,6 +175,7 @@ def _resolve_one(
     global_deltas: dict[str, Delta],
     relationship_deltas: dict[str, dict[str, Delta]],
     secret_ids_to_add: list[str],
+    revealed_secret_ids: list[str],
     tags: list[str],
     hook_context: HookContext | None,
     hooks_enabled: bool,
@@ -195,15 +199,12 @@ def _resolve_one(
         elif allocated_secrets:
             candidate_secret_id = next(iter(allocated_secrets))
         if candidate_secret_id and move_family in {None, "probe_secret"}:
-            revealed_secret_ids = list(getattr(state, "last_turn_revealed_secret_ids", []) or [])
-            if candidate_secret_id not in revealed_secret_ids:
-                state.last_turn_revealed_secret_ids = [*revealed_secret_ids, candidate_secret_id][:4]
+            revealed_secret_ids.append(candidate_secret_id)
             if (
                 candidate_secret_id not in (state.known_secret_ids or [])
                 and candidate_hook_status in {"", "suspected", "active", "leveraged", "detonated"}
             ):
                 secret_ids_to_add.append(candidate_secret_id)
-                state.known_secret_ids = [*list(state.known_secret_ids or []), candidate_secret_id][:8]
         tags.append("semantic:secret_reveal")
 
     elif et == "public_exposure":

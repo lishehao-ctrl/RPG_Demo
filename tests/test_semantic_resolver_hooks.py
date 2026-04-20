@@ -211,6 +211,7 @@ def test_hook_context_none_preserves_pre_phase_c_resolution_snapshot() -> None:
         "global_deltas": {"secret_exposure": 2, "scene_heat": 2},
         "relationship_deltas": {"target_b": {"trust": -3, "suspicion": 2}},
         "known_secret_ids_to_add": ["sec_hidden"],
+        "revealed_secret_ids": ["sec_hidden"],
         "tags": ["semantic:secret_reveal", "semantic:betrayal"],
     }
 

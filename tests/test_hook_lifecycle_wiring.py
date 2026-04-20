@@ -57,6 +57,24 @@ def test_v3_probe_secret_three_times_moves_hook_out_of_dormant(v3_plan: Compiled
     assert state.hook_states[hook_id].status in {"suspected", "active", "leveraged", "detonated"}
 
 
+def test_v3_single_probe_secret_only_advances_one_hook_step(v3_plan: CompiledPlayPlan) -> None:
+    state, raw_hook, hook_id = _isolated_v3_state(v3_plan, session_id="hook_lifecycle_single_probe")
+
+    next_state, _ = apply_turn_resolution(
+        v3_plan,
+        state,
+        UrbanTurnIntent(
+            input_text="我先试探她到底压着哪张牌。",
+            move_family="probe_secret",
+            target_id=raw_hook["holder_id"],
+            scene_frame="private",
+            semantic_effects=[SemanticEffect(effect_type="secret_reveal", target_id=raw_hook["holder_id"])],
+        ),
+    )
+
+    assert next_state.hook_states[hook_id].status == "suspected"
+
+
 def test_v3_repeated_probe_secret_upgrades_hook_to_active_and_marks_secret_known(v3_plan: CompiledPlayPlan) -> None:
     state, raw_hook, hook_id = _isolated_v3_state(v3_plan, session_id="hook_lifecycle_probe_active")
 

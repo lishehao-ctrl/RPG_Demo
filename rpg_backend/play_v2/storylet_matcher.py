@@ -21,6 +21,10 @@ class StoryletMatch(BaseModel):
     venue_hint: str
     match_score: float
     matched_conditions: list[str]
+    dramatic_weight: float = 0.0
+    cooldown_turns: int = 0
+    preconditions: dict[str, object] = {}
+    effects: dict[str, object] = {}
 
 
 def _normalized_tension(state: UrbanWorldState) -> float:
@@ -124,6 +128,10 @@ def find_matching_storylets(
                 venue_hint=getattr(storylet, "venue_hint", ""),
                 match_score=match_score,
                 matched_conditions=matched_conditions,
+                dramatic_weight=float(getattr(storylet, "dramatic_weight", 0.0) or 0.0),
+                cooldown_turns=int(getattr(storylet, "cooldown_turns", 0) or 0),
+                preconditions=storylet.preconditions.model_dump(mode="json"),
+                effects=storylet.effects.model_dump(mode="json"),
             )
         )
 

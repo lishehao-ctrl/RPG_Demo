@@ -222,7 +222,7 @@ def test_v2_plan_without_hooks_or_revealed_secrets_does_not_emit_memory_section(
     assert int(diagnostics["memory_context_total_chars_sent"]) == 0
 
 
-def test_memory_context_section_truncates_to_nine_hundred_chars_and_keeps_hooks() -> None:
+def test_memory_context_section_truncates_to_nine_hundred_chars_and_keeps_recent_blocks() -> None:
     compose_input = NarrationComposeInput(
         fact_pack={"target_id": "target_0"},
         style_cases=[{"case_id": "fallback", "text": "保持张力。"}],
@@ -271,11 +271,12 @@ def test_memory_context_section_truncates_to_nine_hundred_chars_and_keeps_hooks(
 
     assert section
     assert char_count == len(section)
-    assert char_count <= 400
-    assert len(section) <= 400
-    assert "holder_0→target_0" in section
-    assert "holder_1→target_1" in section
-    assert "SCENE_SUMMARY_0" not in section
+    assert char_count <= 900
+    assert len(section) <= 900
+    assert "holder_18→target_18" in section
+    assert "holder_19→target_19" in section
+    assert "SECRET_13" in section or "SECRET_14" in section
+    assert "SCENE_SUMMARY_1" in section
 
 
 def test_narration_event_entry_relationship_deltas_round_trip() -> None:

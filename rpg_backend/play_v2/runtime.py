@@ -5694,10 +5694,57 @@ def _turn_complexity_for_compose(
 def _storylet_hints_for_compose(matches: list[StoryletMatch]) -> list[dict[str, Any]]:
     return [
         {
+            "storylet_id": str(match.storylet_id or "").strip(),
             "function": str(match.narrative_function or "").strip(),
-            "scene_text": str(match.scene_text or "").strip()[:150],
+            "scene_text": str(match.scene_text or "").strip()[:180],
             "venue_hint": str(match.venue_hint or "").strip()[:60],
             "match_score": round(float(match.match_score), 2),
+            "dramatic_weight": round(float(getattr(match, "dramatic_weight", 0.0) or 0.0), 2),
+            "cooldown_turns": int(getattr(match, "cooldown_turns", 0) or 0),
+            "matched_conditions": [
+                str(item).strip()
+                for item in list(getattr(match, "matched_conditions", []) or [])
+                if str(item).strip()
+            ][:4],
+            "preconditions": {
+                "required_secrets_known": [
+                    str(item).strip()
+                    for item in list(dict(getattr(match, "preconditions", {}) or {}).get("required_secrets_known") or [])
+                    if str(item).strip()
+                ][:3],
+                "required_relationships": [
+                    str(item).strip()
+                    for item in list(dict(getattr(match, "preconditions", {}) or {}).get("required_relationships") or [])
+                    if str(item).strip()
+                ][:3],
+                "required_segment_roles": [
+                    str(item).strip()
+                    for item in list(dict(getattr(match, "preconditions", {}) or {}).get("required_segment_roles") or [])
+                    if str(item).strip()
+                ][:3],
+                "min_tension_score": round(
+                    float(dict(getattr(match, "preconditions", {}) or {}).get("min_tension_score") or 0.0),
+                    2,
+                ),
+            },
+            "effects": {
+                "secrets_revealed": [
+                    str(item).strip()
+                    for item in list(dict(getattr(match, "effects", {}) or {}).get("secrets_revealed") or [])
+                    if str(item).strip()
+                ][:3],
+                "relationship_shifts": {
+                    str(character_id).strip(): round(float(raw_shift), 2)
+                    for character_id, raw_shift in dict(
+                        dict(getattr(match, "effects", {}) or {}).get("relationship_shifts") or {}
+                    ).items()
+                    if str(character_id).strip()
+                },
+                "tension_delta": round(float(dict(getattr(match, "effects", {}) or {}).get("tension_delta") or 0.0), 2),
+                "triggers_chain": (
+                    str(dict(getattr(match, "effects", {}) or {}).get("triggers_chain") or "").strip() or None
+                ),
+            },
         }
         for match in matches[:3]
     ]
@@ -5716,32 +5763,75 @@ def _storylet_hint_prompt_section(storylet_hints: list[dict[str, Any]] | None) -
             str(item.get("scene_text") or ""),
         ),
     )
-    limited_hints = list(ranked_hints)
-    directive_line = "你必须消化至少一条 storylet 里的具体物件、证据、地点或动作，并把它写成场上正在发生的细节。"
-    closing_line = "不得把这些素材当成可选参考或原样抄写，至少一条必须落进最终叙述。"
-    while limited_hints:
-        lines = []
-        for item in limited_hints:
-            function_text = str(item.get("function") or "").strip() or "scene"
-            scene_text = str(item.get("scene_text") or "").strip()
-            venue_hint = str(item.get("venue_hint") or "").strip()
-            line = f"[{function_text}] {scene_text}"
-            if venue_hint:
-                line = f"{line}（{venue_hint}）"
-            lines.append(line)
-        body = "\n".join(lines)
-        section_body = f"{directive_line}\n{body}\n{closing_line}" if body else ""
-        if section_body and len(section_body) <= 600:
+    if not ranked_hints:
+        return ""
+    selected_hint = dict(ranked_hints[0])
+    selected_payload = {
+        "storylet_id": str(selected_hint.get("storylet_id") or "").strip(),
+        "narrative_function": str(selected_hint.get("function") or "").strip() or "scene",
+        "match_score": round(float(selected_hint.get("match_score") or 0.0), 2),
+        "dramatic_weight": round(float(selected_hint.get("dramatic_weight") or 0.0), 2),
+        "cooldown_turns": int(selected_hint.get("cooldown_turns") or 0),
+        "matched_conditions": [
+            str(item).strip()
+            for item in list(selected_hint.get("matched_conditions") or [])
+            if str(item).strip()
+        ][:4],
+        "scene_anchor": trim_text(str(selected_hint.get("scene_text") or "").strip(), 180),
+        "venue_hint": trim_text(str(selected_hint.get("venue_hint") or "").strip(), 60),
+        "preconditions": {
+            "required_secrets_known": [
+                str(item).strip()
+                for item in list(dict(selected_hint.get("preconditions") or {}).get("required_secrets_known") or [])
+                if str(item).strip()
+            ][:3],
+            "required_relationships": [
+                str(item).strip()
+                for item in list(dict(selected_hint.get("preconditions") or {}).get("required_relationships") or [])
+                if str(item).strip()
+            ][:3],
+            "required_segment_roles": [
+                str(item).strip()
+                for item in list(dict(selected_hint.get("preconditions") or {}).get("required_segment_roles") or [])
+                if str(item).strip()
+            ][:3],
+            "min_tension_score": round(
+                float(dict(selected_hint.get("preconditions") or {}).get("min_tension_score") or 0.0),
+                2,
+            ),
+        },
+        "effects": {
+            "secrets_revealed": [
+                str(item).strip()
+                for item in list(dict(selected_hint.get("effects") or {}).get("secrets_revealed") or [])
+                if str(item).strip()
+            ][:3],
+            "relationship_shifts": {
+                str(character_id).strip(): round(float(raw_shift), 2)
+                for character_id, raw_shift in dict(dict(selected_hint.get("effects") or {}).get("relationship_shifts") or {}).items()
+                if str(character_id).strip()
+            },
+            "tension_delta": round(float(dict(selected_hint.get("effects") or {}).get("tension_delta") or 0.0), 2),
+            "triggers_chain": (
+                str(dict(selected_hint.get("effects") or {}).get("triggers_chain") or "").strip() or None
+            ),
+        },
+    }
+    payload_text = json.dumps(selected_payload, ensure_ascii=False, separators=(",", ":"))
+    while payload_text:
+        if len(payload_text) <= 700:
             return (
-                "\n\n## 可用情境素材（storylet hints）\n"
-                "以下是根据当前世界状态匹配到的场景原型，作为叙述素材参考，用不用由你判断：\n"
-                f"{section_body}\n\n"
+                "\n\n## 已选情境素材（storylet）\n"
+                "以下 JSON 已根据当前世界状态匹配完成，不是可选灵感：\n"
+                f"{payload_text}\n"
+                "最终叙述必须把 scene_anchor 或 effects 里的至少一个具体物件、证据、地点、动作或后果写成场上正在发生的细节，不得原样抄写 JSON。\n\n"
             )
-        limited_hints.pop()
+        selected_payload["scene_anchor"] = trim_text(selected_payload["scene_anchor"], max(len(selected_payload["scene_anchor"]) - 24, 72))
+        payload_text = json.dumps(selected_payload, ensure_ascii=False, separators=(",", ":"))
     return ""
 
 
-_MEMORY_CONTEXT_PROMPT_CHAR_LIMIT = 400
+_MEMORY_CONTEXT_PROMPT_CHAR_LIMIT = 900
 _MEMORY_CONTEXT_RELATION_DIMENSIONS = ("affection", "trust", "tension", "suspicion", "dependency")
 _MEMORY_CONTEXT_RELATION_LABELS = {
     "affection": "亲密",
@@ -5805,6 +5895,11 @@ def _memory_context_prompt_section(compose_input: NarrationComposeInput) -> tupl
         except Exception:
             return str(raw_value).strip()
 
+    def _recent_items(items: list[str], *, limit: int) -> list[str]:
+        if limit <= 0:
+            return []
+        return list(items[-limit:])
+
     active_hook_items: list[str] = []
     for hook in list(memory_context.get("active_hook_summary") or []):
         if not isinstance(hook, dict):
@@ -5817,9 +5912,10 @@ def _memory_context_prompt_section(compose_input: NarrationComposeInput) -> tupl
         active_hook_items.append(
             trim_text(
                 f"{holder_id}→{target_id}（{leverage_type}，{status}，筹码强度 {leverage_value}）",
-                96,
+                84,
             )
         )
+    active_hook_items = _recent_items(active_hook_items, limit=2)
 
     prompt_target_ids: set[str] = set()
     prompt_target_id = str(dict(compose_input.fact_pack or {}).get("target_id") or "").strip()
@@ -5851,8 +5947,9 @@ def _memory_context_prompt_section(compose_input: NarrationComposeInput) -> tupl
                 if key in {"affection", "trust", "tension", "suspicion"}
             ]
             relationship_items.append(
-                trim_text(f"{character_id}: {' / '.join(rendered_dimensions)}", 120)
+                trim_text(f"{character_id}: {' / '.join(rendered_dimensions)}", 92)
             )
+    relationship_items = _recent_items(relationship_items, limit=2)
 
     revealed_secret_items: list[str] = []
     for secret in list(memory_context.get("revealed_secret_summary") or []):
@@ -5861,9 +5958,10 @@ def _memory_context_prompt_section(compose_input: NarrationComposeInput) -> tupl
         title = str(secret.get("title") or secret.get("secret_id") or "").strip() or "unknown_secret"
         excerpt = str(secret.get("description_excerpt") or "").strip()
         if excerpt:
-            revealed_secret_items.append(trim_text(f"{title}（{excerpt}）", 120))
+            revealed_secret_items.append(trim_text(f"{title}（{excerpt}）", 88))
         else:
-            revealed_secret_items.append(trim_text(title, 80))
+            revealed_secret_items.append(trim_text(title, 72))
+    revealed_secret_items = _recent_items(revealed_secret_items, limit=3)
 
     pressure_items: list[str] = []
     if isinstance(npc_pressure_snapshot, dict):
@@ -5878,13 +5976,14 @@ def _memory_context_prompt_section(compose_input: NarrationComposeInput) -> tupl
                         f"受辱风险{_format_number(metrics.get('humiliation_risk', 0))} / "
                         f"背叛倾向{_format_number(metrics.get('betrayal_readiness', 0))}"
                     ),
-                    120,
+                    90,
                 )
             )
+    pressure_items = _recent_items(pressure_items, limit=2)
 
     summary_items = [
-        trim_text(str(item).strip(), 140)
-        for item in list(memory_context.get("summary_texts") or [])[-2:]
+        trim_text(str(item).strip(), 90)
+        for item in list(memory_context.get("summary_texts") or [])[-3:]
         if str(item).strip()
     ]
 
@@ -5942,7 +6041,7 @@ def _memory_context_prompt_section(compose_input: NarrationComposeInput) -> tupl
             block = next(item for item in blocks if item["key"] == key)
             if not block["items"]:
                 continue
-            if key == "summary_texts":
+            if key in {"summary_texts", "revealed_secret_summary", "active_hook_summary"}:
                 block["items"].pop(0)
             else:
                 block["items"].pop()
@@ -5953,7 +6052,7 @@ def _memory_context_prompt_section(compose_input: NarrationComposeInput) -> tupl
         section = _render_section()
         if not section:
             return "", 0
-    if len(section) > _MEMORY_CONTEXT_PROMPT_CHAR_LIMIT or not any(block["items"] for block in blocks):
+    if not any(block["items"] for block in blocks):
         return "", 0
     return section, len(section)
 

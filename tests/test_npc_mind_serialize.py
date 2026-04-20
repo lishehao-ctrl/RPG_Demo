@@ -47,12 +47,29 @@ def test_storylet_prompt_section_uses_mandatory_language() -> None:
     section = _storylet_hint_prompt_section(
         [
             {
+                "storylet_id": "storylet_required",
                 "function": "hook",
                 "scene_text": "董事会录音从补印稿里滑出来，黑色账本压在长桌尽头。",
                 "venue_hint": "董事会议室",
                 "match_score": 0.91,
+                "dramatic_weight": 0.8,
+                "cooldown_turns": 1,
+                "matched_conditions": ["required_segment_roles"],
+                "preconditions": {
+                    "required_secrets_known": [],
+                    "required_relationships": [],
+                    "required_segment_roles": ["opening"],
+                    "min_tension_score": 0.3,
+                },
+                "effects": {
+                    "secrets_revealed": ["sec_board"],
+                    "relationship_shifts": {},
+                    "tension_delta": 0.2,
+                    "triggers_chain": None,
+                },
             }
         ]
     )
 
-    assert "必须消化" in section
+    assert "不是可选灵感" in section
+    assert "\"storylet_id\":\"storylet_required\"" in section

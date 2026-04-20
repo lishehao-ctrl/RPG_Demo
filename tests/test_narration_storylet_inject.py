@@ -129,7 +129,7 @@ def _run_llm_turn(
 
 def _storylet_prompt_body(system_prompt: str) -> str:
     match = re.search(
-        r"## 可用情境素材（storylet hints）\n以下是根据当前世界状态匹配到的场景原型，作为叙述素材参考，用不用由你判断：\n(?P<body>.*?)(?:\n\n不得新增角色)",
+        r"## 已选情境素材（storylet）\n以下 JSON 已根据当前世界状态匹配完成，不是可选灵感：\n(?P<body>.*?)(?:\n最终叙述必须把 scene_anchor)",
         system_prompt,
         flags=re.DOTALL,
     )
@@ -164,10 +164,13 @@ def test_llm_path_injects_storylet_hints_into_compose_prompt(
     system_prompt = str(record.get("system_prompt") or "")
     compose_input = dict(record.get("user_payload", {}).get("compose_input", {}) or {})
 
-    assert "## 可用情境素材（storylet hints）" in system_prompt
+    assert "## 已选情境素材（storylet）" in system_prompt
     assert "PROMPT_MATCH_片段" in system_prompt
+    assert "\"storylet_id\":\"storylet_prompt_hit\"" in system_prompt
+    assert "\"preconditions\"" in system_prompt
     assert isinstance(compose_input.get("storylet_hints"), list)
     assert compose_input["storylet_hints"][0]["scene_text"].startswith("PROMPT_MATCH_片段")
+    assert compose_input["storylet_hints"][0]["storylet_id"] == "storylet_prompt_hit"
 
 
 def test_v2_plan_without_storylet_pool_does_not_emit_storylet_prompt_section(
@@ -179,7 +182,7 @@ def test_v2_plan_without_storylet_pool_does_not_emit_storylet_prompt_section(
     system_prompt = str(record.get("system_prompt") or "")
     compose_input = dict(record.get("user_payload", {}).get("compose_input", {}) or {})
 
-    assert "## 可用情境素材（storylet hints）" not in system_prompt
+    assert "## 已选情境素材（storylet）" not in system_prompt
     assert compose_input.get("storylet_hints") == []
 
 
@@ -210,11 +213,11 @@ def test_empty_storylet_matches_do_not_emit_storylet_prompt_section(
     system_prompt = str(record.get("system_prompt") or "")
     compose_input = dict(record.get("user_payload", {}).get("compose_input", {}) or {})
 
-    assert "## 可用情境素材（storylet hints）" not in system_prompt
+    assert "## 已选情境素材（storylet）" not in system_prompt
     assert compose_input.get("storylet_hints") == []
 
 
-def test_storylet_prompt_section_truncates_to_six_hundred_characters(
+def test_storylet_prompt_section_keeps_structured_selected_storylet_under_seven_hundred_characters(
     monkeypatch: pytest.MonkeyPatch,
     v3_plan: CompiledPlayPlan,
 ) -> None:
@@ -276,8 +279,11 @@ def test_storylet_prompt_section_truncates_to_six_hundred_characters(
     record = _compose_record(gateway)
     body = _storylet_prompt_body(str(record.get("system_prompt") or ""))
 
-    assert len(body) <= 600
+    assert len(body) <= 700
     assert "KEEP_HIGH_1_" in body
+    assert "\"storylet_id\":\"storylet_keep_high_1\"" in body
+    assert "\"preconditions\"" in body
+    assert "\"effects\"" in body
     assert "KEEP_HIGH_2_" not in body
     assert "DROP_LOW_" not in body
 

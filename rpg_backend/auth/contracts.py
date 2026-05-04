@@ -3,19 +3,10 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class AuthRegisterRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    display_name: str = Field(min_length=1, max_length=120)
-    email: str = Field(min_length=3, max_length=320)
-    password: str = Field(min_length=8, max_length=200)
-
-
 class AuthLoginRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    email: str = Field(min_length=3, max_length=320)
-    password: str = Field(min_length=1, max_length=200)
+    username: str = Field(min_length=2, max_length=20, pattern=r"^[A-Za-z0-9_]+$")
 
 
 class AuthUserResponse(BaseModel):
@@ -23,7 +14,6 @@ class AuthUserResponse(BaseModel):
 
     user_id: str = Field(min_length=1, max_length=80)
     display_name: str = Field(min_length=1, max_length=120)
-    email: str = Field(min_length=3, max_length=320)
 
 
 class AuthSessionResponse(BaseModel):
@@ -38,5 +28,4 @@ class CurrentActorResponse(BaseModel):
 
     user_id: str = Field(min_length=1, max_length=80)
     display_name: str = Field(min_length=1, max_length=120)
-    email: str = Field(min_length=3, max_length=320)
     is_default: bool = False

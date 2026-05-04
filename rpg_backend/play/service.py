@@ -38,6 +38,7 @@ from rpg_backend.play.contracts import (
     PlayPlan,
     PlaySessionHistoryEntry,
     PlaySessionHistoryResponse,
+    PlaySessionReplayResponse,
     PlaySessionSnapshot,
     PlaySuggestedAction,
     PlayEnding,
@@ -115,6 +116,8 @@ class _PlaySessionRecord:
     finished_at: datetime | None
     history: list[PlaySessionHistoryEntry]
     turn_traces: list[PlayTurnTrace]
+    library_story_id: str | None = None  # library publish id; falls back to plan.story_id when absent
+    player_user_id: str | None = None  # logged-in player; None for anonymous plays
 
 
 @dataclass
@@ -328,11 +331,15 @@ class PlaySessionService:
         )
 
     def _serialize_record(self, record: _PlaySessionRecord) -> dict[str, object]:
+        library_story_id = record.library_story_id or record.plan.story_id
         return {
             "session_id": record.state.session_id,
             "owner_user_id": record.owner_user_id,
             "runtime_kind": record.runtime_kind,
-            "story_id": record.plan.story_id,
+            "story_id": library_story_id,
+            "library_story_id": library_story_id,
+            "compiled_plan_id": record.plan.story_id,
+            "player_user_id": record.player_user_id,
             "created_at": record.created_at.isoformat(),
             "expires_at": record.expires_at.isoformat(),
             "finished_at": record.finished_at.isoformat() if record.finished_at is not None else None,
@@ -386,6 +393,15 @@ class PlaySessionService:
                     message="This play session was created by an older runtime version and can no longer be resumed. Please start a new session.",
                     status_code=409,
                 )
+        library_story_id_raw = payload.get("library_story_id")
+        if not isinstance(library_story_id_raw, str) or not library_story_id_raw:
+            # Older rows persisted only "story_id"; treat it as library_story_id.
+            legacy_story_id = payload.get("story_id")
+            library_story_id = str(legacy_story_id) if isinstance(legacy_story_id, str) and legacy_story_id else None
+        else:
+            library_story_id = library_story_id_raw
+        player_user_id_raw = payload.get("player_user_id")
+        player_user_id = str(player_user_id_raw) if isinstance(player_user_id_raw, str) and player_user_id_raw else None
         return _PlaySessionRecord(
             owner_user_id=str(payload["owner_user_id"]),
             runtime_kind=(
@@ -400,6 +416,8 @@ class PlaySessionService:
             finished_at=datetime.fromisoformat(str(payload["finished_at"])) if payload.get("finished_at") else None,
             history=[PlaySessionHistoryEntry.model_validate(item) for item in (payload.get("history") or [])],
             turn_traces=[PlayTurnTrace.model_validate(item) for item in (payload.get("turn_traces") or [])],
+            library_story_id=library_story_id,
+            player_user_id=player_user_id,
         )
 
     def _save_record(self, record: _PlaySessionRecord) -> None:
@@ -1161,13 +1179,50 @@ class PlaySessionService:
         if refreshed_expires_at > record.expires_at:
             record.expires_at = refreshed_expires_at
 
+    def _mark_finished_and_report_stats(self, record: _PlaySessionRecord) -> None:
+        """Mark the record as finished + bump library completion stats. Idempotent.
+
+        Called from any turn handler that just transitioned the session out of
+        "active". Stats reporting is best-effort — a stats failure must never
+        crash the turn response.
+        """
+        if record.state.status == "active" or record.finished_at is not None:
+            return
+        record.finished_at = self._now()
+        ending = getattr(record.state, "ending", None)
+        if record.library_story_id is None or ending is None:
+            return
+        try:
+            self._story_library_service.record_play_completion(
+                story_id=record.library_story_id,
+                player_user_id=record.player_user_id,
+                ending_id=str(getattr(ending, "ending_id", "") or "unknown"),
+                completed_at=record.finished_at,
+            )
+        except Exception:  # noqa: BLE001 — stats are best-effort
+            pass
+
     @staticmethod
-    def _snapshot_for(plan: PlayPlan | CompiledPlayPlan, state: PlaySessionState | UrbanWorldState) -> PlaySessionSnapshot:
+    def _snapshot_for(
+        plan: PlayPlan | CompiledPlayPlan,
+        state: PlaySessionState | UrbanWorldState,
+        *,
+        library_story_id: str | None = None,
+    ) -> PlaySessionSnapshot:
         if isinstance(plan, CompiledPlayPlan) and isinstance(state, UrbanWorldState):
-            return build_v2_snapshot(plan, state)
-        if is_relationship_drama_plan(plan):
-            return build_relationship_session_snapshot(plan, state)
-        return build_session_snapshot(plan, state)
+            snapshot = build_v2_snapshot(plan, state)
+        elif is_relationship_drama_plan(plan):
+            snapshot = build_relationship_session_snapshot(plan, state)
+        else:
+            snapshot = build_session_snapshot(plan, state)
+        compiled_plan_id = plan.story_id
+        story_id_override = library_story_id or compiled_plan_id
+        snapshot = snapshot.model_copy(update={
+            "story_id": story_id_override,
+            "library_story_id": story_id_override,
+            "compiled_plan_id": compiled_plan_id,
+        })
+        return snapshot
 
     @staticmethod
     def _add_usage(total: dict[str, int], usage: dict[str, int | str] | None) -> None:
@@ -1265,7 +1320,13 @@ class PlaySessionService:
             end_reason=end_reason,
         )
 
-    def create_session(self, story_id: str, *, actor_user_id: str | None = None) -> PlaySessionSnapshot:
+    def create_session(
+        self,
+        story_id: str,
+        *,
+        actor_user_id: str | None = None,
+        player_user_id: str | None = None,
+    ) -> PlaySessionSnapshot:
         resolved_actor_user_id = actor_user_id or self._settings.default_actor_id
         story = self._story_library_service.get_story_record(story_id, actor_user_id=resolved_actor_user_id)
         if not isinstance(story.bundle, RelationshipDramaV2Package):
@@ -1280,7 +1341,12 @@ class PlaySessionService:
                 message="story bundle uses outdated play semantic schema; recompile with latest author pipeline",
                 status_code=409,
             )
-        return self.create_session_from_urban_plan(story.bundle.compiled_play_plan, actor_user_id=resolved_actor_user_id)
+        return self.create_session_from_urban_plan(
+            story.bundle.compiled_play_plan,
+            actor_user_id=resolved_actor_user_id,
+            library_story_id=story_id,
+            player_user_id=player_user_id,
+        )
 
     def create_session_from_plan(self, plan: PlayPlan, *, actor_user_id: str | None = None) -> PlaySessionSnapshot:
         resolved_actor_user_id = actor_user_id or self._settings.default_actor_id
@@ -1309,7 +1375,14 @@ class PlaySessionService:
         self._save_record(record)
         return self._snapshot_for(plan, state)
 
-    def create_session_from_urban_plan(self, plan: CompiledPlayPlan, *, actor_user_id: str | None = None) -> PlaySessionSnapshot:
+    def create_session_from_urban_plan(
+        self,
+        plan: CompiledPlayPlan,
+        *,
+        actor_user_id: str | None = None,
+        library_story_id: str | None = None,
+        player_user_id: str | None = None,
+    ) -> PlaySessionSnapshot:
         resolved_actor_user_id = actor_user_id or self._settings.default_actor_id
         if int(getattr(plan, "delta_pack_contract_version", 0) or 0) not in URBAN_PLAN_CONTRACT_VERSIONS:
             raise PlayServiceError(
@@ -1340,10 +1413,12 @@ class PlaySessionService:
                 )
             ],
             turn_traces=[],
+            library_story_id=library_story_id,
+            player_user_id=player_user_id,
         )
         self._session_lock_for(session_id)
         self._save_record(record)
-        return self._snapshot_for(plan, state)
+        return self._snapshot_for(plan, state, library_story_id=library_story_id)
 
     def get_session(self, session_id: str, *, actor_user_id: str | None = None) -> PlaySessionSnapshot:
         resolved_actor_user_id = actor_user_id or self._settings.default_actor_id
@@ -1351,7 +1426,7 @@ class PlaySessionService:
             record = self._get_record(session_id)
             self._ensure_owner_access(record.owner_user_id, resolved_actor_user_id, session_id=session_id)
             self._expire_record_if_needed(record)
-            return self._snapshot_for(record.plan, record.state)
+            return self._snapshot_for(record.plan, record.state, library_story_id=record.library_story_id)
 
     def get_turn_traces(self, session_id: str, *, actor_user_id: str | None = None) -> list[PlayTurnTrace]:
         resolved_actor_user_id = actor_user_id or self._settings.default_actor_id
@@ -1369,7 +1444,35 @@ class PlaySessionService:
             self._expire_record_if_needed(record)
             return PlaySessionHistoryResponse(
                 session_id=session_id,
-                story_id=record.plan.story_id,
+                story_id=record.library_story_id or record.plan.story_id,
+                entries=list(record.history),
+            )
+
+    def get_session_replay(self, session_id: str) -> PlaySessionReplayResponse:
+        """Read-only replay view. No owner check — replay URLs are public-by-design.
+
+        The world's own visibility still applies indirectly: private worlds can
+        only be played by their owner, so only the owner ever holds a session_id
+        for one. Replay therefore inherits "if you have the link, you can read it".
+        """
+        with self._session_lock_for(session_id):
+            record = self._get_record(session_id)
+            ending = getattr(record.state, "ending", None)
+            # CompiledPlayPlan uses `title`, legacy PlayPlan uses `story_title`.
+            if isinstance(record.plan, CompiledPlayPlan):
+                story_title = str(record.plan.title or "")
+            else:
+                story_title = str(getattr(record.plan, "story_title", "") or "")
+            if not story_title:
+                story_title = "Untitled"
+            return PlaySessionReplayResponse(
+                session_id=session_id,
+                story_id=record.library_story_id or record.plan.story_id,
+                story_title=story_title,
+                completed=record.state.status == "completed",
+                completed_at=record.finished_at,
+                final_narration=str(getattr(record.state, "narration", "") or ""),
+                ending=ending,
                 entries=list(record.history),
             )
 
@@ -1648,8 +1751,7 @@ class PlaySessionService:
                 turn_index=record.state.turn_index,
             )
         )
-        if record.state.status != "active" and record.finished_at is None:
-            record.finished_at = self._now()
+        self._mark_finished_and_report_stats(record)
         if self._enable_turn_telemetry:
             trace, payload = build_v2_turn_trace(
                 plan=record.plan,
@@ -1715,7 +1817,7 @@ class PlaySessionService:
                 )
         self._refresh_record_expiry(record)
         self._save_record(record)
-        return self._snapshot_for(record.plan, record.state)
+        return self._snapshot_for(record.plan, record.state, library_story_id=record.library_story_id)
 
     def _submit_turn_legacy(self, *, session_id: str, record: _PlaySessionRecord, request: PlayTurnRequest) -> PlaySessionSnapshot:
         if isinstance(record.plan, CompiledPlayPlan) or isinstance(record.state, UrbanWorldState):
@@ -1792,8 +1894,7 @@ class PlaySessionService:
                     turn_index=record.state.turn_index,
                 )
             )
-            if record.state.status != "active" and record.finished_at is None:
-                record.finished_at = self._now()
+            self._mark_finished_and_report_stats(record)
             if self._enable_turn_telemetry:
                 beat_after = record.plan.beats[record.state.beat_index]
                 record.turn_traces.append(
@@ -1848,7 +1949,7 @@ class PlaySessionService:
                 )
             self._refresh_record_expiry(record)
             self._save_record(record)
-            return self._snapshot_for(record.plan, record.state)
+            return self._snapshot_for(record.plan, record.state, library_story_id=record.library_story_id)
         gateway = self._resolve_gateway()
         latest_response_id = record.state.session_response_id
         turn_started_at = perf_counter()
@@ -1958,8 +2059,7 @@ class PlaySessionService:
                 turn_index=record.state.turn_index,
             )
         )
-        if record.state.status != "active" and record.finished_at is None:
-            record.finished_at = self._now()
+        self._mark_finished_and_report_stats(record)
         if self._enable_turn_telemetry:
             beat_after = record.plan.beats[record.state.beat_index]
             used_previous_response_id = any(
@@ -2027,7 +2127,7 @@ class PlaySessionService:
             )
         self._refresh_record_expiry(record)
         self._save_record(record)
-        return self._snapshot_for(record.plan, record.state)
+        return self._snapshot_for(record.plan, record.state, library_story_id=record.library_story_id)
 
     def delete_sessions_for_story(self, *, actor_user_id: str | None = None, story_id: str) -> int:
         resolved_actor_user_id = actor_user_id or self._settings.default_actor_id

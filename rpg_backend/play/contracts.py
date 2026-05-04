@@ -391,6 +391,27 @@ class PlaySessionHistoryResponse(BaseModel):
     entries: list[PlaySessionHistoryEntry] = Field(default_factory=list)
 
 
+class PlaySessionReplayResponse(BaseModel):
+    """Read-only replay payload for sharing a completed (or in-progress) session.
+
+    Anyone with the session_id can fetch this; it's the public-shareable view
+    that powers `/play/:session_id/replay` URLs. We expose just enough to
+    reconstruct the dramatic arc — title, transcript, ending — and a pointer
+    back to the source world so the viewer can start their own playthrough.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: str = Field(min_length=1)
+    story_id: str = Field(min_length=1)
+    story_title: str = Field(min_length=1, max_length=200)
+    completed: bool = False
+    completed_at: datetime | None = None
+    final_narration: str = ""
+    ending: PlayEnding | None = None
+    entries: list[PlaySessionHistoryEntry] = Field(default_factory=list)
+
+
 class PlaySessionProgress(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -447,6 +468,8 @@ class PlaySessionSnapshot(BaseModel):
 
     session_id: str = Field(min_length=1)
     story_id: str = Field(min_length=1)
+    library_story_id: str | None = Field(default=None, max_length=200)
+    compiled_plan_id: str | None = Field(default=None, max_length=200)
     story_mode: PlayStoryMode = "relationship_drama"
     story_shell_id: StoryShellId | None = None
     status: Literal["active", "completed", "expired"]

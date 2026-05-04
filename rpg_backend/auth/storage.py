@@ -21,14 +21,22 @@ class SQLiteAuthStorage:
         return connection
 
     def _ensure_schema(self, connection: sqlite3.Connection) -> None:
+        # Migration: drop legacy schema (with email/password) so we can recreate it.
+        legacy_cols = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(auth_users)").fetchall()
+        }
+        if legacy_cols and ("password_hash" in legacy_cols or "normalized_email" in legacy_cols):
+            connection.execute("DROP TABLE IF EXISTS auth_sessions")
+            connection.execute("DROP TABLE IF EXISTS auth_users")
+            connection.commit()
+
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS auth_users (
                 user_id TEXT PRIMARY KEY,
-                email TEXT NOT NULL,
-                normalized_email TEXT NOT NULL UNIQUE,
+                username TEXT NOT NULL UNIQUE,
                 display_name TEXT NOT NULL,
-                password_hash TEXT NOT NULL,
                 created_at TEXT NOT NULL
             )
             """
@@ -58,44 +66,25 @@ class SQLiteAuthStorage:
         self,
         *,
         user_id: str,
-        email: str,
-        normalized_email: str,
+        username: str,
         display_name: str,
-        password_hash: str,
         created_at: datetime,
     ) -> None:
         with self._connect() as connection:
             connection.execute(
                 """
-                INSERT INTO auth_users (
-                    user_id,
-                    email,
-                    normalized_email,
-                    display_name,
-                    password_hash,
-                    created_at
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO auth_users (user_id, username, display_name, created_at)
+                VALUES (?, ?, ?, ?)
                 """,
-                (
-                    user_id,
-                    email,
-                    normalized_email,
-                    display_name,
-                    password_hash,
-                    created_at.isoformat(),
-                ),
+                (user_id, username, display_name, created_at.isoformat()),
             )
             connection.commit()
 
-    def get_user_by_normalized_email(self, normalized_email: str) -> dict[str, Any] | None:
+    def get_user_by_username(self, username: str) -> dict[str, Any] | None:
         with self._connect() as connection:
             row = connection.execute(
-                """
-                SELECT *
-                FROM auth_users
-                WHERE normalized_email = ?
-                """,
-                (normalized_email,),
+                "SELECT * FROM auth_users WHERE username = ?",
+                (username,),
             ).fetchone()
         if row is None:
             return None
@@ -104,11 +93,7 @@ class SQLiteAuthStorage:
     def get_user_by_user_id(self, user_id: str) -> dict[str, Any] | None:
         with self._connect() as connection:
             row = connection.execute(
-                """
-                SELECT *
-                FROM auth_users
-                WHERE user_id = ?
-                """,
+                "SELECT * FROM auth_users WHERE user_id = ?",
                 (user_id,),
             ).fetchone()
         if row is None:
@@ -129,12 +114,7 @@ class SQLiteAuthStorage:
             connection.execute(
                 """
                 INSERT INTO auth_sessions (
-                    session_id,
-                    user_id,
-                    token_hash,
-                    created_at,
-                    expires_at,
-                    last_seen_at
+                    session_id, user_id, token_hash, created_at, expires_at, last_seen_at
                 ) VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
@@ -159,14 +139,11 @@ class SQLiteAuthStorage:
                     sessions.created_at AS session_created_at,
                     sessions.expires_at AS expires_at,
                     sessions.last_seen_at AS last_seen_at,
-                    users.email AS email,
-                    users.normalized_email AS normalized_email,
+                    users.username AS username,
                     users.display_name AS display_name,
-                    users.password_hash AS password_hash,
                     users.created_at AS user_created_at
                 FROM auth_sessions AS sessions
-                JOIN auth_users AS users
-                    ON users.user_id = sessions.user_id
+                JOIN auth_users AS users ON users.user_id = sessions.user_id
                 WHERE sessions.token_hash = ?
                 """,
                 (token_hash,),
@@ -180,10 +157,8 @@ class SQLiteAuthStorage:
             "session_created_at": str(row["session_created_at"]),
             "expires_at": str(row["expires_at"]),
             "last_seen_at": str(row["last_seen_at"]),
-            "email": str(row["email"]),
-            "normalized_email": str(row["normalized_email"]),
+            "username": str(row["username"]),
             "display_name": str(row["display_name"]),
-            "password_hash": str(row["password_hash"]),
             "user_created_at": str(row["user_created_at"]),
         }
 
@@ -202,10 +177,7 @@ class SQLiteAuthStorage:
     def delete_session_by_token_hash(self, token_hash: str) -> None:
         with self._connect() as connection:
             connection.execute(
-                """
-                DELETE FROM auth_sessions
-                WHERE token_hash = ?
-                """,
+                "DELETE FROM auth_sessions WHERE token_hash = ?",
                 (token_hash,),
             )
             connection.commit()
@@ -214,9 +186,7 @@ class SQLiteAuthStorage:
     def _row_to_user(row: sqlite3.Row) -> dict[str, Any]:
         return {
             "user_id": str(row["user_id"]),
-            "email": str(row["email"]),
-            "normalized_email": str(row["normalized_email"]),
+            "username": str(row["username"]),
             "display_name": str(row["display_name"]),
-            "password_hash": str(row["password_hash"]),
             "created_at": str(row["created_at"]),
         }

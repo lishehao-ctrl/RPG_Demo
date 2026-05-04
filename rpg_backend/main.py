@@ -5,10 +5,10 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from rpg_backend.auth import (
     AuthLoginRequest,
-    AuthRegisterRequest,
     AuthService,
     AuthServiceError,
     AuthSessionResponse,
+    AuthUserResponse,
     AuthenticatedSession,
     CurrentActorResponse,
 )
@@ -42,6 +42,7 @@ from rpg_backend.play.contracts import (
     PlayDraftIntentResponse,
     PlaySessionHistoryResponse,
     PlaySessionCreateRequest,
+    PlaySessionReplayResponse,
     PlaySessionSnapshot,
     PlayTurnRequest,
 )
@@ -89,8 +90,39 @@ def get_required_request_session(request: Request) -> AuthenticatedSession:
     return auth_service.require_session(request)
 
 
-def get_required_request_user(session: AuthenticatedSession = Depends(get_required_request_session)):
-    return session.user
+_ANONYMOUS_REQUEST_USER = None
+
+
+def _anonymous_request_user():
+    """Lazy singleton anonymous user used when auth is disabled."""
+    from rpg_backend.auth.service import RequestUser
+
+    global _ANONYMOUS_REQUEST_USER
+    if _ANONYMOUS_REQUEST_USER is None:
+        _ANONYMOUS_REQUEST_USER = RequestUser(
+            user_id=settings.default_actor_id or "anonymous",
+            display_name="Player",
+        )
+    return _ANONYMOUS_REQUEST_USER
+
+
+def get_required_request_user(request: Request):
+    """Auth disabled: return existing session user when present, else anonymous fallback."""
+    session = auth_service.resolve_session(request)
+    if session is not None:
+        return session.user
+    return _anonymous_request_user()
+
+
+def get_player_user_id(request: Request) -> str | None:
+    """Real signed-in user_id, or None for anonymous plays.
+
+    Used to attribute play completions to a logged-in player so the world's
+    `unique_player_count` only counts real users. Anonymous plays still bump
+    `play_count` but not the unique count.
+    """
+    session = auth_service.resolve_session(request)
+    return session.user.user_id if session is not None else None
 
 
 @app.exception_handler(AuthorGatewayError)
@@ -132,14 +164,16 @@ def health() -> dict[str, str]:
 
 @app.get("/auth/session", response_model=AuthSessionResponse)
 def get_auth_session(session: AuthenticatedSession | None = Depends(get_optional_request_session)) -> AuthSessionResponse:
-    return auth_service.build_session_response(session)
-
-
-@app.post("/auth/register", response_model=AuthSessionResponse)
-def register_auth_user(payload: AuthRegisterRequest, response: Response) -> AuthSessionResponse:
-    session = auth_service.register(payload)
-    _apply_session_cookie(response, session)
-    return auth_service.build_session_response(session)
+    # Anonymous-by-default: callers without a cookie still get an authenticated payload
+    # so the public/unlisted browse + play paths don't require sign-in. Authoring routes
+    # still gate with require_session.
+    if session is not None:
+        return auth_service.build_session_response(session)
+    user = _anonymous_request_user()
+    return AuthSessionResponse(
+        authenticated=True,
+        user=AuthUserResponse(user_id=user.user_id, display_name=user.display_name),
+    )
 
 
 @app.post("/auth/login", response_model=AuthSessionResponse)
@@ -158,8 +192,12 @@ def logout_auth_user(request: Request, response: Response) -> Response:
 
 
 @app.get("/me", response_model=CurrentActorResponse)
-def get_current_actor(session: AuthenticatedSession = Depends(get_required_request_session)) -> CurrentActorResponse:
-    return auth_service.build_current_actor_response(session)
+def get_current_actor(user=Depends(get_required_request_user)) -> CurrentActorResponse:
+    return CurrentActorResponse(
+        user_id=user.user_id,
+        display_name=user.display_name,
+        is_default=user.user_id == (settings.default_actor_id or "anonymous"),
+    )
 
 
 @app.post("/author/story-previews", response_model=AuthorPreviewResponse)
@@ -294,8 +332,13 @@ def delete_story(
 def create_play_session(
     payload: PlaySessionCreateRequest,
     user=Depends(get_required_request_user),
+    player_user_id: str | None = Depends(get_player_user_id),
 ) -> PlaySessionSnapshot:
-    return play_session_service.create_session(payload.story_id, actor_user_id=user.user_id)
+    return play_session_service.create_session(
+        payload.story_id,
+        actor_user_id=user.user_id,
+        player_user_id=player_user_id,
+    )
 
 
 @app.get("/play/sessions/{session_id}", response_model=PlaySessionSnapshot)
@@ -330,6 +373,29 @@ def submit_play_turn(
     user=Depends(get_required_request_user),
 ) -> PlaySessionSnapshot:
     return play_session_service.submit_turn(session_id, payload, actor_user_id=user.user_id)
+
+
+@app.get("/play/sessions/{session_id}/replay", response_model=PlaySessionReplayResponse)
+def get_play_session_replay(session_id: str) -> PlaySessionReplayResponse:
+    """Public read-only replay — no auth, anyone with the session_id can fetch."""
+    return play_session_service.get_session_replay(session_id)
+
+
+@app.get("/me/worlds", response_model=PublishedStoryListResponse)
+def list_my_worlds(
+    limit: int = Query(default=20, ge=1, le=100),
+    cursor: str | None = Query(default=None),
+    sort: PublishedStoryListSort | None = Query(default=None),
+    session: AuthenticatedSession = Depends(get_required_request_session),
+) -> PublishedStoryListResponse:
+    """Worlds I created (signed-in only). Convenience alias for /stories?view=mine."""
+    return story_library_service.list_stories(
+        actor_user_id=session.user.user_id,
+        limit=limit,
+        cursor=cursor,
+        view="mine",
+        sort=sort,
+    )
 
 
 @app.get(

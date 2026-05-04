@@ -71,7 +71,20 @@ class SQLiteStoryLibraryStorage:
                 summary_json TEXT NOT NULL,
                 preview_json TEXT NOT NULL,
                 bundle_json TEXT NOT NULL,
-                published_at TEXT NOT NULL
+                published_at TEXT NOT NULL,
+                play_count INTEGER NOT NULL DEFAULT 0,
+                unique_player_count INTEGER NOT NULL DEFAULT 0,
+                ending_distribution_json TEXT NOT NULL DEFAULT '{}'
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS story_player_records (
+                story_id TEXT NOT NULL,
+                player_user_id TEXT NOT NULL,
+                first_completed_at TEXT NOT NULL,
+                PRIMARY KEY (story_id, player_user_id)
             )
             """
         )
@@ -85,8 +98,51 @@ class SQLiteStoryLibraryStorage:
         connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_published_stories_theme ON published_stories (theme COLLATE NOCASE)"
         )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_published_stories_play_count ON published_stories (play_count DESC, story_id DESC)"
+        )
+        # One-shot migration: drop rows whose bundle no longer round-trips through
+        # the current package contract. We track migration state via PRAGMA
+        # user_version so this only runs the first time a fresh schema boots.
+        user_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+        if user_version < 1:
+            self._purge_unreadable_records(connection)
+            connection.execute("PRAGMA user_version = 1")
         self._ensure_search_index(connection)
         connection.commit()
+
+    def _purge_unreadable_records(self, connection: sqlite3.Connection) -> None:
+        """Delete rows whose bundle no longer validates against the current package shape.
+
+        Pre-pivot stories accumulate as the contract evolves; the list endpoint
+        skips them at read time, but they still inflate `total` and clutter
+        searches. Run once on schema migration to prune them definitively.
+        """
+        rows = connection.execute("SELECT story_id, bundle_json FROM published_stories").fetchall()
+        bad_ids: list[str] = []
+        for row in rows:
+            payload_text = str(row["bundle_json"] or "")
+            if not payload_text:
+                bad_ids.append(str(row["story_id"]))
+                continue
+            try:
+                RelationshipDramaV2Package.model_validate_json(payload_text)
+            except Exception:  # noqa: BLE001 — validation error or any parse failure
+                bad_ids.append(str(row["story_id"]))
+        if not bad_ids:
+            return
+        connection.executemany(
+            "DELETE FROM published_stories WHERE story_id = ?",
+            [(story_id,) for story_id in bad_ids],
+        )
+        if self._fts_enabled:
+            try:
+                connection.executemany(
+                    "DELETE FROM published_story_search WHERE story_id = ?",
+                    [(story_id,) for story_id in bad_ids],
+                )
+            except sqlite3.OperationalError:
+                self._fts_enabled = False
 
     def _purge_non_v2_records(self, connection: sqlite3.Connection) -> None:
         story_rows = connection.execute(
@@ -125,6 +181,9 @@ class SQLiteStoryLibraryStorage:
             "owner_user_id": f"TEXT NOT NULL DEFAULT '{get_settings().default_actor_id}'",
             "visibility": "TEXT NOT NULL DEFAULT 'private'",
             "package_version": "TEXT NOT NULL DEFAULT 'relationship_drama_v2'",
+            "play_count": "INTEGER NOT NULL DEFAULT 0",
+            "unique_player_count": "INTEGER NOT NULL DEFAULT 0",
+            "ending_distribution_json": "TEXT NOT NULL DEFAULT '{}'",
         }
         existing_columns = set()
         for row in connection.execute("PRAGMA table_info(published_stories)").fetchall():
@@ -163,6 +222,28 @@ class SQLiteStoryLibraryStorage:
 
     @staticmethod
     def _row_card_payload(row: sqlite3.Row) -> dict[str, object]:
+        # ending_distribution_json may legitimately be missing on rows from older
+        # schemas pre-Phase-B; tolerate that until ALTER+backfill runs.
+        try:
+            ending_dist_raw = row["ending_distribution_json"]
+        except (IndexError, KeyError):
+            ending_dist_raw = None
+        ending_distribution: dict[str, int] = {}
+        if ending_dist_raw:
+            try:
+                parsed = json.loads(str(ending_dist_raw))
+                if isinstance(parsed, dict):
+                    ending_distribution = {str(k): int(v) for k, v in parsed.items()}
+            except (json.JSONDecodeError, TypeError, ValueError):
+                ending_distribution = {}
+        try:
+            play_count = int(row["play_count"])
+        except (IndexError, KeyError, TypeError, ValueError):
+            play_count = 0
+        try:
+            unique_player_count = int(row["unique_player_count"])
+        except (IndexError, KeyError, TypeError, ValueError):
+            unique_player_count = 0
         return {
             "story_id": row["story_id"],
             "title": row["title"],
@@ -175,6 +256,9 @@ class SQLiteStoryLibraryStorage:
             "topology": row["topology"],
             "visibility": row["visibility"],
             "published_at": row["published_at"],
+            "play_count": play_count,
+            "unique_player_count": unique_player_count,
+            "ending_distribution": ending_distribution,
         }
 
     @classmethod
@@ -196,6 +280,20 @@ class SQLiteStoryLibraryStorage:
                 "bundle": RelationshipDramaV2Package.model_validate(bundle_payload),
             }
         )
+
+    @classmethod
+    def _row_to_record_safe(cls, row: sqlite3.Row) -> PublishedStoryRecord | None:
+        """List-side hydration that tolerates rows whose bundle no longer matches.
+
+        Pre-pivot stories live in the same DB but their bundle schema doesn't
+        round-trip through the current package contract. Browsing endpoints
+        should silently skip those rows; detail endpoints (which call the
+        strict version) still surface a 404 instead.
+        """
+        try:
+            return cls._row_to_record(row)
+        except Exception:  # noqa: BLE001 — pydantic ValidationError or similar
+            return None
 
     @staticmethod
     def _story_columns_from_payloads(
@@ -401,7 +499,7 @@ class SQLiteStoryLibraryStorage:
                 include_public=include_public,
                 public_only=public_only,
             )
-        records = [self._row_to_record(row) for row in rows[:limit]]
+        records = [r for r in (self._row_to_record_safe(row) for row in rows[:limit]) if r is not None]
         has_more = len(rows) > limit
         next_offset = offset + limit if has_more else None
         return StoryLibraryPage(
@@ -569,12 +667,17 @@ class SQLiteStoryLibraryStorage:
         if theme:
             where_clause += " AND theme = ? COLLATE NOCASE"
             params.append(theme.strip())
+        order_clause = (
+            "play_count DESC, published_at DESC, story_id DESC"
+            if sort == "play_count_desc"
+            else "published_at DESC, story_id DESC"
+        )
         return connection.execute(
             f"""
             SELECT *
             FROM published_stories
             {where_clause}
-            ORDER BY published_at DESC, story_id DESC
+            ORDER BY {order_clause}
             LIMIT ? OFFSET ?
             """,
             [*params, limit, offset],
@@ -621,6 +724,8 @@ class SQLiteStoryLibraryStorage:
         order_clause = (
             "rank ASC, stories.published_at DESC, stories.story_id DESC"
             if sort == "relevance"
+            else "stories.play_count DESC, stories.published_at DESC, stories.story_id DESC"
+            if sort == "play_count_desc"
             else "stories.published_at DESC, stories.story_id DESC"
         )
         if public_only:
@@ -776,6 +881,68 @@ class SQLiteStoryLibraryStorage:
                 WHERE story_id = ?
                 """,
                 (visibility, story_id),
+            )
+            connection.commit()
+
+    _ENDING_ID_MAX_LEN = 80
+    _ENDING_DIST_MAX_KEYS = 20  # cap to avoid unbounded growth from junk ending_ids
+
+    def record_play_completion(
+        self,
+        *,
+        story_id: str,
+        player_user_id: str | None,
+        ending_id: str,
+        completed_at: datetime,
+    ) -> None:
+        """Bump play_count and (for distinct logged-in players) unique_player_count.
+
+        Anonymous plays (player_user_id is None) increment play_count and the
+        ending_distribution but do not contribute to unique_player_count.
+        """
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT play_count, unique_player_count, ending_distribution_json FROM published_stories WHERE story_id = ?",
+                (story_id,),
+            ).fetchone()
+            if row is None:
+                return
+            try:
+                ending_distribution = json.loads(str(row["ending_distribution_json"] or "{}"))
+                if not isinstance(ending_distribution, dict):
+                    ending_distribution = {}
+            except (json.JSONDecodeError, TypeError):
+                ending_distribution = {}
+            # Sanitize the ending_id key — bounded length, fall back to "unknown"
+            # for empty or whitespace. Drop the new key silently if the dict is
+            # already at the per-world cap (and the key is novel) to avoid
+            # unbounded growth from buggy upstream data.
+            ending_key = (str(ending_id) or "").strip()[: self._ENDING_ID_MAX_LEN] or "unknown"
+            if ending_key in ending_distribution or len(ending_distribution) < self._ENDING_DIST_MAX_KEYS:
+                ending_distribution[ending_key] = int(ending_distribution.get(ending_key, 0)) + 1
+            new_play_count = int(row["play_count"]) + 1
+            new_unique = int(row["unique_player_count"])
+
+            if player_user_id:
+                inserted = connection.execute(
+                    """
+                    INSERT OR IGNORE INTO story_player_records (story_id, player_user_id, first_completed_at)
+                    VALUES (?, ?, ?)
+                    """,
+                    (story_id, player_user_id, completed_at.isoformat()),
+                ).rowcount
+                if inserted:
+                    new_unique += 1
+
+            connection.execute(
+                """
+                UPDATE published_stories
+                SET play_count = ?,
+                    unique_player_count = ?,
+                    ending_distribution_json = ?
+                WHERE story_id = ?
+                """,
+                (new_play_count, new_unique, json.dumps(ending_distribution), story_id),
             )
             connection.commit()
 

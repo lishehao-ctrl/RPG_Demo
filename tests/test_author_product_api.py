@@ -208,17 +208,17 @@ def _preview_response(prompt_seed: str) -> AuthorPreviewResponse:
 
 def test_auth_session_and_me_route_reflect_logged_in_user() -> None:
     client = TestClient(app)
-    ensure_authenticated_client(client, email="author-me@example.com", display_name="Alice")
+    ensure_authenticated_client(client, display_name="Alice")
+    expected_username = client.test_username  # type: ignore[attr-defined]
 
     session_response = client.get("/auth/session")
     response = client.get("/me")
 
     assert session_response.status_code == 200
     assert session_response.json()["authenticated"] is True
-    assert session_response.json()["user"]["display_name"] == "Alice"
+    assert session_response.json()["user"]["display_name"] == expected_username
     assert response.status_code == 200
-    assert response.json()["display_name"] == "Alice"
-    assert response.json()["email"] == "author-me@example.com"
+    assert response.json()["display_name"] == expected_username
     assert response.json()["is_default"] is False
 
 

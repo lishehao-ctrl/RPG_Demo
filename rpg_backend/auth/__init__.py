@@ -1,6 +1,5 @@
 from rpg_backend.auth.contracts import (
     AuthLoginRequest,
-    AuthRegisterRequest,
     AuthSessionResponse,
     AuthUserResponse,
     CurrentActorResponse,
@@ -14,7 +13,6 @@ from rpg_backend.auth.service import (
 
 __all__ = [
     "AuthLoginRequest",
-    "AuthRegisterRequest",
     "AuthSessionResponse",
     "AuthUserResponse",
     "CurrentActorResponse",

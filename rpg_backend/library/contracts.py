@@ -12,7 +12,7 @@ from rpg_backend.author.contracts import (
 from rpg_backend.author_v2.product_package import RelationshipDramaV2Package
 from rpg_backend.play.contracts import PlayProtagonist
 
-StoryVisibility = Literal["private", "public"]
+StoryVisibility = Literal["private", "unlisted", "public"]
 PackageVersion = Literal["relationship_drama_v2"]
 
 
@@ -31,9 +31,13 @@ class PublishedStoryCard(BaseModel):
     visibility: StoryVisibility = "private"
     viewer_can_manage: bool = False
     published_at: datetime
+    # Social signals — populated as plays complete. Default 0 / {} for fresh worlds.
+    play_count: int = Field(default=0, ge=0)
+    unique_player_count: int = Field(default=0, ge=0)
+    ending_distribution: dict[str, int] = Field(default_factory=dict)
 
 
-PublishedStoryListSort = Literal["published_at_desc", "relevance"]
+PublishedStoryListSort = Literal["published_at_desc", "relevance", "play_count_desc"]
 PublishedStoryListView = Literal["accessible", "mine", "public"]
 
 

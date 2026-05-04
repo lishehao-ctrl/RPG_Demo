@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import base64
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import hashlib
-import hmac
 import re
 import secrets
 import sqlite3
@@ -14,7 +12,6 @@ from fastapi import Request
 
 from rpg_backend.auth.contracts import (
     AuthLoginRequest,
-    AuthRegisterRequest,
     AuthSessionResponse,
     AuthUserResponse,
     CurrentActorResponse,
@@ -22,12 +19,7 @@ from rpg_backend.auth.contracts import (
 from rpg_backend.auth.storage import SQLiteAuthStorage
 from rpg_backend.config import Settings, get_settings
 
-_EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-
-_SCRYPT_N = 2**14
-_SCRYPT_R = 8
-_SCRYPT_P = 1
-_SCRYPT_DKLEN = 64
+_USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_]+$")
 
 
 class AuthServiceError(RuntimeError):
@@ -42,7 +34,6 @@ class AuthServiceError(RuntimeError):
 class RequestUser:
     user_id: str
     display_name: str
-    email: str
 
 
 @dataclass(frozen=True)
@@ -53,78 +44,17 @@ class AuthenticatedSession:
     expires_at: datetime
 
 
-def _normalize_email(value: str) -> str:
-    normalized = " ".join(value.split()).strip().casefold()
-    if not normalized or len(normalized) > 320 or not _EMAIL_PATTERN.match(normalized):
+def _normalize_username(value: str) -> str:
+    # Case-insensitive: "Shehao" and "shehao" should resolve to the same account.
+    # We lowercase before validating so display_name stays consistent across logins.
+    normalized = value.strip().lower()
+    if not (2 <= len(normalized) <= 20) or not _USERNAME_PATTERN.match(normalized):
         raise AuthServiceError(
-            code="auth_email_invalid",
-            message="Enter a valid email address.",
+            code="auth_username_invalid",
+            message="Username must be 2-20 characters: letters, digits, or underscore.",
             status_code=400,
         )
     return normalized
-
-
-def _normalize_display_name(value: str) -> str:
-    normalized = " ".join(value.split()).strip()
-    if not normalized or len(normalized) > 120:
-        raise AuthServiceError(
-            code="auth_display_name_invalid",
-            message="Enter a display name between 1 and 120 characters.",
-            status_code=400,
-        )
-    return normalized
-
-
-def _validate_password(value: str) -> str:
-    if len(value) < 8 or len(value) > 200:
-        raise AuthServiceError(
-            code="auth_password_invalid",
-            message="Password must be between 8 and 200 characters.",
-            status_code=400,
-        )
-    return value
-
-
-def _hash_password(password: str) -> str:
-    salt = secrets.token_bytes(16)
-    digest = hashlib.scrypt(
-        password.encode("utf-8"),
-        salt=salt,
-        n=_SCRYPT_N,
-        r=_SCRYPT_R,
-        p=_SCRYPT_P,
-        dklen=_SCRYPT_DKLEN,
-    )
-    return "$".join(
-        [
-            "scrypt",
-            str(_SCRYPT_N),
-            str(_SCRYPT_R),
-            str(_SCRYPT_P),
-            base64.urlsafe_b64encode(salt).decode("ascii"),
-            base64.urlsafe_b64encode(digest).decode("ascii"),
-        ]
-    )
-
-
-def _verify_password(password: str, stored_hash: str) -> bool:
-    try:
-        algorithm, n_value, r_value, p_value, salt_encoded, digest_encoded = stored_hash.split("$", 5)
-        if algorithm != "scrypt":
-            return False
-        salt = base64.urlsafe_b64decode(salt_encoded.encode("ascii"))
-        expected_digest = base64.urlsafe_b64decode(digest_encoded.encode("ascii"))
-        candidate_digest = hashlib.scrypt(
-            password.encode("utf-8"),
-            salt=salt,
-            n=int(n_value),
-            r=int(r_value),
-            p=int(p_value),
-            dklen=len(expected_digest),
-        )
-        return hmac.compare_digest(candidate_digest, expected_digest)
-    except Exception:  # noqa: BLE001
-        return False
 
 
 def _hash_session_token(session_token: str) -> str:
@@ -132,11 +62,7 @@ def _hash_session_token(session_token: str) -> str:
 
 
 def _user_response(user: RequestUser) -> AuthUserResponse:
-    return AuthUserResponse(
-        user_id=user.user_id,
-        display_name=user.display_name,
-        email=user.email,
-    )
+    return AuthUserResponse(user_id=user.user_id, display_name=user.display_name)
 
 
 class AuthService:
@@ -162,50 +88,37 @@ class AuthService:
         return RequestUser(
             user_id=str(user_payload["user_id"]),
             display_name=str(user_payload["display_name"]),
-            email=str(user_payload["email"]),
         )
 
-    def register(self, request: AuthRegisterRequest) -> AuthenticatedSession:
-        normalized_email = _normalize_email(request.email)
-        display_name = _normalize_display_name(request.display_name)
-        password = _validate_password(request.password)
-        if self._storage.get_user_by_normalized_email(normalized_email) is not None:
-            raise AuthServiceError(
-                code="auth_email_taken",
-                message="An account with that email already exists.",
-                status_code=409,
-            )
-        user_id = f"usr_{uuid4().hex[:12]}"
-        created_at = self._now()
-        try:
-            self._storage.create_user(
-                user_id=user_id,
-                email=normalized_email,
-                normalized_email=normalized_email,
-                display_name=display_name,
-                password_hash=_hash_password(password),
-                created_at=created_at,
-            )
-        except sqlite3.IntegrityError as exc:
-            raise AuthServiceError(
-                code="auth_email_taken",
-                message="An account with that email already exists.",
-                status_code=409,
-            ) from exc
-        user = RequestUser(user_id=user_id, display_name=display_name, email=normalized_email)
-        return self._create_authenticated_session(user=user, created_at=created_at)
-
     def login(self, request: AuthLoginRequest) -> AuthenticatedSession:
-        normalized_email = _normalize_email(request.email)
-        user_payload = self._storage.get_user_by_normalized_email(normalized_email)
-        if user_payload is None or not _verify_password(request.password, str(user_payload["password_hash"])):
-            raise AuthServiceError(
-                code="auth_invalid_credentials",
-                message="Invalid email or password.",
-                status_code=401,
-            )
-        user = self._build_request_user(user_payload)
-        return self._create_authenticated_session(user=user, created_at=self._now())
+        """Username-only upsert login. Creates the user on first sight; returns a session either way."""
+        username = _normalize_username(request.username)
+        user_payload = self._storage.get_user_by_username(username)
+        now = self._now()
+        if user_payload is None:
+            user_id = f"usr_{uuid4().hex[:12]}"
+            try:
+                self._storage.create_user(
+                    user_id=user_id,
+                    username=username,
+                    display_name=username,
+                    created_at=now,
+                )
+            except sqlite3.IntegrityError:
+                # Race: someone else just created the same username — re-fetch.
+                user_payload = self._storage.get_user_by_username(username)
+                if user_payload is None:
+                    raise AuthServiceError(
+                        code="auth_username_unavailable",
+                        message="Username unavailable, try another.",
+                        status_code=409,
+                    )
+                user = self._build_request_user(user_payload)
+            else:
+                user = RequestUser(user_id=user_id, display_name=username)
+        else:
+            user = self._build_request_user(user_payload)
+        return self._create_authenticated_session(user=user, created_at=now)
 
     def _create_authenticated_session(self, *, user: RequestUser, created_at: datetime) -> AuthenticatedSession:
         session_token = secrets.token_urlsafe(32)
@@ -266,7 +179,6 @@ class AuthService:
         return CurrentActorResponse(
             user_id=session.user.user_id,
             display_name=session.user.display_name,
-            email=session.user.email,
             is_default=False,
         )
 

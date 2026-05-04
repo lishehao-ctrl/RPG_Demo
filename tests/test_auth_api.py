@@ -8,56 +8,48 @@ import rpg_backend.main as main_module
 from rpg_backend.library.service import StoryLibraryService
 from rpg_backend.library.storage import SQLiteStoryLibraryStorage
 from rpg_backend.main import app
-from tests.auth_helpers import DEFAULT_TEST_PASSWORD, ensure_authenticated_client
+from tests.auth_helpers import ensure_authenticated_client
 from tests.test_story_library_api import _FakeAuthorJobService, _publish_source
 
 
-def test_auth_register_login_logout_cycle() -> None:
+def test_auth_login_logout_relogin_cycle() -> None:
+    """Username-only login: same username across restart returns the same user_id."""
     client = TestClient(app)
-    email = f"auth-cycle-{uuid4().hex[:10]}@example.com"
+    username = f"cycle_{uuid4().hex[:8]}"
 
-    register_response = client.post(
-        "/auth/register",
-        json={
-            "display_name": "Auth Cycle",
-            "email": email,
-            "password": DEFAULT_TEST_PASSWORD,
-        },
-    )
-    session_response = client.get("/auth/session")
-    logout_response = client.post("/auth/logout")
-    logged_out_session = client.get("/auth/session")
-    login_response = client.post(
-        "/auth/login",
-        json={
-            "email": email,
-            "password": DEFAULT_TEST_PASSWORD,
-        },
-    )
-    logged_in_again = client.get("/auth/session")
+    first_login = client.post("/auth/login", json={"username": username})
+    after_login = client.get("/auth/session")
+    logout = client.post("/auth/logout")
+    after_logout = client.get("/auth/session")
+    second_login = client.post("/auth/login", json={"username": username})
+    after_relogin = client.get("/auth/session")
 
-    assert register_response.status_code == 200
-    assert session_response.json()["authenticated"] is True
-    assert session_response.json()["user"]["email"] == email
-    assert logout_response.status_code == 204
-    assert logged_out_session.json() == {"authenticated": False, "user": None}
-    assert login_response.status_code == 200
-    assert logged_in_again.json()["authenticated"] is True
+    assert first_login.status_code == 200
+    assert after_login.status_code == 200
+    assert after_login.json()["authenticated"] is True
+    assert after_login.json()["user"]["display_name"] == username
+
+    assert logout.status_code == 204
+
+    # Anonymous fallback: /auth/session always returns authenticated=True with the
+    # default actor when no cookie is present. The user_id should differ from the
+    # logged-in one.
+    assert after_logout.json()["authenticated"] is True
+    assert after_logout.json()["user"]["user_id"] != after_login.json()["user"]["user_id"]
+
+    # Re-login with the same username → same user_id (upsert).
+    assert second_login.status_code == 200
+    assert after_relogin.json()["user"]["user_id"] == after_login.json()["user"]["user_id"]
 
 
-def test_protected_author_route_requires_auth_session() -> None:
+def test_auth_login_rejects_bad_username() -> None:
     client = TestClient(app)
-
-    response = client.post(
-        "/author/story-previews",
-        json={"prompt_seed": "A city archivist tries to hold one public record together."},
-    )
-
-    assert response.status_code == 401
-    assert response.json()["error"]["code"] == "auth_session_required"
+    response = client.post("/auth/login", json={"username": "ab cd"})
+    assert response.status_code == 422
 
 
-def test_logged_out_story_views_are_public_only(tmp_path) -> None:
+def test_logged_out_can_read_public_stories(tmp_path) -> None:
+    """Anonymous-by-default: non-authenticated callers can list & view public stories."""
     source = _publish_source("job-auth-public")
     library_service = StoryLibraryService(SQLiteStoryLibraryStorage(str(tmp_path / "stories.sqlite3")))
     original_author_service = main_module.author_job_service
@@ -67,12 +59,10 @@ def test_logged_out_story_views_are_public_only(tmp_path) -> None:
     owner_client = TestClient(app)
     anon_client = TestClient(app)
     try:
-        ensure_authenticated_client(owner_client, email="auth-public-owner@example.com", display_name="Public Owner")
+        ensure_authenticated_client(owner_client, display_name="Public Owner")
         published = owner_client.post(f"/author/jobs/{source.source_job_id}/publish?visibility=public")
         public_list = anon_client.get("/stories")
         public_detail = anon_client.get(f"/stories/{published.json()['story_id']}")
-        mine_list = anon_client.get("/stories", params={"view": "mine"})
-        play_create = anon_client.post("/play/sessions", json={"story_id": published.json()["story_id"]})
     finally:
         main_module.author_job_service = original_author_service
         main_module.story_library_service = original_library_service
@@ -81,10 +71,6 @@ def test_logged_out_story_views_are_public_only(tmp_path) -> None:
     assert public_list.status_code == 200
     assert [story["story_id"] for story in public_list.json()["stories"]] == [published.json()["story_id"]]
     assert public_detail.status_code == 200
-    assert mine_list.status_code == 401
-    assert mine_list.json()["error"]["code"] == "auth_session_required"
-    assert play_create.status_code == 401
-    assert play_create.json()["error"]["code"] == "auth_session_required"
 
 
 def test_logged_out_cannot_read_private_story_detail(tmp_path) -> None:
@@ -97,7 +83,7 @@ def test_logged_out_cannot_read_private_story_detail(tmp_path) -> None:
     owner_client = TestClient(app)
     anon_client = TestClient(app)
     try:
-        ensure_authenticated_client(owner_client, email="auth-private-owner@example.com", display_name="Private Owner")
+        ensure_authenticated_client(owner_client, display_name="Private Owner")
         published = owner_client.post(f"/author/jobs/{source.source_job_id}/publish?visibility=private")
         hidden = anon_client.get(f"/stories/{published.json()['story_id']}")
     finally:
@@ -105,4 +91,5 @@ def test_logged_out_cannot_read_private_story_detail(tmp_path) -> None:
         main_module.story_library_service = original_library_service
 
     assert published.status_code == 200
+    # Private story owned by a real signed-in user is invisible to the anonymous fallback.
     assert hidden.status_code == 404

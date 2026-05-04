@@ -90,7 +90,10 @@ class StoryLibraryService:
 
     @staticmethod
     def _can_access(record: PublishedStoryRecord, *, actor_user_id: str | None) -> bool:
-        return record.visibility == "public" or (
+        # unlisted = "anyone with the link can read detail/play", so it counts as accessible
+        # whenever a viewer fetches by story_id directly. List endpoints filter unlisted
+        # out at the storage layer so it doesn't surface in public/accessible browsing.
+        return record.visibility in ("public", "unlisted") or (
             actor_user_id is not None and record.owner_user_id == actor_user_id
         )
 
@@ -343,6 +346,22 @@ class StoryLibraryService:
             updated = updated.model_copy(update={"story": updated_story})
             self._storage.update_story_visibility(story_id=story_id, visibility=request.visibility)
             return updated.story
+
+    def record_play_completion(
+        self,
+        *,
+        story_id: str,
+        player_user_id: str | None,
+        ending_id: str,
+        completed_at: datetime,
+    ) -> None:
+        """Bump play_count + ending_distribution; logged-in distinct players bump unique_player_count."""
+        self._storage.record_play_completion(
+            story_id=story_id,
+            player_user_id=player_user_id,
+            ending_id=ending_id,
+            completed_at=completed_at,
+        )
 
     def delete_story(self, *, actor_user_id: str | None = None, story_id: str) -> None:
         if actor_user_id is None:

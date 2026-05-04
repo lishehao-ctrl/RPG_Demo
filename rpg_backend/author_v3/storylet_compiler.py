@@ -76,7 +76,11 @@ class Storylet(BaseModel):
 class StoryletPool(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    storylets: list[Storylet] = Field(min_length=4, max_length=60)
+    # Bumped min_length 4→12 in Phase 3 — the runtime storylet engine needs a
+    # rich pool to draw from. With 4 storylets and 6 segments mapped, the
+    # `unused` pool would be empty and the engine starves. 12 leaves at least
+    # 6 unmapped storylets the engine can fire dynamically as state evolves.
+    storylets: list[Storylet] = Field(min_length=12, max_length=60)
     function_counts: dict[NarrativeFunction, int] = Field(default_factory=dict)
 
 
@@ -121,6 +125,17 @@ def _deterministic_storylets(
     web: TensionWeb,
     matrix: RelationshipMatrix,
 ) -> list[Storylet]:
+    """Deterministic storylet pool — 18 fragments with diversified preconditions.
+
+    Phase 3 changes from the original 12-storylet baseline:
+    - Bumped to 18 to give the play storylet engine real off-arc options.
+    - Every storylet now has at least one non-empty precondition (segment role,
+      tension threshold, or required secret), so the matcher actually has to
+      *check* state, not just fire blindly on turn 1.
+    - Added 6 side-line fragments (intel_share / rumor_seed / inner_doubt /
+      alliance_test / blackmail_threat / unexpected_visitor) that exist outside
+      the main arc — these only ever surface if the engine fires them.
+    """
     protagonist = config.protagonist_id
     chars = {c.character_id: c for c in config.characters}
     secret_map = {s.secret_id: s for s in web.secrets}
@@ -138,9 +153,14 @@ def _deterministic_storylets(
         ally_id = [c for c in chars if c not in (protagonist, rival_id)][0]
 
     other_ids = [c for c in chars if c not in (protagonist, rival_id, ally_id)]
+    pressure_secrets = [s for s in web.secrets if s.lethality_score >= 0.7]
+    first_secret_id = web.secrets[0].secret_id if web.secrets else None
+    second_secret_id = web.secrets[1].secret_id if len(web.secrets) > 1 else None
+    chained_unlock = web.chains[0].unlocks_secret_id if web.chains else None
 
     storylets: list[Storylet] = []
 
+    # ---------------- HOOK (opening) ----------------
     storylets.append(Storylet(
         storylet_id="st_opening_tension",
         narrative_function="hook",
@@ -149,8 +169,12 @@ def _deterministic_storylets(
         characters_involved=[protagonist, rival_id],
         venue_hint=config.social_arena,
         dramatic_weight=0.5,
-        preconditions=StoryletCondition(),
-        effects=StoryletEffect(tension_delta=0.1),
+        cooldown_turns=4,
+        preconditions=StoryletCondition(required_segment_roles=["opening"]),
+        effects=StoryletEffect(
+            tension_delta=0.1,
+            relationship_shifts={rival_id: -0.1},
+        ),
     ))
     storylets.append(Storylet(
         storylet_id="st_opening_alliance",
@@ -160,10 +184,15 @@ def _deterministic_storylets(
         characters_involved=[protagonist, ally_id],
         venue_hint="走廊",
         dramatic_weight=0.4,
-        preconditions=StoryletCondition(),
-        effects=StoryletEffect(tension_delta=0.05),
+        cooldown_turns=4,
+        preconditions=StoryletCondition(required_segment_roles=["opening"]),
+        effects=StoryletEffect(
+            tension_delta=0.05,
+            relationship_shifts={ally_id: 0.15},
+        ),
     ))
 
+    # ---------------- ESCALATION (misread) ----------------
     storylets.append(Storylet(
         storylet_id="st_escalation_misread",
         narrative_function="escalation",
@@ -172,8 +201,15 @@ def _deterministic_storylets(
         characters_involved=[protagonist, rival_id, ally_id],
         venue_hint=config.social_arena,
         dramatic_weight=0.6,
-        preconditions=StoryletCondition(min_tension_score=0.3),
-        effects=StoryletEffect(tension_delta=0.15),
+        cooldown_turns=3,
+        preconditions=StoryletCondition(
+            min_tension_score=0.25,
+            required_segment_roles=["misread", "opening"],
+        ),
+        effects=StoryletEffect(
+            tension_delta=0.15,
+            relationship_shifts={rival_id: -0.2},
+        ),
     ))
     storylets.append(Storylet(
         storylet_id="st_escalation_secret_hint",
@@ -183,14 +219,17 @@ def _deterministic_storylets(
         characters_involved=[protagonist] + other_ids[:1],
         venue_hint="档案室",
         dramatic_weight=0.55,
-        preconditions=StoryletCondition(),
+        cooldown_turns=2,
+        preconditions=StoryletCondition(
+            required_segment_roles=["misread", "pressure"],
+        ),
         effects=StoryletEffect(
-            secrets_revealed=[web.secrets[0].secret_id] if web.secrets else [],
+            secrets_revealed=[first_secret_id] if first_secret_id else [],
             tension_delta=0.1,
         ),
     ))
 
-    pressure_secrets = [s for s in web.secrets if s.lethality_score >= 0.7]
+    # ---------------- COST (pressure) ----------------
     storylets.append(Storylet(
         storylet_id="st_pressure_confrontation",
         narrative_function="cost",
@@ -199,8 +238,15 @@ def _deterministic_storylets(
         characters_involved=[protagonist, rival_id],
         venue_hint="私人办公室",
         dramatic_weight=0.75,
-        preconditions=StoryletCondition(min_tension_score=0.5),
-        effects=StoryletEffect(tension_delta=0.2),
+        cooldown_turns=3,
+        preconditions=StoryletCondition(
+            min_tension_score=0.45,
+            required_segment_roles=["pressure", "reversal"],
+        ),
+        effects=StoryletEffect(
+            tension_delta=0.2,
+            relationship_shifts={rival_id: -0.3},
+        ),
     ))
     storylets.append(Storylet(
         storylet_id="st_pressure_public_wave",
@@ -210,10 +256,15 @@ def _deterministic_storylets(
         characters_involved=[protagonist] + other_ids[:2],
         venue_hint="公司大厅",
         dramatic_weight=0.65,
-        preconditions=StoryletCondition(min_tension_score=0.4),
+        cooldown_turns=2,
+        preconditions=StoryletCondition(
+            min_tension_score=0.35,
+            required_segment_roles=["pressure", "misread"],
+        ),
         effects=StoryletEffect(tension_delta=0.15),
     ))
 
+    # ---------------- REVERSAL ----------------
     storylets.append(Storylet(
         storylet_id="st_reversal_betrayal",
         narrative_function="reversal",
@@ -222,8 +273,15 @@ def _deterministic_storylets(
         characters_involved=[protagonist, ally_id, rival_id],
         venue_hint=config.social_arena,
         dramatic_weight=0.85,
-        preconditions=StoryletCondition(min_tension_score=0.6),
-        effects=StoryletEffect(tension_delta=0.25, relationship_shifts={ally_id: -0.4}),
+        cooldown_turns=4,
+        preconditions=StoryletCondition(
+            min_tension_score=0.55,
+            required_segment_roles=["reversal", "reveal"],
+        ),
+        effects=StoryletEffect(
+            tension_delta=0.25,
+            relationship_shifts={ally_id: -0.4},
+        ),
     ))
     storylets.append(Storylet(
         storylet_id="st_reversal_power_shift",
@@ -233,13 +291,19 @@ def _deterministic_storylets(
         characters_involved=[protagonist, rival_id] + other_ids[:1],
         venue_hint="会议室",
         dramatic_weight=0.8,
-        preconditions=StoryletCondition(min_tension_score=0.5),
+        cooldown_turns=4,
+        preconditions=StoryletCondition(
+            min_tension_score=0.45,
+            required_secrets_known=[first_secret_id] if first_secret_id else [],
+            required_segment_roles=["reversal", "reveal"],
+        ),
         effects=StoryletEffect(
             secrets_revealed=[pressure_secrets[0].secret_id] if pressure_secrets else [],
             tension_delta=0.2,
         ),
     ))
 
+    # ---------------- REVELATION ----------------
     storylets.append(Storylet(
         storylet_id="st_revelation_truth",
         narrative_function="revelation",
@@ -248,7 +312,11 @@ def _deterministic_storylets(
         characters_involved=[protagonist, rival_id, ally_id] + other_ids[:1],
         venue_hint=config.social_arena,
         dramatic_weight=0.9,
-        preconditions=StoryletCondition(min_tension_score=0.7),
+        cooldown_turns=5,
+        preconditions=StoryletCondition(
+            min_tension_score=0.65,
+            required_segment_roles=["reveal", "terminal"],
+        ),
         effects=StoryletEffect(
             secrets_revealed=[s.secret_id for s in web.secrets[:2]],
             tension_delta=0.1,
@@ -258,20 +326,23 @@ def _deterministic_storylets(
         storylet_id="st_revelation_chain",
         narrative_function="revelation",
         title="连锁曝光",
-        scene_text=f"一个秘密的暴露引发了连锁反应，更多不可告人的真相浮出水面。",
+        scene_text="一个秘密的暴露引发了连锁反应，更多不可告人的真相浮出水面。",
         characters_involved=list(chars.keys())[:4],
         venue_hint="董事会议室",
         dramatic_weight=0.85,
+        cooldown_turns=5,
         preconditions=StoryletCondition(
-            required_secrets_known=[web.secrets[0].secret_id] if web.secrets else [],
-            min_tension_score=0.6,
+            required_secrets_known=[first_secret_id] if first_secret_id else [],
+            min_tension_score=0.55,
+            required_segment_roles=["reveal"],
         ),
         effects=StoryletEffect(
             secrets_revealed=[s.secret_id for s in web.secrets[1:3]],
-            triggers_chain=web.chains[0].unlocks_secret_id if web.chains else None,
+            triggers_chain=chained_unlock,
         ),
     ))
 
+    # ---------------- RESOLUTION (terminal) ----------------
     storylets.append(Storylet(
         storylet_id="st_resolution_cost",
         narrative_function="resolution",
@@ -280,7 +351,11 @@ def _deterministic_storylets(
         characters_involved=[protagonist, rival_id],
         venue_hint=config.social_arena,
         dramatic_weight=0.95,
-        preconditions=StoryletCondition(min_tension_score=0.7),
+        cooldown_turns=6,
+        preconditions=StoryletCondition(
+            min_tension_score=0.65,
+            required_segment_roles=["terminal"],
+        ),
         effects=StoryletEffect(tension_delta=-0.3),
     ))
     storylets.append(Storylet(
@@ -291,8 +366,122 @@ def _deterministic_storylets(
         characters_involved=[protagonist, ally_id],
         venue_hint="天台",
         dramatic_weight=0.9,
-        preconditions=StoryletCondition(min_tension_score=0.5),
+        cooldown_turns=6,
+        preconditions=StoryletCondition(
+            min_tension_score=0.45,
+            required_segment_roles=["terminal"],
+        ),
         effects=StoryletEffect(tension_delta=-0.2, relationship_shifts={ally_id: 0.3}),
+    ))
+
+    # ---------------- SIDE-LINE FRAGMENTS (Phase 3 additions) ----------------
+    # Only fire when engine matches them; not mapped to the main arc. These are
+    # the "off-piste" content the storylet engine was built for — players who
+    # explore beyond the main lane suggestions can trigger these.
+    storylets.append(Storylet(
+        storylet_id="st_side_intel_share",
+        narrative_function="escalation",
+        title="盟友的内线情报",
+        scene_text=f"{chars[ally_id].display_name}找到机会单独把一份情报塞给{chars[protagonist].display_name}，提示了{chars[rival_id].display_name}下一步的动作。",
+        characters_involved=[protagonist, ally_id],
+        venue_hint="休息室",
+        dramatic_weight=0.5,
+        cooldown_turns=3,
+        preconditions=StoryletCondition(
+            required_segment_roles=["misread", "pressure"],
+        ),
+        effects=StoryletEffect(
+            tension_delta=0.05,
+            relationship_shifts={ally_id: 0.2},
+        ),
+    ))
+    storylets.append(Storylet(
+        storylet_id="st_side_rumor_seed",
+        narrative_function="escalation",
+        title="背后的流言",
+        scene_text=f"{chars[rival_id].display_name}在场外散布关于{chars[protagonist].display_name}的不利说法，意图先在舆论上做局。",
+        characters_involved=[protagonist, rival_id] + other_ids[:1],
+        venue_hint="茶水间",
+        dramatic_weight=0.55,
+        cooldown_turns=3,
+        preconditions=StoryletCondition(
+            min_tension_score=0.3,
+            required_segment_roles=["misread", "pressure"],
+        ),
+        effects=StoryletEffect(
+            tension_delta=0.12,
+            relationship_shifts={rival_id: -0.15},
+        ),
+    ))
+    storylets.append(Storylet(
+        storylet_id="st_side_inner_doubt",
+        narrative_function="cost",
+        title="主角的内心动摇",
+        scene_text=f"夜深时{chars[protagonist].display_name}独自站在窗前，意识到自己已经被推到一条没有退路的轨道上。",
+        characters_involved=[protagonist],
+        venue_hint="阳台",
+        dramatic_weight=0.45,
+        cooldown_turns=4,
+        preconditions=StoryletCondition(
+            min_tension_score=0.4,
+            required_segment_roles=["pressure", "reversal"],
+        ),
+        effects=StoryletEffect(tension_delta=0.08),
+    ))
+    storylets.append(Storylet(
+        storylet_id="st_side_alliance_test",
+        narrative_function="reversal",
+        title="第三方的站队试探",
+        scene_text=f"{chars.get(other_ids[0], chars[rival_id]).display_name}找到{chars[protagonist].display_name}，用一句模棱两可的话试探她是否愿意倒向另一边。",
+        characters_involved=[protagonist] + other_ids[:1] + [rival_id],
+        venue_hint="电梯间",
+        dramatic_weight=0.6,
+        cooldown_turns=3,
+        preconditions=StoryletCondition(
+            min_tension_score=0.4,
+            required_segment_roles=["pressure", "reversal"],
+        ),
+        effects=StoryletEffect(
+            tension_delta=0.1,
+            relationship_shifts={(other_ids[0] if other_ids else rival_id): 0.1},
+        ),
+    ))
+    storylets.append(Storylet(
+        storylet_id="st_side_blackmail_threat",
+        narrative_function="cost",
+        title="被秘密反噬",
+        scene_text=f"一段不该被听到的录音落到了{chars[rival_id].display_name}手里，他用一种几乎温和的方式告诉{chars[protagonist].display_name}：你别忘了我手上还有什么。",
+        characters_involved=[protagonist, rival_id],
+        venue_hint="车库",
+        dramatic_weight=0.7,
+        cooldown_turns=5,
+        preconditions=StoryletCondition(
+            required_secrets_known=[first_secret_id] if first_secret_id else [],
+            min_tension_score=0.5,
+            required_segment_roles=["pressure", "reversal"],
+        ),
+        effects=StoryletEffect(
+            tension_delta=0.18,
+            relationship_shifts={rival_id: -0.25},
+        ),
+    ))
+    storylets.append(Storylet(
+        storylet_id="st_side_unexpected_visitor",
+        narrative_function="revelation",
+        title="不期而至的访客",
+        scene_text=f"一个本不该出现在这里的人找上{chars[protagonist].display_name}，带来一份能让所有局面重排的旧档案。",
+        characters_involved=[protagonist] + other_ids[:1],
+        venue_hint="办公室",
+        dramatic_weight=0.75,
+        cooldown_turns=5,
+        preconditions=StoryletCondition(
+            min_tension_score=0.5,
+            required_segment_roles=["reversal", "reveal"],
+        ),
+        effects=StoryletEffect(
+            secrets_revealed=[second_secret_id] if second_secret_id else [],
+            tension_delta=0.12,
+        ),
     ))
 
     return storylets

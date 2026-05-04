@@ -118,7 +118,7 @@ SlotFunctionId = Literal[
 SegmentRoleId = Literal["opening", "misread", "pressure", "reversal", "reveal", "terminal"]
 RelationshipSceneFrame = Literal["private", "semi_public", "public"]
 TurnConfidence = Literal["high", "medium", "low"]
-SuggestionLaneId = Literal["relationship", "side", "burst"]
+SuggestionLaneId = Literal["relationship", "side", "burst", "storylet"]
 NpcLoyaltyBias = Literal["self", "protagonist", "family", "institution", "chaos", "testing"]
 NpcSceneIntent = Literal["protect", "test", "seduce", "corner", "deflect", "retaliate", "confess", "betray"]
 NpcPublicPosture = Literal["composed", "brittle", "performative", "cornered"]
@@ -1387,6 +1387,10 @@ class CompiledPlayPlan(BaseModel):
     storylet_pool: list[dict[str, Any]] | None = None
     organic_secrets: list[dict[str, Any]] | None = None
     hooks: list[dict[str, Any]] | None = None
+    # SecretChain edges from author_v3.tension_weaver — needed by the play storylet
+    # engine to cascade reveals: when storylet A reveals secret X, the engine
+    # consults this list to auto-reveal Y if X→Y is in the chains graph.
+    secret_chains: list[dict[str, Any]] | None = None
 
 
 class UrbanPipelineResult(BaseModel):

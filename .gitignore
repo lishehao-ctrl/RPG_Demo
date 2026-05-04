@@ -13,3 +13,7 @@ frontend/node_modules/
 frontend/dist/
 frontend/.vite/
 frontend/test-results/
+frontend2/node_modules/
+frontend2/dist/
+frontend2/.vite/
+frontend2/test-results/

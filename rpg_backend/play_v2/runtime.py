@@ -50,6 +50,13 @@ from rpg_backend.play_v2.narration_variants import (
     canonicalize_phrase,
 )
 from rpg_backend.play_v2.storylet_matcher import StoryletMatch, find_matching_storylets
+from rpg_backend.play_v2.storylet_engine import (
+    MAX_AUTO_FIRES_PER_TURN,
+    StoryletFireResult,
+    fire_storylet,
+    reset_turn_storylet_state,
+    storylet_pool_iter,
+)
 from rpg_backend.play_v2.semantic_resolver import resolve_semantic_effects
 from rpg_backend.play_v2.narration_memory import append_narration_event, consolidate_segment_memory, build_narration_memory_context
 from rpg_backend.play_v2.semantic_planners import (
@@ -206,6 +213,14 @@ LANE_MOVE_FAMILIES: dict[SuggestionLaneId, tuple[RelationshipMoveFamily, ...]] =
     "relationship": ("flirt", "comfort", "private_confession", "ally_with"),
     "side": ("ally_with", "comfort", "accuse", "deflect"),
     "burst": ("probe_secret", "public_reveal", "accuse", "betray", "jealousy_trigger"),
+    # `storylet` lane: any move can fly here since the player picks based on a
+    # specific scene fragment, not a generic lane archetype. The actual move
+    # family on each storylet card is derived from its narrative_function in
+    # `_build_storylet_suggestion`.
+    "storylet": (
+        "flirt", "comfort", "probe_secret", "deflect", "accuse",
+        "ally_with", "betray", "public_reveal", "private_confession", "jealousy_trigger",
+    ),
 }
 
 MOVE_DEFERRED_KIND: dict[RelationshipMoveFamily, str] = {
@@ -2104,6 +2119,110 @@ def build_initial_world_state(plan: CompiledPlayPlan, *, session_id: str | None 
     return state
 
 
+_STORYLET_SUGGESTION_MIN_SCORE = 0.65
+# Maps the storylet's NarrativeFunction enum (hook / escalation / reversal /
+# revelation / cost / resolution) to a player-facing card label prefix.
+_STORYLET_FUNCTION_LABELS: dict[str, str] = {
+    "hook": "嗅出风声",
+    "escalation": "施压",
+    "reversal": "翻盘",
+    "revelation": "戳破真相",
+    "cost": "承担代价",
+    "resolution": "收尾",
+}
+
+
+def _storylet_suggestion_label(narrative_function: str, storylet_title: str | None = None) -> str:
+    base = _STORYLET_FUNCTION_LABELS.get(narrative_function, "特殊机会")
+    if storylet_title:
+        return f"{base}：{storylet_title}"[:120]
+    return base
+
+
+def _suggestion_id_for_storylet(segment_id: str, storylet_id: str) -> str:
+    """Encodes the storylet_id into the suggestion_id so the turn handler can
+    extract it back when the player picks this card."""
+    return f"{segment_id}_storylet_{storylet_id}"[:120]
+
+
+def extract_storylet_id_from_suggestion(suggestion_id: str | None) -> str | None:
+    """Inverse of `_suggestion_id_for_storylet`. Returns None if the id wasn't
+    a storylet suggestion."""
+    if not suggestion_id:
+        return None
+    marker = "_storylet_"
+    idx = suggestion_id.find(marker)
+    if idx < 0:
+        return None
+    storylet_id = suggestion_id[idx + len(marker):]
+    return storylet_id or None
+
+
+def _build_storylet_suggestion(
+    plan: CompiledPlayPlan,
+    state: UrbanWorldState,
+    segment_id: str,
+    *,
+    reserved_targets: set[str],
+) -> UrbanSuggestedAction | None:
+    """Try to surface a storylet match as a player-choosable suggestion card.
+
+    Returns None if no storylet meets the threshold or hydration fails. Reuses
+    the same matcher the narration hint path uses, but with a higher score floor
+    — we want to confidently offer this option, not fall back on weak matches.
+    """
+    if not plan.storylet_pool:
+        return None
+    matches = find_matching_storylets(
+        state, plan, max_count=3, min_score=_STORYLET_SUGGESTION_MIN_SCORE
+    )
+    if not matches:
+        return None
+    pool_by_id = {storylet.storylet_id: storylet for storylet in storylet_pool_iter(plan)}
+    for match in matches:
+        storylet = pool_by_id.get(match.storylet_id)
+        if storylet is None:
+            continue
+        # Skip if cooldown — there's no point offering a card that engine.fire would refuse
+        last_fired = state.fired_storylet_ids.get(storylet.storylet_id)
+        if last_fired is not None and storylet.cooldown_turns > 0:
+            if (state.turn_index - last_fired) < storylet.cooldown_turns:
+                continue
+        # Pick a target — prefer storylet's first non-protagonist character that's
+        # also active in state.relationships and not already reserved by lane cards.
+        target_id: str | None = None
+        for cid in storylet.characters_involved:
+            if cid in reserved_targets:
+                continue
+            if cid in state.relationships:
+                target_id = cid
+                break
+        # Pick a move_family — derive from narrative_function so the runtime-level
+        # delta application still has a sensible default if the engine somehow
+        # doesn't fire (defensive — fire happens in turn handler before deltas).
+        move_family: RelationshipMoveFamily = {
+            "hook": "probe_secret",
+            "escalation": "accuse",
+            "reversal": "ally_with",
+            "revelation": "public_reveal",
+            "cost": "deflect",
+            "resolution": "private_confession",
+        }.get(storylet.narrative_function, "probe_secret")  # type: ignore[assignment]
+        scene_frame: RelationshipSceneFrame = (
+            "public" if storylet.narrative_function in {"revelation", "escalation"} else "private"
+        )
+        return UrbanSuggestedAction(
+            suggestion_id=_suggestion_id_for_storylet(segment_id, storylet.storylet_id),
+            lane_id="storylet",
+            label=_storylet_suggestion_label(storylet.narrative_function, storylet.title),
+            prompt=storylet.scene_text[:220],
+            move_family=move_family,
+            target_id=target_id,
+            scene_frame=scene_frame,
+        )
+    return None
+
+
 def build_suggested_actions(plan: CompiledPlayPlan, state: UrbanWorldState) -> list[UrbanSuggestedAction]:
     segment = _resolved_segment(plan, state)
     suggestions: list[UrbanSuggestedAction] = []
@@ -2135,8 +2254,15 @@ def build_suggested_actions(plan: CompiledPlayPlan, state: UrbanWorldState) -> l
         if target_id is not None:
             reserved_targets.add(target_id)
         reserved_moves.add(move_family)
+    # 4th slot: a storylet-driven option, when matcher finds a strong candidate.
+    # Lane-based suggestions stay in slots 1-3 — the storylet card is additive.
+    storylet_suggestion = _build_storylet_suggestion(
+        plan, state, segment.segment_id, reserved_targets=reserved_targets
+    )
+    if storylet_suggestion is not None:
+        suggestions.append(storylet_suggestion)
     if suggestions:
-        return suggestions[:3]
+        return suggestions[:4]
     return []
 
 
@@ -4031,10 +4157,17 @@ def _resolve_lane_id_for_intent(
     intent: UrbanTurnIntent,
     suggestions: list[UrbanSuggestedAction],
 ) -> SuggestionLaneId:
-    for suggestion in suggestions:
+    # Storylet-lane suggestions are player-driven cards — they don't represent
+    # a strategic lane archetype, so they shouldn't be inferred for an intent
+    # that wasn't explicitly bound to that exact suggestion. Filter them out
+    # of fallback inference. (When a player picks a storylet card directly,
+    # `mapped_suggestion_id` carries the binding through `_resolve_lane_id_for_candidate`
+    # without coming through here.)
+    inference_pool = [s for s in suggestions if s.lane_id != "storylet"]
+    for suggestion in inference_pool:
         if suggestion.move_family == intent.move_family and suggestion.target_id == intent.target_id:
             return suggestion.lane_id
-    for suggestion in suggestions:
+    for suggestion in inference_pool:
         if suggestion.move_family == intent.move_family:
             return suggestion.lane_id
     return _fallback_lane_id(intent.move_family)
@@ -5511,6 +5644,50 @@ def _turn_complexity_for_compose(
     ):
         return "key_burst"
     return "normal"
+
+
+def _auto_fire_storylets(plan: CompiledPlayPlan, state: UrbanWorldState) -> list[StoryletFireResult]:
+    """Auto-fire the highest-scoring storylet whose preconditions strictly pass.
+
+    Capped at MAX_AUTO_FIRES_PER_TURN (currently 1). The matcher returns fuzzy
+    candidates; storylet_engine.fire_storylet enforces the strict gate. Player-
+    driven fires (selected via suggestion card) go through a different path
+    (`fire_player_chosen_storylet`) and don't share this cap.
+    """
+    if not plan.storylet_pool:
+        return []
+    matches = find_matching_storylets(state, plan, max_count=3, min_score=0.5)
+    if not matches:
+        return []
+    pool_by_id = {storylet.storylet_id: storylet for storylet in storylet_pool_iter(plan)}
+    fired: list[StoryletFireResult] = []
+    for match in matches:
+        if len(fired) >= MAX_AUTO_FIRES_PER_TURN:
+            break
+        storylet = pool_by_id.get(match.storylet_id)
+        if storylet is None:
+            continue
+        result = fire_storylet(storylet, state, plan)
+        if result.fired:
+            fired.append(result)
+    return fired
+
+
+def fire_player_chosen_storylet(
+    plan: CompiledPlayPlan,
+    state: UrbanWorldState,
+    storylet_id: str,
+) -> StoryletFireResult | None:
+    """Fire a storylet because the player picked its suggestion card.
+
+    Bypasses preconditions (the runtime presented this option, the player chose
+    it — we honour that). Cooldown is still enforced.
+    """
+    pool_by_id = {storylet.storylet_id: storylet for storylet in storylet_pool_iter(plan)}
+    storylet = pool_by_id.get(storylet_id)
+    if storylet is None:
+        return None
+    return fire_storylet(storylet, state, plan, bypass_preconditions=True)
 
 
 def _storylet_hints_for_compose(matches: list[StoryletMatch]) -> list[dict[str, Any]]:
@@ -7140,6 +7317,31 @@ def run_turn(
         intent,
         micro_sim=micro_sim,
     )
+    # Storylet engine — let author's storylet pool actually affect state.
+    # Two paths:
+    #   - Player picked a storylet card → fire that exact one, bypass preconditions
+    #     (we offered the option, they chose it; cooldown still enforced).
+    #   - Otherwise → auto-fire the highest-scoring matcher hit whose preconditions
+    #     strictly pass (capped at MAX_AUTO_FIRES_PER_TURN).
+    # Reset the per-turn buffer first so a fresh turn always starts clean.
+    reset_turn_storylet_state(state)
+    player_chosen_storylet_id = extract_storylet_id_from_suggestion(
+        selected_story_action_id or selected_suggestion_id
+    )
+    if player_chosen_storylet_id:
+        player_fire = fire_player_chosen_storylet(plan, state, player_chosen_storylet_id)
+        storylet_fire_results = [player_fire] if player_fire and player_fire.fired else []
+    else:
+        storylet_fire_results = _auto_fire_storylets(plan, state)
+    if storylet_fire_results:
+        # Mirror revealed secrets onto consequence_tags so downstream tag-based
+        # surfaces (narration, ending judge) treat them like any other reveal.
+        consequence_tags = list(consequence_tags)
+        for fire in storylet_fire_results:
+            for sid in [*fire.revealed_secret_ids, *fire.chained_secret_ids]:
+                tag = f"storylet_revealed:{sid}"
+                if tag not in consequence_tags:
+                    consequence_tags.append(tag)
     resolved_segment = _resolved_segment(plan, state)
     render_state = state.model_copy(deep=True)
     narration, narration_diagnostics = _render_narration(

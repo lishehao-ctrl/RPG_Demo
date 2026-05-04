@@ -116,7 +116,10 @@ def find_matching_storylets(
 
     matches: list[StoryletMatch] = []
     for raw_storylet in plan.storylet_pool:
-        storylet = Storylet.model_validate(raw_storylet)
+        try:
+            storylet = Storylet.model_validate(raw_storylet)
+        except Exception:  # noqa: BLE001 — malformed pool entries skipped silently
+            continue
         match_score, matched_conditions = _score_storylet(storylet, state, plan)
         if match_score < min_score:
             continue

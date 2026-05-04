@@ -498,9 +498,12 @@ class UrbanWorldState(BaseModel):
     ending_id: str | None = None
     ending_summary: str | None = Field(default=None, max_length=220)
     narration: str = Field(default="", max_length=4000)
-    story_actions: list[UrbanSuggestedAction] = Field(default_factory=list, max_length=3)
+    # Bumped from 3→4 to make room for an optional storylet-driven choice card.
+    # The first 3 slots are still the lane-based suggestions (relationship/side/burst);
+    # the 4th, when present, is a storylet match exposed for player-driven firing.
+    story_actions: list[UrbanSuggestedAction] = Field(default_factory=list, max_length=4)
     control_actions: list[UrbanControlAction] = Field(default_factory=list, max_length=3)
-    suggested_actions: list[UrbanSuggestedAction] = Field(default_factory=list, max_length=3)
+    suggested_actions: list[UrbanSuggestedAction] = Field(default_factory=list, max_length=4)
     last_turn_global_deltas: dict[str, int] = Field(default_factory=dict)
     last_turn_relationship_deltas: dict[str, dict[str, int]] = Field(default_factory=dict)
     last_turn_reaction_causes: dict[str, list[str]] = Field(default_factory=dict)
@@ -525,6 +528,11 @@ class UrbanWorldState(BaseModel):
     last_turn_public_event_text: str | None = Field(default=None, max_length=220)
     last_turn_pain_text: str | None = Field(default=None, max_length=220)
     last_turn_no_return_text: str | None = Field(default=None, max_length=220)
+    # Storylet engine state — populated as the runtime fires storylet effects each turn.
+    # Maps storylet_id → turn_index it last fired, so the matcher can honour cooldowns
+    # and so we can attribute state changes to a specific storylet for stats / replay.
+    fired_storylet_ids: dict[str, int] = Field(default_factory=dict)
+    last_turn_fired_storylet_ids: list[str] = Field(default_factory=list, max_length=4)
 
 
 class UrbanSuggestedAction(BaseModel):
@@ -576,9 +584,9 @@ class UrbanTurnResult(BaseModel):
     plan: CompiledPlayPlan
     state: UrbanWorldState
     narration: str = Field(min_length=1, max_length=4000)
-    story_actions: list[UrbanSuggestedAction] = Field(default_factory=list, max_length=3)
+    story_actions: list[UrbanSuggestedAction] = Field(default_factory=list, max_length=4)
     control_actions: list[UrbanControlAction] = Field(default_factory=list, max_length=3)
-    suggested_actions: list[UrbanSuggestedAction] = Field(default_factory=list, max_length=3)
+    suggested_actions: list[UrbanSuggestedAction] = Field(default_factory=list, max_length=4)
     triggered_latent_event: TurnEscalationRecord | None = None
     latent_radar: list[UrbanLatentRadarItem] = Field(default_factory=list, max_length=4)
     control_resolution: UrbanControlResolution | None = None

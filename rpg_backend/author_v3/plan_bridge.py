@@ -939,6 +939,7 @@ def bridge_to_plan(
         storylet_pool=[s.model_dump(mode="json") for s in pool.storylets],
         organic_secrets=[s.model_dump() for s in web.secrets],
         hooks=[h.model_dump() for h in web.hooks],
+        secret_chains=[c.model_dump() for c in web.chains],
     )
 
 

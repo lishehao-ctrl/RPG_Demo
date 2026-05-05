@@ -1,4 +1,5 @@
 import { useEffect } from "react"
+import { AnimatePresence, motion } from "motion/react"
 import { ApiProvider } from "./api-context"
 import { AuthProvider } from "./auth-context"
 import { type AppRoute, useAppRoute } from "./routes"
@@ -9,6 +10,7 @@ import { AboutPage } from "../pages/about/about-page"
 import { LoginPage } from "../pages/auth/login-page"
 import { ReplayPage } from "../pages/replay/replay-page"
 import { TemplateDetailPage } from "../pages/world/world-detail-page"
+import { pageTransition, pageVariants } from "../shared/lib/motion-presets"
 
 function NotFoundRedirect({ navigate }: { navigate: (next: AppRoute) => void }) {
   useEffect(() => {
@@ -17,9 +19,7 @@ function NotFoundRedirect({ navigate }: { navigate: (next: AppRoute) => void }) 
   return null
 }
 
-function Router() {
-  const { route, navigate } = useAppRoute()
-
+function renderRoute(route: AppRoute, navigate: (next: AppRoute) => void) {
   switch (route.name) {
     case "home":
       return (
@@ -81,6 +81,36 @@ function Router() {
       )
   }
   return <NotFoundRedirect navigate={navigate} />
+}
+
+function routeKey(route: AppRoute): string {
+  switch (route.name) {
+    case "home": return "home"
+    case "login": return "login"
+    case "create": return "create"
+    case "about": return "about"
+    case "template": return `template:${route.templateId}`
+    case "play": return `play:${route.sessionId}`
+    case "replay": return `replay:${route.sessionId}`
+  }
+}
+
+function Router() {
+  const { route, navigate } = useAppRoute()
+  return (
+    <AnimatePresence mode="wait">
+      <motion.div
+        key={routeKey(route)}
+        variants={pageVariants}
+        initial="initial"
+        animate="animate"
+        exit="exit"
+        transition={pageTransition}
+      >
+        {renderRoute(route, navigate)}
+      </motion.div>
+    </AnimatePresence>
+  )
 }
 
 export default function App() {

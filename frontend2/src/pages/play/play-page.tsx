@@ -1,4 +1,5 @@
 import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react"
+import { AnimatePresence, motion } from "motion/react"
 import type {
   NarrativeAdvisorMessage,
   NarrativeEnding,
@@ -8,9 +9,22 @@ import type {
 import { useApi } from "../../app/api-context"
 import { friendlyError } from "../../shared/lib/friendly-error"
 import {
+  fadeTransition,
+  fadeVariants,
+  hoverLift,
+  hoverNudge,
+  itemTransition,
+  itemVariants,
+  pulseVariants,
+  slideInRightTransition,
+  slideInRightVariants,
+  tapPress,
+} from "../../shared/lib/motion-presets"
+import {
   getAdvisorAvatar,
   getAvatarForCastMember,
   getCoverForTemplate,
+  getEndingIllustration,
 } from "../../shared/lib/webtoon-assets"
 
 export function PlayPage({
@@ -180,13 +194,18 @@ export function PlayPage({
           {error ? <div style={ppStyles.errorInline}>{error}</div> : null}
 
           {isFinalApproaching && !busy ? (
-            <div style={ppStyles.approachingFinaleBanner}>
+            <motion.div
+              style={ppStyles.approachingFinaleBanner}
+              variants={pulseVariants}
+              initial="initial"
+              animate="animate"
+            >
               {turnsRemaining === 0
                 ? "故事正在收尾…"
                 : turnsRemaining === 1
                   ? "下一段就是结局——慎选。"
                   : "还有 2 段就到结局——开始往那个方向收吧。"}
-            </div>
+            </motion.div>
           ) : null}
 
           {/* Ending screen — only when the session has finished */}
@@ -239,14 +258,16 @@ export function PlayPage({
         avatarUrl={advisorAvatar}
         persona={story.template.advisor_persona}
       />
-      {advisorOpen ? (
-        <AdvisorSidechat
-          sessionId={sessionId}
-          persona={story.template.advisor_persona}
-          avatarUrl={advisorAvatar}
-          onClose={() => setAdvisorOpen(false)}
-        />
-      ) : null}
+      <AnimatePresence>
+        {advisorOpen ? (
+          <AdvisorSidechat
+            sessionId={sessionId}
+            persona={story.template.advisor_persona}
+            avatarUrl={advisorAvatar}
+            onClose={() => setAdvisorOpen(false)}
+          />
+        ) : null}
+      </AnimatePresence>
     </div>
   )
 }
@@ -340,30 +361,89 @@ function EndingScreen({
   onShare: () => void
 }) {
   void sessionId
+  const illustration = getEndingIllustration(ending.label)
   return (
-    <section style={ppStyles.endingSection}>
-      <div style={ppStyles.endingDivider}>
+    <motion.section
+      style={ppStyles.endingSection}
+      initial="initial"
+      animate="animate"
+      transition={{ staggerChildren: 0.18, delayChildren: 0.1 }}
+    >
+      <motion.div
+        variants={itemVariants}
+        transition={itemTransition}
+        style={ppStyles.endingDivider}
+      >
         <span style={ppStyles.endingDividerLabel}>故事到这里</span>
-      </div>
-      <div style={ppStyles.endingCard}>
-        <div style={ppStyles.endingLabelChip}>{ending.label}</div>
-        <h2 style={ppStyles.endingSubtitle}>「{ending.subtitle}」</h2>
-        <div style={ppStyles.endingPassage}>{ending.passage}</div>
-        <div style={ppStyles.endingActions}>
-          <button
+      </motion.div>
+      <motion.div
+        variants={itemVariants}
+        transition={itemTransition}
+        style={ppStyles.endingCard}
+      >
+        {/* Illustrated banner — the visual punctuation that makes the
+            ending feel like a closed object the player can screenshot. */}
+        <motion.div
+          initial={{ opacity: 0, scale: 1.06 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
+          style={{
+            ...ppStyles.endingHero,
+            backgroundImage: `linear-gradient(180deg, rgba(20,16,12,0.15) 0%, rgba(20,16,12,0.6) 75%, var(--bg-elev) 100%), url(${illustration})`,
+          }}
+        />
+        <div style={ppStyles.endingCardInner}>
+        <motion.div
+          initial={{ opacity: 0, scale: 0.6 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: 0.45, type: "spring", stiffness: 320, damping: 18 }}
+          style={ppStyles.endingLabelChip}
+        >
+          {ending.label}
+        </motion.div>
+        <motion.h2
+          initial={{ opacity: 0, y: 14 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.6, ...itemTransition }}
+          style={ppStyles.endingSubtitle}
+        >
+          「{ending.subtitle}」
+        </motion.h2>
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.85, duration: 0.6 }}
+          style={ppStyles.endingPassage}
+        >
+          {ending.passage}
+        </motion.div>
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 1.1, ...itemTransition }}
+          style={ppStyles.endingActions}
+        >
+          <motion.button
             className="ts-btn ts-btn--primary"
             onClick={onShare}
             type="button"
             style={{ minWidth: 200 }}
+            whileHover={{ scale: 1.02 }}
+            whileTap={tapPress}
+            key={shareCopied ? "copied" : "default"}
+            initial={shareCopied ? { scale: 0.92 } : false}
+            animate={shareCopied ? { scale: [0.92, 1.06, 1] } : { scale: 1 }}
+            transition={{ duration: 0.32 }}
           >
             {shareCopied ? "✓ 链接已复制" : "复制分享链接"}
-          </button>
+          </motion.button>
           <p style={ppStyles.endingShareHint}>
             把链接发给朋友 — 他们能玩同一个开场，看自己会走出什么结局。
           </p>
+        </motion.div>
         </div>
-      </div>
-    </section>
+      </motion.div>
+    </motion.section>
   )
 }
 
@@ -374,25 +454,44 @@ function EndingScreen({
 function StoryBeat({ message }: { message: NarrativeStoryMessage }) {
   if (message.role === "narrator") {
     return (
-      <article style={ppStyles.narratorBeat}>
+      <motion.article
+        layout
+        initial="initial"
+        animate="animate"
+        variants={itemVariants}
+        transition={itemTransition}
+        style={ppStyles.narratorBeat}
+      >
         <div style={ppStyles.narratorText}>{message.content}</div>
         {message.chosen_option_index != null && message.options.length > 0 ? (
-          <div style={ppStyles.chosenChip}>
+          <motion.div
+            initial={{ opacity: 0, scale: 0.92 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: 0.12, ...itemTransition }}
+            style={ppStyles.chosenChip}
+          >
             <span style={ppStyles.chosenLabel}>你选了</span>
             <span style={ppStyles.chosenText}>
               {message.options[message.chosen_option_index]?.label ?? "?"}
             </span>
-          </div>
+          </motion.div>
         ) : null}
-      </article>
+      </motion.article>
     )
   }
   // player move (echoed action)
   return (
-    <article style={ppStyles.playerBeat}>
+    <motion.article
+      layout
+      initial="initial"
+      animate="animate"
+      variants={itemVariants}
+      transition={itemTransition}
+      style={ppStyles.playerBeat}
+    >
       <div style={ppStyles.playerLabel}>你</div>
       <div style={ppStyles.playerText}>{message.content}</div>
-    </article>
+    </motion.article>
   )
 }
 
@@ -420,7 +519,12 @@ function ActionArea({
   onSubmitFree: () => void
 }) {
   return (
-    <div style={ppStyles.actionArea}>
+    <motion.div
+      style={ppStyles.actionArea}
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.08, ...itemTransition }}
+    >
       <div style={ppStyles.optionsList}>
         {options.length === 0 ? (
           <div style={ppStyles.noOptions}>
@@ -428,7 +532,7 @@ function ActionArea({
           </div>
         ) : (
           options.map((opt, i) => (
-            <button
+            <motion.button
               key={i}
               style={{
                 ...ppStyles.optionBtn,
@@ -438,10 +542,15 @@ function ActionArea({
               onClick={() => onPickOption(i)}
               disabled={busy}
               type="button"
+              initial={{ opacity: 0, x: -6 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: 0.05 * i + 0.1, ...itemTransition }}
+              whileHover={busy ? undefined : hoverNudge}
+              whileTap={busy ? undefined : tapPress}
             >
               <div style={ppStyles.optionLabel}>{opt.label}</div>
               {opt.hint ? <div style={ppStyles.optionHint}>{opt.hint}</div> : null}
-            </button>
+            </motion.button>
           ))
         )}
       </div>
@@ -494,7 +603,7 @@ function ActionArea({
           + 我想自己写一个动作
         </button>
       )}
-    </div>
+    </motion.div>
   )
 }
 
@@ -512,10 +621,20 @@ function AdvisorFab({
   persona: string
 }) {
   return (
-    <button style={ppStyles.fab} onClick={onOpen} title={persona} type="button">
+    <motion.button
+      style={ppStyles.fab}
+      onClick={onOpen}
+      title={persona}
+      type="button"
+      initial={{ opacity: 0, scale: 0.7, y: 20 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      transition={{ delay: 0.4, type: "spring", stiffness: 280, damping: 18 }}
+      whileHover={hoverLift}
+      whileTap={tapPress}
+    >
       <img src={avatarUrl} alt="" style={ppStyles.fabAvatarImg} loading="lazy" />
       <span style={ppStyles.fabLabel}>聊聊</span>
-    </button>
+    </motion.button>
   )
 }
 
@@ -582,8 +701,23 @@ function AdvisorSidechat({
 
   return (
     <>
-      <div style={ppStyles.advisorBackdrop} onClick={onClose} />
-      <aside style={ppStyles.advisorPanel}>
+      <motion.div
+        style={ppStyles.advisorBackdrop}
+        onClick={onClose}
+        variants={fadeVariants}
+        initial="initial"
+        animate="animate"
+        exit="exit"
+        transition={fadeTransition}
+      />
+      <motion.aside
+        style={ppStyles.advisorPanel}
+        variants={slideInRightVariants}
+        initial="initial"
+        animate="animate"
+        exit="exit"
+        transition={slideInRightTransition}
+      >
         <header style={ppStyles.advisorHeader}>
           <img src={avatarUrl} alt="" style={ppStyles.advisorHeaderAvatar} loading="lazy" />
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -597,14 +731,23 @@ function AdvisorSidechat({
 
         <div style={ppStyles.advisorMessages} ref={scrollerRef}>
           {messages.length === 0 ? (
-            <div style={ppStyles.advisorIntro}>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.2, duration: 0.4 }}
+              style={ppStyles.advisorIntro}
+            >
               问 TA 任何事——你和谁的关系到了哪一步、那句话什么意思、你是不是太冲动了。
               TA 不会替你做决定，但会陪你想清楚。
-            </div>
+            </motion.div>
           ) : (
             messages.map((m) => (
-              <div
+              <motion.div
                 key={`${m.role}-${m.ord}`}
+                layout
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={itemTransition}
                 style={m.role === "player" ? ppStyles.advisorRowPlayer : ppStyles.advisorRowAdvisor}
               >
                 <div
@@ -616,10 +759,10 @@ function AdvisorSidechat({
                 >
                   {m.content}
                 </div>
-              </div>
+              </motion.div>
             ))
           )}
-          {busy ? <div style={ppStyles.advisorTyping}>TA 在打字…</div> : null}
+          {busy ? <TypingDots /> : null}
         </div>
 
         {error ? <div style={ppStyles.advisorError}>{error}</div> : null}
@@ -648,8 +791,32 @@ function AdvisorSidechat({
             发送
           </button>
         </div>
-      </aside>
+      </motion.aside>
     </>
+  )
+}
+
+// Bouncing 3-dot typing indicator. Used in advisor sidechat while waiting
+// for the LLM response. Pure CSS keyframes via inline animation.
+function TypingDots() {
+  return (
+    <div style={ppStyles.typingRow}>
+      <div style={ppStyles.typingBubble}>
+        {[0, 1, 2].map((i) => (
+          <motion.span
+            key={i}
+            style={ppStyles.typingDot}
+            animate={{ y: [0, -4, 0] }}
+            transition={{
+              duration: 0.9,
+              repeat: Infinity,
+              delay: i * 0.15,
+              ease: "easeInOut",
+            }}
+          />
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -900,12 +1067,20 @@ const ppStyles: Record<string, CSSProperties> = {
     zIndex: 1,
   },
   endingCard: {
-    padding: "32px 28px",
     background: "var(--bg-elev)",
     border: "1px solid var(--line)",
     borderRadius: "var(--radius-lg)",
     boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
+    overflow: "hidden",
   },
+  endingHero: {
+    width: "100%",
+    height: 220,
+    backgroundSize: "cover",
+    backgroundPosition: "center",
+    marginBottom: -1,
+  },
+  endingCardInner: { padding: "24px 28px 28px" },
   endingLabelChip: {
     display: "inline-block",
     padding: "5px 14px",
@@ -1045,6 +1220,23 @@ const ppStyles: Record<string, CSSProperties> = {
     border: "1px solid var(--line)",
   },
   advisorTyping: { fontSize: 12, color: "var(--text-faint)", fontStyle: "italic", padding: "6px 14px" },
+  typingRow: { display: "flex", justifyContent: "flex-start", marginBottom: 12 },
+  typingBubble: {
+    background: "var(--bg-elev)",
+    border: "1px solid var(--line)",
+    borderRadius: "16px 16px 16px 4px",
+    padding: "12px 16px",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
+  },
+  typingDot: {
+    width: 6,
+    height: 6,
+    borderRadius: "50%",
+    background: "var(--text-faint)",
+    display: "inline-block",
+  },
   advisorError: {
     margin: "0 20px 8px",
     padding: "8px 12px",

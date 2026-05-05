@@ -1,4 +1,5 @@
 import { type CSSProperties, useEffect, useState } from "react"
+import { motion } from "motion/react"
 import type {
   NarrativeSessionSummary,
   NarrativeTemplateSummary,
@@ -8,6 +9,7 @@ import { useAuth } from "../../app/auth-context"
 import { Header } from "../../shared/ui/header"
 import { PAGE_BG, getCoverForTemplate } from "../../shared/lib/webtoon-assets"
 import { friendlyError } from "../../shared/lib/friendly-error"
+import { hoverLift, itemTransition, itemVariants, tapPress } from "../../shared/lib/motion-presets"
 
 type Tab = "plaza" | "my-templates"
 
@@ -79,32 +81,61 @@ export function HomePage({
       <Header onHome={() => {}} onCreate={onOpenCreate} />
 
       <main style={hpStyles.main}>
-        <section style={hpStyles.hero}>
-          <div style={hpStyles.heroTagline}>互动短剧 · 你来决定</div>
-          <h1 style={hpStyles.heroTitle}>
+        <motion.section
+          style={hpStyles.hero}
+          initial="initial"
+          animate="animate"
+          transition={{ staggerChildren: 0.08, delayChildren: 0.05 }}
+        >
+          <motion.div
+            variants={itemVariants}
+            transition={itemTransition}
+            style={hpStyles.heroTagline}
+          >
+            互动短剧 · 你来决定
+          </motion.div>
+          <motion.h1
+            variants={itemVariants}
+            transition={itemTransition}
+            style={hpStyles.heroTitle}
+          >
             一句话起头，
             <br />
             AI 给你一整集短剧。
-          </h1>
-          <p style={hpStyles.heroSub}>
+          </motion.h1>
+          <motion.p
+            variants={itemVariants}
+            transition={itemTransition}
+            style={hpStyles.heroSub}
+          >
             15 分钟一局 · 朋友们玩同一个开场，看谁玩出什么结局。
-          </p>
-          <ul style={hpStyles.heroBullets}>
+          </motion.p>
+          <motion.ul
+            variants={itemVariants}
+            transition={itemTransition}
+            style={hpStyles.heroBullets}
+          >
             <li><span style={hpStyles.heroBulletDot}>·</span>写一个戏剧瞬间，AI 立刻搭起场景、人物、第一段</li>
             <li><span style={hpStyles.heroBulletDot}>·</span>每回合 300 字叙述 + 选项 / 自由输入</li>
             <li><span style={hpStyles.heroBulletDot}>·</span>右下角私聊"局外人朋友"——TA 不替你做决定，会陪你想清楚</li>
             <li><span style={hpStyles.heroBulletDot}>·</span>结局可分享，可看朋友走出什么版本</li>
-          </ul>
-          <div style={hpStyles.heroActions}>
-            <button
+          </motion.ul>
+          <motion.div
+            variants={itemVariants}
+            transition={itemTransition}
+            style={hpStyles.heroActions}
+          >
+            <motion.button
               className="ts-btn ts-btn--primary ts-btn--lg"
               onClick={onOpenCreate}
               type="button"
+              whileHover={{ scale: 1.03 }}
+              whileTap={tapPress}
             >
               写一个新故事 →
-            </button>
-          </div>
-        </section>
+            </motion.button>
+          </motion.div>
+        </motion.section>
 
         {/* My sessions split into in-progress + completed groups. Only
             shown when signed in and at least one exists. */}
@@ -239,7 +270,16 @@ function SessionCard({
 }) {
   const completed = Boolean(session.ending_label)
   return (
-    <button style={hpStyles.sessionCard} onClick={onClick} type="button">
+    <motion.button
+      style={hpStyles.sessionCard}
+      onClick={onClick}
+      type="button"
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={itemTransition}
+      whileHover={hoverLift}
+      whileTap={tapPress}
+    >
       <div style={hpStyles.sessionTitle}>{session.template_title}</div>
       {completed ? (
         <>
@@ -259,7 +299,7 @@ function SessionCard({
           {formatRelative(session.last_active_at)}
         </div>
       )}
-    </button>
+    </motion.button>
   )
 }
 
@@ -285,10 +325,11 @@ function TemplateGrid({
   }
   return (
     <div style={hpStyles.grid}>
-      {templates.map((t) => (
+      {templates.map((t, idx) => (
         <TemplateCard
           key={t.template_id}
           template={t}
+          index={idx}
           onClick={() => onOpenTemplate(t.template_id)}
         />
       ))}
@@ -299,13 +340,24 @@ function TemplateGrid({
 function TemplateCard({
   template,
   onClick,
+  index = 0,
 }: {
   template: NarrativeTemplateSummary
   onClick: () => void
+  index?: number
 }) {
   const cover = getCoverForTemplate(template)
   return (
-    <button style={hpStyles.card} onClick={onClick} type="button">
+    <motion.button
+      style={hpStyles.card}
+      onClick={onClick}
+      type="button"
+      initial={{ opacity: 0, y: 14 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: index * 0.04, ...itemTransition }}
+      whileHover={hoverLift}
+      whileTap={tapPress}
+    >
       <div
         style={{
           ...hpStyles.cardCover,
@@ -329,7 +381,7 @@ function TemplateCard({
           ) : null}
         </div>
       </div>
-    </button>
+    </motion.button>
   )
 }
 

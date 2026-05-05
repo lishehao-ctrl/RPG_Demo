@@ -253,3 +253,36 @@ export function getAvatarForCastMember(
 export function getAdvisorAvatar(templateId: string, _persona: string): string {
   return `/webtoons/advisors/${pick(ADVISOR_AVATARS, `advisor|${templateId}`)}.jpg`
 }
+
+// ───────── ending illustrations ─────────
+// Each backend ENDING_LABELS entry maps to a Codex-generated v2 illustration
+// at /webtoons/endings/v2/{slug}.jpg. The mapping is deliberate (not random)
+// so the same label always shows the same image — the visual symbolism of
+// the ending is part of the shareable identity.
+
+const ENDING_LABEL_TO_SLUG: Record<string, string> = {
+  孤狼: "loner",
+  共谋: "conspiracy",
+  复仇: "vengeance",
+  和解: "reconciliation",
+  牺牲: "sacrifice",
+  自由: "liberation",
+  沉沦: "fallen",
+  救赎: "redemption",
+  失控: "unraveling",
+  反噬: "backfire",
+  同谋: "ally",
+  决裂: "severance",
+  回归: "return",
+  破碎: "broken",
+  夺回: "reclaim",
+}
+
+/** Illustration for an ending label. Falls back to 'unraveling' for any
+ *  label not in the table (which would be a bug — backend snaps off-pool
+ *  labels to '失控' anyway). */
+export function getEndingIllustration(label: string | null | undefined): string {
+  if (!label) return "/webtoons/endings/v2/unraveling.jpg"
+  const slug = ENDING_LABEL_TO_SLUG[label] ?? "unraveling"
+  return `/webtoons/endings/v2/${slug}.jpg`
+}

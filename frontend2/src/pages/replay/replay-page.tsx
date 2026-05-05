@@ -6,6 +6,7 @@ import {
   getAdvisorAvatar,
   getAvatarForCastMember,
   getCoverForTemplate,
+  getEndingIllustration,
 } from "../../shared/lib/webtoon-assets"
 
 /**
@@ -64,7 +65,12 @@ export function ReplayPage({
     title: replay.template_title,
     cast: replay.cast,
   }
-  const cover = getCoverForTemplate(templateLike)
+  // For completed replays, use the ending-specific illustration as the
+  // hero — that's the visual identity of *this particular* playthrough.
+  // Incomplete replays fall back to the shell cover.
+  const cover = replay.completed && replay.ending
+    ? getEndingIllustration(replay.ending.label)
+    : getCoverForTemplate(templateLike)
   const advisorAvatar = getAdvisorAvatar(sessionId, replay.advisor_persona)
 
   // We need a notional template_id to navigate back to "play it yourself."

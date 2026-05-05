@@ -1,4 +1,5 @@
 import { type CSSProperties, useEffect, useRef, useState } from "react"
+import { motion } from "motion/react"
 import type {
   NarrativeEndingDistributionResponse,
   NarrativeTemplateSummary,
@@ -8,6 +9,7 @@ import { useApi } from "../../app/api-context"
 import { useAuth } from "../../app/auth-context"
 import { Header } from "../../shared/ui/header"
 import { friendlyError } from "../../shared/lib/friendly-error"
+import { hoverLift, itemTransition, tapPress } from "../../shared/lib/motion-presets"
 import {
   getAdvisorAvatar,
   getAvatarForCastMember,
@@ -174,16 +176,27 @@ export function TemplateDetailPage({
               玩家走出来的结局 · 共 {distribution.total_completed} 局完结
             </div>
             <div style={tdStyles.distributionList}>
-              {distribution.entries.map((entry) => {
+              {distribution.entries.map((entry, idx) => {
                 const pct = (entry.count / distribution.total_completed) * 100
                 return (
-                  <div key={entry.label} style={tdStyles.distributionRow}>
+                  <motion.div
+                    key={entry.label}
+                    style={tdStyles.distributionRow}
+                    initial={{ opacity: 0, x: -8 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: 0.05 * idx + 0.15, ...itemTransition }}
+                  >
                     <div style={tdStyles.distributionLabel}>{entry.label}</div>
                     <div style={tdStyles.distributionBarTrack}>
-                      <div style={{ ...tdStyles.distributionBarFill, width: `${pct}%` }} />
+                      <motion.div
+                        style={tdStyles.distributionBarFill}
+                        initial={{ width: 0 }}
+                        animate={{ width: `${pct}%` }}
+                        transition={{ delay: 0.05 * idx + 0.25, duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
+                      />
                     </div>
                     <div style={tdStyles.distributionCount}>×{entry.count}</div>
-                  </div>
+                  </motion.div>
                 )
               })}
             </div>
@@ -196,7 +209,7 @@ export function TemplateDetailPage({
         {error ? <div style={tdStyles.errorBox}>{error}</div> : null}
 
         <div style={tdStyles.actions}>
-          <button
+          <motion.button
             className="ts-btn ts-btn--primary ts-btn--lg"
             onClick={() => void handleStart()}
             disabled={busy}
@@ -206,9 +219,11 @@ export function TemplateDetailPage({
               pointerEvents: busy ? "none" : "auto",
             }}
             type="button"
+            whileHover={busy ? undefined : hoverLift}
+            whileTap={busy ? undefined : tapPress}
           >
             {busy ? "开始中…" : "开始一局新故事 →"}
-          </button>
+          </motion.button>
           <p style={tdStyles.actionHint}>
             每个人的玩法都不同，开局相同，剧情走向取决于你。
           </p>

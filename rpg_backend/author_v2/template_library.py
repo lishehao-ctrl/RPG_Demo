@@ -63,11 +63,35 @@ SUPPORTED_TEMPLATE_IDS: tuple[ConflictTemplateId, ...] = (
 )
 
 _SHELL_KEYWORDS: dict[StoryShellId, tuple[str, ...]] = {
-    "wealth_families": ("豪门", "联姻", "继承", "遗嘱", "婚约", "订婚", "未婚夫", "家宴", "继承人", "私生", "旧爱", "律师"),
-    "office_power": ("董事会", "并购", "黑账", "上司", "法务", "发布会", "升职", "空降", "总裁"),
-    "entertainment_scandal": ("娱乐圈", "热搜", "颁奖", "颁奖礼", "庆功夜", "彩排", "直播", "绯闻", "隐恋", "代言", "黑料", "顶流", "经纪人", "偷拍视频"),
-    "campus_romance": ("校园", "校庆", "奖学金", "导师", "评审", "前任", "录音", "学生会"),
-    "urban_supernatural": ("异能", "夜巡", "契约", "怪谈", "会所", "灵媒", "旧债"),
+    # Expanded vocab covers the "霸总 / 年夜饭 / 千金 / 少爷 / 婆媳" family of
+    # set-pieces that obviously belong to wealth_families but were getting 0
+    # keyword hits with the original list and falling through to out_of_scope.
+    "wealth_families": (
+        "豪门", "联姻", "继承", "遗嘱", "婚约", "订婚", "未婚夫", "未婚妻",
+        "家宴", "年夜饭", "继承人", "私生", "私生子", "旧爱", "律师",
+        "霸总", "总裁", "夫人", "千金", "少爷", "豪宅", "婆媳", "继母",
+        "宴会", "家族", "门第", "豪门恩怨", "嫁入",
+    ),
+    "office_power": (
+        "董事会", "并购", "黑账", "上司", "法务", "发布会", "升职", "空降",
+        "总裁", "总监", "副总", "经理", "项目", "竞标", "客户", "汇报",
+        "年会", "述职", "公司", "高管", "职场", "权力斗争", "三角",
+        "项目负责人", "权力博弈",
+    ),
+    "entertainment_scandal": (
+        "娱乐圈", "热搜", "颁奖", "颁奖礼", "庆功夜", "彩排", "直播", "绯闻",
+        "隐恋", "代言", "黑料", "顶流", "经纪人", "偷拍视频",
+        "明星", "经纪", "粉丝", "综艺", "选秀", "记者", "出道", "番位", "粉丝群",
+    ),
+    "campus_romance": (
+        "校园", "校庆", "奖学金", "导师", "评审", "前任", "录音", "学生会",
+        "学姐", "学长", "暗恋", "毕业", "宿舍", "舞会", "同桌", "高中", "大学",
+        "实验室", "晚自习",
+    ),
+    "urban_supernatural": (
+        "异能", "夜巡", "契约", "怪谈", "会所", "灵媒", "旧债",
+        "鬼魂", "古宅", "诅咒", "占卜", "通灵", "符咒", "祭", "巫", "神秘",
+    ),
 }
 
 
@@ -534,7 +558,15 @@ def build_seed_fingerprint(seed: str, play_length_preset: str) -> SeedFingerprin
     elif shell_id == "urban_supernatural" and score >= 1:
         fit_mode = "shell_fit"
     else:
-        fit_mode = "out_of_scope"
+        # Soft fallback: instead of rejecting the seed (and returning 422 to the
+        # user), pick wealth_families as the default shell. The downstream LLM
+        # pipeline can still produce a coherent relationship drama from a low-
+        # signal seed; we'd rather accept and let author_v3's world_forge stretch
+        # than block the user with a confusing "out of scope" error.
+        # Explicit fantasy/sci-fi/historical seeds are still rare in this user
+        # base; if they become common we can re-introduce a stricter gate.
+        shell_id = "wealth_families"
+        fit_mode = "shell_fit"
     secret_class = _secret_class(seed, shell_id)
     return SeedFingerprint(
         public_shell_id=shell_id,

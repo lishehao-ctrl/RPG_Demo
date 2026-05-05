@@ -13,6 +13,7 @@ from pydantic import ValidationError
 from typing_extensions import TypedDict
 
 from rpg_backend.author.contracts import StoryShellId
+from rpg_backend.author.gateway import AuthorGatewayError
 from rpg_backend.author.normalize import normalize_whitespace, slugify, trim_text
 from rpg_backend.author_v2.contracts import (
     AcceptedBlueprint,
@@ -548,7 +549,19 @@ def extract_seed_signals(state: PreviewState) -> PreviewState:
     play_length_preset = _infer_play_length_preset(seed)
     fingerprint = build_seed_fingerprint(seed, play_length_preset)
     if fingerprint.fit_mode == "out_of_scope":
-        raise ValueError("seed_out_of_scope_for_modern_relationship_drama")
+        # Raised through the gateway-error path so the FastAPI exception handler
+        # turns this into a 422 (not the bare 500 you get from a raw ValueError
+        # bubbling up through LangGraph). Frontend reads `code` to localize.
+        raise AuthorGatewayError(
+            code="seed_out_of_scope",
+            message=(
+                "这句开头不在当前支持的题材范围内。"
+                "试试更贴近现代都市职场、情感关系、悬疑博弈的设定 — "
+                "比如：'公司年会前夜，我作为新晋总监被三个高管同时盯上' / "
+                "'闺蜜结婚前一周突然把我前任拉进伴娘群'"
+            ),
+            status_code=422,
+        )
     matched_template, decision_trace = match_story_template_with_trace(fingerprint)
     shell_id = fingerprint.public_shell_id
     desire = _infer_desire(seed, shell_id)

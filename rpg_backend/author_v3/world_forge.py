@@ -182,6 +182,7 @@ def _forge_world_with_gateway(
         max_output_tokens=gateway.max_output_tokens_world_forge,
         operation_name="author_v3.world_forge.seed_parsing",
         response_model=WorldSeed,
+        max_retries=3,
     )
     seed = _parse_seed_payload(seed_response.payload)
 
@@ -196,6 +197,7 @@ def _forge_world_with_gateway(
         max_output_tokens=gateway.max_output_tokens_world_forge,
         operation_name="author_v3.world_forge.character_batch",
         response_model=_CharacterBatchResponse,
+        max_retries=3,
     )
     characters_payload = _parse_character_batch_payload(characters_response.payload)
     characters = characters_payload["characters"]
@@ -206,6 +208,7 @@ def _forge_world_with_gateway(
         max_output_tokens=gateway.max_output_tokens_world_forge,
         operation_name="author_v3.world_forge.relationship_negotiation",
         response_model=_RelationshipNegotiationResponse,
+        max_retries=3,
     )
     relationship_edges = _parse_relationship_payload(relationships_response.payload)
 
@@ -273,6 +276,45 @@ def _parse_character_batch_payload(payload: Any) -> dict[str, Any]:
     }
 
 
+_NUMERIC_STANCE_FIELDS = ("trust_level", "dependency_level", "power_asymmetry")
+
+
+def _coerce_float_field(value: Any, *, default: float, lo: float, hi: float) -> float:
+    """Best-effort coercion of an LLM-emitted value into a clamped float.
+
+    qwen3.5-flash routinely fills numeric stance fields with prose
+    ("李伟占据绝对权力优势...") instead of a number. Pydantic's float_parsing
+    then fails the whole edge, retries don't fix it, and the author job dies
+    before world_forge completes. We accept a string only if it looks like a
+    parseable float; otherwise fall back to `default`. Bounds-clamp to [lo, hi].
+    """
+    if isinstance(value, bool):
+        return default  # bools are ints in Python; not a real number here
+    if isinstance(value, (int, float)):
+        return max(lo, min(hi, float(value)))
+    if isinstance(value, str):
+        try:
+            return max(lo, min(hi, float(value.strip())))
+        except (TypeError, ValueError):
+            return default
+    return default
+
+
+def _sanitize_stance(raw: Any) -> dict[str, Any]:
+    """Patch a single stance dict so RelationshipStance.model_validate succeeds
+    even when the LLM filled numeric fields with prose."""
+    if not isinstance(raw, Mapping):
+        return {}
+    patched: dict[str, Any] = dict(raw)
+    if "trust_level" in patched:
+        patched["trust_level"] = _coerce_float_field(patched["trust_level"], default=0.5, lo=0.0, hi=1.0)
+    if "dependency_level" in patched:
+        patched["dependency_level"] = _coerce_float_field(patched["dependency_level"], default=0.5, lo=0.0, hi=1.0)
+    if "power_asymmetry" in patched:
+        patched["power_asymmetry"] = _coerce_float_field(patched["power_asymmetry"], default=0.0, lo=-1.0, hi=1.0)
+    return patched
+
+
 def _parse_relationship_payload(payload: Any) -> list[RelationshipEdge]:
     base = _coerce_mapping(payload)
     target = _extract_mapping(base, ["relationship_batch", "relationships", "result"])
@@ -285,7 +327,28 @@ def _parse_relationship_payload(payload: Any) -> list[RelationshipEdge]:
     if raw_edges is None:
         raise ValueError("relationship negotiation response missing edges list")
 
-    return [RelationshipEdge.model_validate(item) for item in raw_edges]
+    edges: list[RelationshipEdge] = []
+    for raw_edge in raw_edges:
+        if not isinstance(raw_edge, Mapping):
+            continue
+        # Sanitize the two stance objects before pydantic validation, then also
+        # coerce the edge-level tension_score in case the LLM put prose there too.
+        patched_edge: dict[str, Any] = dict(raw_edge)
+        if "stance_a_to_b" in patched_edge:
+            patched_edge["stance_a_to_b"] = _sanitize_stance(patched_edge["stance_a_to_b"])
+        if "stance_b_to_a" in patched_edge:
+            patched_edge["stance_b_to_a"] = _sanitize_stance(patched_edge["stance_b_to_a"])
+        if "tension_score" in patched_edge:
+            patched_edge["tension_score"] = _coerce_float_field(
+                patched_edge["tension_score"], default=0.5, lo=0.0, hi=1.0
+            )
+        try:
+            edges.append(RelationshipEdge.model_validate(patched_edge))
+        except Exception:  # noqa: BLE001 — skip malformed edges, don't kill the job
+            continue
+    if not edges:
+        raise ValueError("relationship negotiation produced no usable edges")
+    return edges
 
 
 def _coerce_mapping(payload: Any) -> Mapping[str, Any]:

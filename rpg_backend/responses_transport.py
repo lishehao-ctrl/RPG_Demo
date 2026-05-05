@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 import time
 from collections import deque
@@ -14,6 +15,44 @@ import httpx
 
 T = TypeVar("T")
 ErrorFactory = Callable[[str, str, int], Exception]
+
+
+_TRAILING_COMMA_RE = re.compile(r",(\s*[}\]])")
+_MISSING_COMMA_BETWEEN_OBJECTS_RE = re.compile(r"}(\s*\n\s*){")
+_MISSING_COMMA_BETWEEN_VALUES_RE = re.compile(r'("(?:[^"\\]|\\.)*"|\d|true|false|null|\]|\})(\s*\n\s*)("[^"]+"\s*:)')
+
+
+def _repair_json_text(text: str) -> str:
+    """Best-effort cleanup for common LLM JSON malformations.
+
+    Cleans up:
+    - trailing commas before } or ]
+    - missing commas between adjacent objects on separate lines
+    - missing commas between a value and the next key
+    """
+    repaired = text
+    repaired = _TRAILING_COMMA_RE.sub(r"\1", repaired)
+    repaired = _MISSING_COMMA_BETWEEN_OBJECTS_RE.sub(r"},\1{", repaired)
+    repaired = _MISSING_COMMA_BETWEEN_VALUES_RE.sub(r"\1,\2\3", repaired)
+    return repaired
+
+
+def _try_parse_json(text: str) -> tuple[Any, bool, str | None]:
+    """Try strict json.loads, then a repair pass.
+
+    Returns (payload, was_repaired, error_message).
+    """
+    try:
+        return json.loads(text), False, None
+    except Exception as exc:  # noqa: BLE001
+        first_error = str(exc)
+    repaired = _repair_json_text(text)
+    if repaired != text:
+        try:
+            return json.loads(repaired), True, None
+        except Exception:  # noqa: BLE001
+            pass
+    return None, False, first_error
 
 
 class _RequestsPerMinuteLimiter:
@@ -867,13 +906,12 @@ class ResponsesJSONTransport:
         end = text.rfind("}")
         if start >= 0 and end > start:
             text = text[start : end + 1]
-        try:
-            payload = json.loads(text)
-        except Exception as exc:  # noqa: BLE001
+        payload, _, parse_error = _try_parse_json(text)
+        if payload is None:
             if plaintext_fallback_key and original_text:
                 payload = {plaintext_fallback_key: original_text}
             else:
-                raise self.error_factory(self.invalid_json_code, str(exc), 502) from exc
+                raise self.error_factory(self.invalid_json_code, parse_error or "invalid JSON", 502)
         if not isinstance(payload, dict):
             raise self.error_factory(
                 self.invalid_json_code,

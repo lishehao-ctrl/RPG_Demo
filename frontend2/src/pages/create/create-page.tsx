@@ -1,5 +1,5 @@
 import { type CSSProperties, useEffect, useState } from "react"
-import type { AuthorPreviewResponse, PlayLengthPreset, TargetGenderPref } from "../../api/contracts"
+import type { AuthorPreviewResponse, PlayLengthPreset } from "../../api/contracts"
 import { useApi } from "../../app/api-context"
 import { useAuth } from "../../app/auth-context"
 
@@ -9,14 +9,6 @@ const LENGTH_OPTIONS: Array<{ id: LengthChoice; label: string; time: string; des
   { id: "short", label: "短", time: "5–10 分钟", desc: "一个场景，三两次选择", preset: "5_8" },
   { id: "medium", label: "中", time: "15–25 分钟", desc: "三幕结构，节奏紧凑", preset: "12_15" },
   { id: "long", label: "长", time: "40–60 分钟", desc: "多线索，余波叠加", preset: "20_25" },
-]
-
-type GenderChoice = "any" | "f" | "m"
-
-const GENDER_OPTIONS: Array<{ id: GenderChoice; label: string; pref: TargetGenderPref | null }> = [
-  { id: "any", label: "不限", pref: null },
-  { id: "f", label: "女性优先", pref: "female" },
-  { id: "m", label: "男性优先", pref: "male" },
 ]
 
 // Maps the backend's StoryShellId → user-facing Chinese label so the review
@@ -50,8 +42,6 @@ export function CreatePage({
   const auth = useAuth()
   const [seed, setSeed] = useState("")
   const [length, setLength] = useState<LengthChoice>("medium")
-  const [gender, setGender] = useState<GenderChoice>("any")
-  const [advancedOpen, setAdvancedOpen] = useState(false)
   const [phase, setPhase] = useState<Phase>("input")
   const [preview, setPreview] = useState<AuthorPreviewResponse | null>(null)
   const [busy, setBusy] = useState(false)
@@ -106,8 +96,6 @@ export function CreatePage({
         prompt_seed: preview.prompt_seed,
         preview_id: preview.preview_id,
         play_length_preset: preset,
-        // TODO: backend createAuthorJob doesn't yet accept target_gender_pref;
-        // gender selection is collected here for future wiring.
       })
       onJobCreated(job.job_id)
     } catch (err) {
@@ -121,9 +109,6 @@ export function CreatePage({
     setError(null)
     // Keep `preview` around so the user can flip back without losing it.
   }
-
-  // Mark gender as used until wired through to the backend job request.
-  void gender
 
   return (
     <div style={cpStyles.page}>
@@ -152,10 +137,6 @@ export function CreatePage({
               setSeed={setSeed}
               length={length}
               setLength={setLength}
-              gender={gender}
-              setGender={setGender}
-              advancedOpen={advancedOpen}
-              setAdvancedOpen={setAdvancedOpen}
               busy={busy}
               error={error}
               onReview={handleReview}
@@ -184,10 +165,6 @@ function InputPhase({
   setSeed,
   length,
   setLength,
-  gender,
-  setGender,
-  advancedOpen,
-  setAdvancedOpen,
   busy,
   error,
   onReview,
@@ -197,10 +174,6 @@ function InputPhase({
   setSeed: (v: string) => void
   length: LengthChoice
   setLength: (v: LengthChoice) => void
-  gender: GenderChoice
-  setGender: (v: GenderChoice) => void
-  advancedOpen: boolean
-  setAdvancedOpen: (v: boolean) => void
   busy: boolean
   error: string | null
   onReview: () => void
@@ -245,42 +218,6 @@ function InputPhase({
             <div style={cpStyles.chipDesc}>{o.desc}</div>
           </button>
         ))}
-      </div>
-
-      <div style={cpStyles.advanced}>
-        <button
-          className="ts-link-dashed"
-          style={{
-            background: "none",
-            border: "none",
-            borderBottom: "1px dashed var(--line-strong)",
-            color: "var(--text-muted)",
-            fontSize: 13,
-            paddingBottom: 2,
-          }}
-          onClick={() => setAdvancedOpen(!advancedOpen)}
-        >
-          高级选项 {advancedOpen ? "↑" : "↓"}
-        </button>
-        {advancedOpen && (
-          <div style={cpStyles.advancedBody}>
-            <div style={cpStyles.fieldLabelSm}>主角性别偏好</div>
-            <div style={cpStyles.smallChips}>
-              {GENDER_OPTIONS.map((g) => (
-                <button
-                  key={g.id}
-                  style={{
-                    ...cpStyles.smallChip,
-                    ...(gender === g.id ? cpStyles.smallChipActive : {}),
-                  }}
-                  onClick={() => setGender(g.id)}
-                >
-                  {g.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
 
       {error ? <div style={cpStyles.error}>{error}</div> : null}

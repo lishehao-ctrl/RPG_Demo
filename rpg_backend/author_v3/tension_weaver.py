@@ -488,6 +488,7 @@ def _weave_live(
         },
         max_output_tokens=gateway.max_output_tokens_tension_weaver,
         operation_name="author_v3_weave_secrets",
+        max_retries=3,
     )
 
     secrets = _parse_secrets_from_llm(result.parsed, char_ids)
@@ -517,6 +518,7 @@ def _weave_live(
             },
             max_output_tokens=gateway.max_output_tokens_tension_weaver,
             operation_name="author_v3_strengthen_tension",
+            max_retries=3,
         )
         new_secrets = _parse_secrets_from_llm(strengthen_result.parsed, char_ids)
         new_secret_ids = {s.secret_id for s in new_secrets}

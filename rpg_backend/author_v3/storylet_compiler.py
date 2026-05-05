@@ -785,5 +785,6 @@ def _compile_live(
         },
         max_output_tokens=gateway.max_output_tokens_storylet_compiler,
         operation_name="author_v3_compile_storylets",
+        max_retries=3,
     )
     return _parse_storylets_from_llm(result.parsed, char_ids, secret_ids)

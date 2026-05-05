@@ -10,11 +10,18 @@ from rpg_backend.narrative.contracts import (
     AdvisorAskResponse,
     AdvisorHistoryResponse,
     AdvisorMessage,
-    CreateNarrativeWorldRequest,
-    CreateNarrativeWorldResponse,
-    NarrativeWorldSummary,
+    CreateTemplateRequest,
+    CreateTemplateResponse,
+    NarrativeSession,
+    NarrativeSessionSummary,
+    NarrativeTemplate,
+    NarrativeTemplateSummary,
+    SessionListResponse,
+    StartSessionResponse,
     StoryHistoryResponse,
     StoryMessage,
+    TemplateListResponse,
+    UpdateTemplateVisibilityRequest,
 )
 from rpg_backend.narrative.engine import (
     advance_turn,
@@ -55,8 +62,12 @@ def _is_content_moderation_failure(exc: NarrativeGatewayError) -> bool:
     return any(marker.lower() in msg_lower for marker in _CONTENT_MODERATION_MARKERS)
 
 
-def _generate_world_id() -> str:
-    return f"world_{secrets.token_hex(6)}"
+def _generate_template_id() -> str:
+    return f"tmpl_{secrets.token_hex(6)}"
+
+
+def _generate_session_id() -> str:
+    return f"sess_{secrets.token_hex(6)}"
 
 
 class NarrativeService:
@@ -80,15 +91,15 @@ class NarrativeService:
         return self._gateway
 
     # ------------------------------------------------------------------
-    # World creation
+    # Template authoring
     # ------------------------------------------------------------------
 
-    def create_world(
+    def create_template(
         self,
-        request: CreateNarrativeWorldRequest,
+        request: CreateTemplateRequest,
         *,
         owner_user_id: str,
-    ) -> CreateNarrativeWorldResponse:
+    ) -> CreateTemplateResponse:
         seed = request.seed.strip()
         if not seed:
             raise NarrativeServiceError(
@@ -107,32 +118,95 @@ class NarrativeService:
                 status_code=502,
             ) from exc
 
-        world_id = _generate_world_id()
-        world = self._repo.create_world(
-            world_id=world_id,
+        template_id = _generate_template_id()
+        template = self._repo.create_template(
+            template_id=template_id,
             owner_user_id=owner_user_id,
             seed=seed,
             title=opening.title,
             cast=opening.cast,
             advisor_persona=opening.advisor_persona,
-        )
-        self._repo.append_story_message(world_id, opening.opening_message)
-        return CreateNarrativeWorldResponse(
-            world=_summarize_world(world, turn_count=1),
-            opening=opening.opening_message,
+            opening_passage=opening.opening_message.content,
+            opening_options=opening.opening_message.options,
+            visibility=request.visibility,
         )
 
+        # Auto-create the creator's session.
+        session, opening_message = self._spawn_session(template, owner_user_id)
+
+        return CreateTemplateResponse(
+            template=_summarize_template(template, viewer_user_id=owner_user_id),
+            session=_summarize_session(session, template),
+            opening=opening_message,
+        )
+
+    def list_public_templates(self, *, viewer_user_id: str) -> TemplateListResponse:
+        templates = self._repo.list_public_templates()
+        return TemplateListResponse(
+            items=[_summarize_template(t, viewer_user_id=viewer_user_id) for t in templates]
+        )
+
+    def list_my_templates(self, *, owner_user_id: str) -> TemplateListResponse:
+        templates = self._repo.list_templates_for_owner(owner_user_id)
+        return TemplateListResponse(
+            items=[_summarize_template(t, viewer_user_id=owner_user_id) for t in templates]
+        )
+
+    def get_template(
+        self, template_id: str, *, viewer_user_id: str
+    ) -> NarrativeTemplateSummary:
+        template = self._load_template_for_viewer(template_id, viewer_user_id)
+        return _summarize_template(template, viewer_user_id=viewer_user_id)
+
+    def update_visibility(
+        self,
+        template_id: str,
+        request: UpdateTemplateVisibilityRequest,
+        *,
+        owner_user_id: str,
+    ) -> NarrativeTemplateSummary:
+        template = self._load_template_for_owner(template_id, owner_user_id)
+        self._repo.update_template_visibility(template_id, request.visibility)
+        updated = self._repo.get_template(template_id)
+        return _summarize_template(updated, viewer_user_id=owner_user_id)
+
     # ------------------------------------------------------------------
-    # Story history
+    # Session lifecycle
     # ------------------------------------------------------------------
+
+    def start_session(
+        self, template_id: str, *, player_user_id: str
+    ) -> StartSessionResponse:
+        template = self._load_template_for_viewer(template_id, player_user_id)
+        session, opening_message = self._spawn_session(template, player_user_id)
+        return StartSessionResponse(
+            template=_summarize_template(template, viewer_user_id=player_user_id),
+            session=_summarize_session(session, template),
+            opening=opening_message,
+        )
+
+    def list_my_sessions(self, *, player_user_id: str) -> SessionListResponse:
+        sessions = self._repo.list_sessions_for_player(player_user_id)
+        # Pull templates in batch (small N expected; keep it simple).
+        items: list[NarrativeSessionSummary] = []
+        for s in sessions:
+            try:
+                template = self._repo.get_template(s.template_id)
+            except NarrativeNotFoundError:
+                continue
+            items.append(_summarize_session(s, template))
+        return SessionListResponse(items=items)
 
     def get_story_history(
-        self, world_id: str, *, owner_user_id: str
+        self, session_id: str, *, player_user_id: str
     ) -> StoryHistoryResponse:
-        world = self._load_world(world_id, owner_user_id=owner_user_id)
-        messages = self._repo.list_story_messages(world_id)
+        session = self._load_session_for_player(session_id, player_user_id)
+        template = self._repo.get_template(session.template_id)
+        messages = self._repo.list_story_messages(session_id)
+        # turn_count derived from message stream (narrator/player pairs)
         return StoryHistoryResponse(
-            world=_summarize_world(world, turn_count=len(messages)),
+            template=_summarize_template(template, viewer_user_id=player_user_id),
+            session=_summarize_session(session, template),
             messages=messages,
         )
 
@@ -142,13 +216,14 @@ class NarrativeService:
 
     def advance(
         self,
-        world_id: str,
+        session_id: str,
         request: AdvanceTurnRequest,
         *,
-        owner_user_id: str,
+        player_user_id: str,
     ) -> AdvanceTurnResponse:
-        world = self._load_world(world_id, owner_user_id=owner_user_id)
-        history = self._repo.list_story_messages(world_id)
+        session = self._load_session_for_player(session_id, player_user_id)
+        template = self._repo.get_template(session.template_id)
+        history = self._repo.list_story_messages(session_id)
         if not history:
             raise NarrativeServiceError(
                 code="no_opening", message="Story has no opening yet.", status_code=409
@@ -168,12 +243,9 @@ class NarrativeService:
             request, last_narrator
         )
 
-        # Build the player message in memory, but DO NOT persist it yet.
-        # If the narrator generation fails (LLM JSON corrupt, retries
-        # exhausted, etc.) we don't want the user's choice sitting in the
-        # database as an orphan with no narrator response — they should be
-        # able to retry the same turn cleanly.
-        next_ord = self._repo.next_story_ord(world_id)
+        # Build the player message in memory; do NOT persist until the
+        # narrator beat succeeds. Avoids orphan player messages.
+        next_ord = self._repo.next_story_ord(session_id)
         player_message = StoryMessage(
             ord=next_ord,
             role="player",
@@ -185,9 +257,9 @@ class NarrativeService:
         try:
             turn = advance_turn(
                 gateway=self.gateway,
-                seed=world.seed,
-                title=world.title,
-                cast=world.cast,
+                seed=template.seed,
+                title=template.title,
+                cast=template.cast,
                 history=history + [player_message],
                 player_action=player_action_text,
                 next_ord=next_ord + 1,
@@ -206,14 +278,14 @@ class NarrativeService:
                 status_code=502,
             ) from exc
 
-        # Narrator succeeded — now persist both messages atomically.
-        self._repo.append_story_message(world_id, player_message)
+        # Atomic-ish persistence: player message + chosen-option update + narrator.
+        self._repo.append_story_message(session_id, player_message)
         if chosen_index is not None and last_narrator.chosen_option_index is None:
-            updated = last_narrator.model_copy(
-                update={"chosen_option_index": chosen_index}
+            self._repo.update_story_message_choice(
+                session_id, last_narrator.ord, chosen_index
             )
-            self._update_story_message(world_id, updated)
-        self._repo.append_story_message(world_id, turn.narrator_message)
+        self._repo.append_story_message(session_id, turn.narrator_message)
+        self._repo.touch_session(session_id, increment_turns=1)
 
         return AdvanceTurnResponse(
             player_message=player_message,
@@ -226,12 +298,13 @@ class NarrativeService:
 
     def ask_advisor(
         self,
-        world_id: str,
+        session_id: str,
         request: AdvisorAskRequest,
         *,
-        owner_user_id: str,
+        player_user_id: str,
     ) -> AdvisorAskResponse:
-        world = self._load_world(world_id, owner_user_id=owner_user_id)
+        session = self._load_session_for_player(session_id, player_user_id)
+        template = self._repo.get_template(session.template_id)
         question = request.question.strip()
         if not question:
             raise NarrativeServiceError(
@@ -239,30 +312,23 @@ class NarrativeService:
                 message="Question must not be empty.",
                 status_code=422,
             )
-        story_history = self._repo.list_story_messages(world_id)
-        advisor_history = self._repo.list_advisor_messages(world_id)
+        story_history = self._repo.list_story_messages(session_id)
+        advisor_history = self._repo.list_advisor_messages(session_id)
 
         reply_text: str | None = None
         try:
             reply = ask_advisor(
                 gateway=self.gateway,
-                seed=world.seed,
-                title=world.title,
-                cast=world.cast,
-                advisor_persona=world.advisor_persona,
+                seed=template.seed,
+                title=template.title,
+                cast=template.cast,
+                advisor_persona=template.advisor_persona,
                 story_history=story_history,
                 advisor_history=advisor_history,
                 question=question,
             )
             reply_text = reply.reply_text
         except NarrativeGatewayError as exc:
-            # Provider-side content moderation (Aliyun's
-            # InternalError.Algo.DataInspectionFailed) trips when the
-            # accumulated story context contains terms the moderator
-            # flags as sensitive — even though the question itself is
-            # innocuous. Rather than 500 the chat, fall back to an
-            # in-character "I can't go there" message and persist it so
-            # the conversation flow stays intact.
             if _is_content_moderation_failure(exc):
                 reply_text = _CONTENT_MODERATION_FALLBACK
             else:
@@ -277,48 +343,103 @@ class NarrativeService:
             ) from exc
 
         assert reply_text is not None
-        next_ord = self._repo.next_advisor_ord(world_id)
+        next_ord = self._repo.next_advisor_ord(session_id)
         player_message = AdvisorMessage(ord=next_ord, role="player", content=question)
         advisor_message = AdvisorMessage(
             ord=next_ord + 1, role="advisor", content=reply_text
         )
-        self._repo.append_advisor_message(world_id, player_message)
-        self._repo.append_advisor_message(world_id, advisor_message)
+        self._repo.append_advisor_message(session_id, player_message)
+        self._repo.append_advisor_message(session_id, advisor_message)
+        self._repo.touch_session(session_id)
         return AdvisorAskResponse(
             player_message=player_message,
             advisor_message=advisor_message,
         )
 
     def get_advisor_history(
-        self, world_id: str, *, owner_user_id: str
+        self, session_id: str, *, player_user_id: str
     ) -> AdvisorHistoryResponse:
-        world = self._load_world(world_id, owner_user_id=owner_user_id)
-        messages = self._repo.list_advisor_messages(world_id)
+        session = self._load_session_for_player(session_id, player_user_id)
+        template = self._repo.get_template(session.template_id)
+        messages = self._repo.list_advisor_messages(session_id)
         return AdvisorHistoryResponse(
-            persona=world.advisor_persona,
+            persona=template.advisor_persona,
             messages=messages,
         )
 
     # ------------------------------------------------------------------
-    # Helpers
+    # Internal helpers
     # ------------------------------------------------------------------
 
-    def _load_world(self, world_id: str, *, owner_user_id: str):
+    def _spawn_session(
+        self, template: NarrativeTemplate, player_user_id: str
+    ) -> tuple[NarrativeSession, StoryMessage]:
+        session_id = _generate_session_id()
+        session = self._repo.create_session(
+            session_id=session_id,
+            template_id=template.template_id,
+            player_user_id=player_user_id,
+        )
+        opening_message = StoryMessage(
+            ord=0,
+            role="narrator",
+            content=template.opening_passage,
+            options=template.opening_options,
+            chosen_option_index=None,
+        )
+        self._repo.append_story_message(session_id, opening_message)
+        self._repo.increment_play_count(template.template_id)
+        return session, opening_message
+
+    def _load_template_for_viewer(
+        self, template_id: str, viewer_user_id: str
+    ) -> NarrativeTemplate:
         try:
-            world = self._repo.get_world(world_id)
+            template = self._repo.get_template(template_id)
         except NarrativeNotFoundError as exc:
             raise NarrativeServiceError(
-                code="world_not_found",
-                message=f"Narrative world not found: {world_id}",
+                code="template_not_found",
+                message=f"Narrative template not found: {template_id}",
                 status_code=404,
             ) from exc
-        if world.owner_user_id != owner_user_id:
+        if template.visibility == "private" and template.owner_user_id != viewer_user_id:
             raise NarrativeServiceError(
-                code="world_forbidden",
-                message="You do not own this narrative world.",
+                code="template_forbidden",
+                message="This template is private.",
                 status_code=403,
             )
-        return world
+        return template
+
+    def _load_template_for_owner(
+        self, template_id: str, owner_user_id: str
+    ) -> NarrativeTemplate:
+        template = self._load_template_for_viewer(template_id, owner_user_id)
+        if template.owner_user_id != owner_user_id:
+            raise NarrativeServiceError(
+                code="template_forbidden",
+                message="Only the template creator can do this.",
+                status_code=403,
+            )
+        return template
+
+    def _load_session_for_player(
+        self, session_id: str, player_user_id: str
+    ) -> NarrativeSession:
+        try:
+            session = self._repo.get_session(session_id)
+        except NarrativeNotFoundError as exc:
+            raise NarrativeServiceError(
+                code="session_not_found",
+                message=f"Narrative session not found: {session_id}",
+                status_code=404,
+            ) from exc
+        if session.player_user_id != player_user_id:
+            raise NarrativeServiceError(
+                code="session_forbidden",
+                message="You do not own this play session.",
+                status_code=403,
+            )
+        return session
 
     @staticmethod
     def _resolve_player_action(
@@ -342,29 +463,36 @@ class NarrativeService:
         option = last_narrator.options[idx]
         return option.label, idx
 
-    def _update_story_message(self, world_id: str, message: StoryMessage) -> None:
-        # Hot-fix: rewrite chosen_option_index on the matching narrator message.
-        with self._repo._connect() as conn:  # noqa: SLF001  (intentional)
-            conn.execute(
-                """
-                UPDATE narrative_story_messages
-                SET chosen_option_index = ?
-                WHERE world_id = ? AND ord = ?
-                """,
-                (message.chosen_option_index, world_id, message.ord),
-            )
-            conn.commit()
+
+def _summarize_template(
+    template: NarrativeTemplate, *, viewer_user_id: str
+) -> NarrativeTemplateSummary:
+    return NarrativeTemplateSummary(
+        template_id=template.template_id,
+        owner_user_id=template.owner_user_id,
+        seed=template.seed,
+        title=template.title,
+        cast=template.cast,
+        advisor_persona=template.advisor_persona,
+        visibility=template.visibility,
+        play_count=template.play_count,
+        created_at=template.created_at,
+        is_owner=(template.owner_user_id == viewer_user_id),
+    )
 
 
-def _summarize_world(world, *, turn_count: int) -> NarrativeWorldSummary:
-    return NarrativeWorldSummary(
-        world_id=world.world_id,
-        seed=world.seed,
-        title=world.title,
-        cast=world.cast,
-        advisor_persona=world.advisor_persona,
-        turn_count=turn_count,
-        created_at=world.created_at,
+def _summarize_session(
+    session: NarrativeSession, template: NarrativeTemplate
+) -> NarrativeSessionSummary:
+    return NarrativeSessionSummary(
+        session_id=session.session_id,
+        template_id=session.template_id,
+        template_title=template.title,
+        template_seed=template.seed,
+        player_user_id=session.player_user_id,
+        turn_count=session.turn_count,
+        created_at=session.created_at,
+        last_active_at=session.last_active_at,
     )
 
 

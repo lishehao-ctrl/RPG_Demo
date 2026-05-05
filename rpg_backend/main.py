@@ -53,9 +53,14 @@ from rpg_backend.narrative.contracts import (
     AdvisorAskRequest,
     AdvisorAskResponse,
     AdvisorHistoryResponse,
-    CreateNarrativeWorldRequest,
-    CreateNarrativeWorldResponse,
+    CreateTemplateRequest,
+    CreateTemplateResponse,
+    NarrativeTemplateSummary,
+    SessionListResponse,
+    StartSessionResponse,
     StoryHistoryResponse,
+    TemplateListResponse,
+    UpdateTemplateVisibilityRequest,
 )
 from rpg_backend.narrative.service import NarrativeServiceError, get_narrative_service
 
@@ -431,56 +436,118 @@ def get_play_session_diagnostics(
 
 
 # --------------------------------------------------------------------------
-# Narrative (new architecture: realtime LLM-driven exploration + advisor)
+# Narrative — template/session architecture (shareable stories, multi-player
+# replay). A template = the shared world shell (cast, opening, advisor
+# persona). A session = one player's actual playthrough of a template.
 # --------------------------------------------------------------------------
 
 
-@app.post("/narrative/worlds", response_model=CreateNarrativeWorldResponse)
-def create_narrative_world(
-    payload: CreateNarrativeWorldRequest,
+@app.post("/narrative/templates", response_model=CreateTemplateResponse)
+def create_narrative_template(
+    payload: CreateTemplateRequest,
     user=Depends(get_required_request_user),
-) -> CreateNarrativeWorldResponse:
-    return narrative_service.create_world(payload, owner_user_id=user.user_id)
+) -> CreateTemplateResponse:
+    """Create a new story template (and auto-spawn the creator's first session)."""
+    return narrative_service.create_template(payload, owner_user_id=user.user_id)
 
 
-@app.get("/narrative/worlds/{world_id}/story", response_model=StoryHistoryResponse)
-def get_narrative_story(
-    world_id: str,
+@app.get("/narrative/templates", response_model=TemplateListResponse)
+def list_public_narrative_templates(
     user=Depends(get_required_request_user),
-) -> StoryHistoryResponse:
-    return narrative_service.get_story_history(world_id, owner_user_id=user.user_id)
+) -> TemplateListResponse:
+    """Public 'world plaza' — discover stories created by other players."""
+    return narrative_service.list_public_templates(viewer_user_id=user.user_id)
+
+
+@app.get("/narrative/templates/{template_id}", response_model=NarrativeTemplateSummary)
+def get_narrative_template(
+    template_id: str,
+    user=Depends(get_required_request_user),
+) -> NarrativeTemplateSummary:
+    return narrative_service.get_template(template_id, viewer_user_id=user.user_id)
+
+
+@app.patch(
+    "/narrative/templates/{template_id}/visibility",
+    response_model=NarrativeTemplateSummary,
+)
+def update_narrative_template_visibility(
+    template_id: str,
+    payload: UpdateTemplateVisibilityRequest,
+    user=Depends(get_required_request_user),
+) -> NarrativeTemplateSummary:
+    return narrative_service.update_visibility(
+        template_id, payload, owner_user_id=user.user_id
+    )
 
 
 @app.post(
-    "/narrative/worlds/{world_id}/story/turns",
+    "/narrative/templates/{template_id}/sessions",
+    response_model=StartSessionResponse,
+)
+def start_narrative_session(
+    template_id: str,
+    user=Depends(get_required_request_user),
+) -> StartSessionResponse:
+    """Fork a fresh session on an existing template. No LLM call — opening
+    is cloned from the template so two players see the same intro."""
+    return narrative_service.start_session(template_id, player_user_id=user.user_id)
+
+
+@app.get("/narrative/sessions/{session_id}/story", response_model=StoryHistoryResponse)
+def get_narrative_story(
+    session_id: str,
+    user=Depends(get_required_request_user),
+) -> StoryHistoryResponse:
+    return narrative_service.get_story_history(session_id, player_user_id=user.user_id)
+
+
+@app.post(
+    "/narrative/sessions/{session_id}/story/turns",
     response_model=AdvanceTurnResponse,
 )
 def advance_narrative_turn(
-    world_id: str,
+    session_id: str,
     payload: AdvanceTurnRequest,
     user=Depends(get_required_request_user),
 ) -> AdvanceTurnResponse:
-    return narrative_service.advance(world_id, payload, owner_user_id=user.user_id)
+    return narrative_service.advance(session_id, payload, player_user_id=user.user_id)
 
 
 @app.post(
-    "/narrative/worlds/{world_id}/advisor",
+    "/narrative/sessions/{session_id}/advisor",
     response_model=AdvisorAskResponse,
 )
 def ask_narrative_advisor(
-    world_id: str,
+    session_id: str,
     payload: AdvisorAskRequest,
     user=Depends(get_required_request_user),
 ) -> AdvisorAskResponse:
-    return narrative_service.ask_advisor(world_id, payload, owner_user_id=user.user_id)
+    return narrative_service.ask_advisor(session_id, payload, player_user_id=user.user_id)
 
 
 @app.get(
-    "/narrative/worlds/{world_id}/advisor",
+    "/narrative/sessions/{session_id}/advisor",
     response_model=AdvisorHistoryResponse,
 )
 def get_narrative_advisor_history(
-    world_id: str,
+    session_id: str,
     user=Depends(get_required_request_user),
 ) -> AdvisorHistoryResponse:
-    return narrative_service.get_advisor_history(world_id, owner_user_id=user.user_id)
+    return narrative_service.get_advisor_history(session_id, player_user_id=user.user_id)
+
+
+@app.get("/me/narrative/templates", response_model=TemplateListResponse)
+def list_my_narrative_templates(
+    user=Depends(get_required_request_user),
+) -> TemplateListResponse:
+    """Templates I created."""
+    return narrative_service.list_my_templates(owner_user_id=user.user_id)
+
+
+@app.get("/me/narrative/sessions", response_model=SessionListResponse)
+def list_my_narrative_sessions(
+    user=Depends(get_required_request_user),
+) -> SessionListResponse:
+    """Sessions I'm playing (mine + ones I forked from public templates)."""
+    return narrative_service.list_my_sessions(player_user_id=user.user_id)

@@ -5,6 +5,11 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
+# --------------------------------------------------------------------------
+# Cast / story / advisor primitives (unchanged from v1)
+# --------------------------------------------------------------------------
+
+
 class CastMember(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -22,13 +27,6 @@ class StoryOption(BaseModel):
 
 
 class StoryMessage(BaseModel):
-    """A single beat of the main narrative stream.
-
-    Each `narrator` message contains a passage plus the options offered to
-    the player. The matching `player` message records what the player chose
-    (or typed). This pairing is the unit of one turn.
-    """
-
     model_config = ConfigDict(extra="forbid")
 
     ord: int = Field(ge=0)
@@ -46,47 +44,136 @@ class AdvisorMessage(BaseModel):
     content: str = Field(min_length=1)
 
 
-class NarrativeWorld(BaseModel):
+# --------------------------------------------------------------------------
+# Template (the shareable story shell)
+# --------------------------------------------------------------------------
+
+
+TemplateVisibility = Literal["private", "unlisted", "public"]
+
+
+class NarrativeTemplate(BaseModel):
+    """Full template record (used internally by the service)."""
+
     model_config = ConfigDict(extra="forbid")
 
-    world_id: str = Field(min_length=1, max_length=80)
+    template_id: str = Field(min_length=1, max_length=80)
     owner_user_id: str = Field(min_length=1, max_length=80)
     seed: str = Field(min_length=1, max_length=4000)
     title: str = Field(min_length=1, max_length=120)
     cast: list[CastMember] = Field(min_length=2, max_length=8)
     advisor_persona: str = Field(min_length=1, max_length=200)
+    opening_passage: str = Field(min_length=1, max_length=4000)
+    opening_options: list[StoryOption] = Field(default_factory=list)
+    visibility: TemplateVisibility = "private"
+    play_count: int = Field(default=0, ge=0)
     created_at: str = Field(min_length=1)
 
 
-class NarrativeWorldSummary(BaseModel):
+class NarrativeTemplateSummary(BaseModel):
+    """Public-facing template summary (for list pages and details)."""
+
     model_config = ConfigDict(extra="forbid")
 
-    world_id: str
+    template_id: str
+    owner_user_id: str
     seed: str
     title: str
     cast: list[CastMember]
     advisor_persona: str
+    visibility: TemplateVisibility
+    play_count: int
+    created_at: str
+    is_owner: bool = False
+
+
+# --------------------------------------------------------------------------
+# Session (one player's playthrough of a template)
+# --------------------------------------------------------------------------
+
+
+class NarrativeSession(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: str = Field(min_length=1, max_length=80)
+    template_id: str = Field(min_length=1, max_length=80)
+    player_user_id: str = Field(min_length=1, max_length=80)
     turn_count: int = Field(ge=0)
     created_at: str
+    last_active_at: str
 
 
-class CreateNarrativeWorldRequest(BaseModel):
+class NarrativeSessionSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: str
+    template_id: str
+    template_title: str
+    template_seed: str
+    player_user_id: str
+    turn_count: int
+    created_at: str
+    last_active_at: str
+
+
+# --------------------------------------------------------------------------
+# Request / response payloads
+# --------------------------------------------------------------------------
+
+
+class CreateTemplateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     seed: str = Field(min_length=1, max_length=4000)
+    visibility: TemplateVisibility = "private"
 
 
-class CreateNarrativeWorldResponse(BaseModel):
+class CreateTemplateResponse(BaseModel):
+    """Returned when a user creates a new template.
+
+    A session is auto-created so the creator can immediately start playing.
+    """
+
     model_config = ConfigDict(extra="forbid")
 
-    world: NarrativeWorldSummary
+    template: NarrativeTemplateSummary
+    session: NarrativeSessionSummary
     opening: StoryMessage
+
+
+class StartSessionResponse(BaseModel):
+    """Returned when a user starts a fresh session on an existing template."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    template: NarrativeTemplateSummary
+    session: NarrativeSessionSummary
+    opening: StoryMessage
+
+
+class TemplateListResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[NarrativeTemplateSummary]
+
+
+class SessionListResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[NarrativeSessionSummary]
+
+
+class UpdateTemplateVisibilityRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    visibility: TemplateVisibility
 
 
 class StoryHistoryResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    world: NarrativeWorldSummary
+    template: NarrativeTemplateSummary
+    session: NarrativeSessionSummary
     messages: list[StoryMessage]
 
 

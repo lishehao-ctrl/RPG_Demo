@@ -535,6 +535,26 @@ export type NarrativeCastMember = {
   display_name: string
   role: string
   relation_to_protagonist: string
+  hidden_objective?: string | null
+  leverage_over_player?: string | null
+}
+
+export type NarrativePlayerGoal = {
+  goal: string
+  stakes: string
+}
+
+export type NarrativeFailureCondition = {
+  label: string
+  description: string
+}
+
+export type NarrativeNPCShift = "warmer" | "colder" | "steady" | "wary" | "broken"
+
+export type NarrativeNPCPulse = {
+  npc_id: string
+  state: string
+  shift: NarrativeNPCShift
 }
 
 export type NarrativeStoryOption = {
@@ -550,7 +570,11 @@ export type NarrativeStoryMessage = {
   content: string
   options: NarrativeStoryOption[]
   chosen_option_index: number | null
+  npc_pulse?: NarrativeNPCPulse[]
 }
+
+export type NarrativeDifficulty = "story" | "gauntlet"
+export type NarrativeEndingTier = "victory" | "compromised" | "collapsed"
 
 export type NarrativeAdvisorRole = "player" | "advisor"
 
@@ -569,6 +593,8 @@ export type NarrativeTemplateSummary = {
   title: string
   cast: NarrativeCastMember[]
   advisor_persona: string
+  player_goals?: NarrativePlayerGoal[]
+  failure_conditions?: NarrativeFailureCondition[]
   visibility: NarrativeTemplateVisibility
   play_count: number
   created_at: string
@@ -583,8 +609,11 @@ export type NarrativeSessionSummary = {
   player_user_id: string
   turn_count: number
   turn_budget: number
+  difficulty?: NarrativeDifficulty
   ending_label: string | null
   ending_subtitle: string | null
+  ending_tier?: NarrativeEndingTier | null
+  early_terminated?: boolean
   created_at: string
   last_active_at: string
 }
@@ -593,6 +622,9 @@ export type NarrativeEnding = {
   label: string
   subtitle: string
   passage: string
+  tier?: NarrativeEndingTier
+  early_terminated?: boolean
+  failure_trigger?: string | null
 }
 
 export type NarrativeEndingDistributionEntry = {
@@ -612,8 +644,10 @@ export type NarrativePublicReplayResponse = {
   template_seed: string
   cast: NarrativeCastMember[]
   advisor_persona: string
+  player_goals?: NarrativePlayerGoal[]
   turn_budget: number
   turn_count: number
+  difficulty?: NarrativeDifficulty
   completed: boolean
   ending: NarrativeEnding | null
   messages: NarrativeStoryMessage[]
@@ -625,6 +659,12 @@ export type NarrativeCreateTemplateRequest = {
   seed: string
   visibility?: NarrativeTemplateVisibility
   turn_budget?: number
+  difficulty?: NarrativeDifficulty
+}
+
+export type NarrativeStartSessionRequest = {
+  turn_budget?: number
+  difficulty?: NarrativeDifficulty
 }
 
 export type NarrativeCreateTemplateResponse = {

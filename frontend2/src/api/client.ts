@@ -68,7 +68,10 @@ export type FrontendApiClient = {
     templateId: string,
     request: NarrativeUpdateVisibilityRequest,
   ): Promise<NarrativeTemplateSummary>
-  startNarrativeSession(templateId: string): Promise<NarrativeStartSessionResponse>
+  startNarrativeSession(
+    templateId: string,
+    request?: import("./contracts").NarrativeStartSessionRequest,
+  ): Promise<NarrativeStartSessionResponse>
   getNarrativeStory(sessionId: string): Promise<NarrativeStoryHistoryResponse>
   advanceNarrativeTurn(
     sessionId: string,

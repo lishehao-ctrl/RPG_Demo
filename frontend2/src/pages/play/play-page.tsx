@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from "motion/react"
 import type {
   NarrativeAdvisorMessage,
   NarrativeEnding,
+  NarrativeNPCPulse,
   NarrativeStoryHistoryResponse,
   NarrativeStoryMessage,
 } from "../../api/contracts"
@@ -155,6 +156,10 @@ export function PlayPage({
   const turnsRemaining = Math.max(0, turnBudget - turnsCompleted)
   const isFinalApproaching = turnsRemaining <= 2 && !ending
   const isComplete = ending !== null
+  const isGauntlet = story.session.difficulty === "gauntlet"
+  const castNameById: Record<string, string> = Object.fromEntries(
+    story.template.cast.map((c) => [c.character_id, c.display_name]),
+  )
 
   return (
     <div style={ppStyles.page}>
@@ -187,8 +192,30 @@ export function PlayPage({
             ))}
           </div>
 
+          {/* Gauntlet-mode goals card — visible reminder of what you're
+              fighting for and what you stand to lose. */}
+          {isGauntlet && story.template.player_goals && story.template.player_goals.length > 0 ? (
+            <motion.div
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={itemTransition}
+              style={ppStyles.goalsCard}
+            >
+              <div style={ppStyles.goalsHeader}>
+                <span style={ppStyles.gauntletBadge}>博弈模式</span>
+                <span style={ppStyles.goalsTitle}>你这一局想要的：</span>
+              </div>
+              {story.template.player_goals.map((g, idx) => (
+                <div key={idx} style={ppStyles.goalRow}>
+                  <div style={ppStyles.goalText}>·  {g.goal}</div>
+                  <div style={ppStyles.goalStakes}>失败：{g.stakes}</div>
+                </div>
+              ))}
+            </motion.div>
+          ) : null}
+
           {story.messages.map((m) => (
-            <StoryBeat key={`${m.role}-${m.ord}`} message={m} />
+            <StoryBeat key={`${m.role}-${m.ord}`} message={m} castNameById={castNameById} />
           ))}
 
           {error ? <div style={ppStyles.errorInline}>{error}</div> : null}
@@ -362,6 +389,31 @@ function EndingScreen({
 }) {
   void sessionId
   const illustration = getEndingIllustration(ending.label)
+  const tier = ending.tier ?? "compromised"
+  const tierVisuals: Record<string, { ribbon: string; chipBg: string; chipColor: string; gradient: string; badgeText: string }> = {
+    victory: {
+      ribbon: "胜利结局",
+      badgeText: "VICTORY",
+      chipBg: "linear-gradient(90deg, #d4af37, #f7d97a)",
+      chipColor: "#1a1108",
+      gradient: "linear-gradient(180deg, rgba(180,140,40,0.0) 0%, rgba(60,40,15,0.55) 75%, var(--bg-elev) 100%)",
+    },
+    compromised: {
+      ribbon: "妥协结局",
+      badgeText: "COMPROMISED",
+      chipBg: "rgba(255,255,255,0.12)",
+      chipColor: "var(--text)",
+      gradient: "linear-gradient(180deg, rgba(20,16,12,0.15) 0%, rgba(20,16,12,0.6) 75%, var(--bg-elev) 100%)",
+    },
+    collapsed: {
+      ribbon: ending.early_terminated ? "提前崩盘" : "崩盘结局",
+      badgeText: "GAME OVER",
+      chipBg: "linear-gradient(90deg, #8a1a1a, #c33b3b)",
+      chipColor: "white",
+      gradient: "linear-gradient(180deg, rgba(60,10,10,0.25) 0%, rgba(50,8,8,0.78) 75%, var(--bg-elev) 100%)",
+    },
+  }
+  const tv = tierVisuals[tier]
   return (
     <motion.section
       style={ppStyles.endingSection}
@@ -374,7 +426,7 @@ function EndingScreen({
         transition={itemTransition}
         style={ppStyles.endingDivider}
       >
-        <span style={ppStyles.endingDividerLabel}>故事到这里</span>
+        <span style={ppStyles.endingDividerLabel}>{tv.ribbon}</span>
       </motion.div>
       <motion.div
         variants={itemVariants}
@@ -389,15 +441,24 @@ function EndingScreen({
           transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
           style={{
             ...ppStyles.endingHero,
-            backgroundImage: `linear-gradient(180deg, rgba(20,16,12,0.15) 0%, rgba(20,16,12,0.6) 75%, var(--bg-elev) 100%), url(${illustration})`,
+            backgroundImage: `${tv.gradient}, url(${illustration})`,
           }}
-        />
+        >
+          <div style={ppStyles.endingTierBadge}>
+            <span style={ppStyles.endingTierBadgeText}>{tv.badgeText}</span>
+            {ending.early_terminated && ending.failure_trigger ? (
+              <span style={ppStyles.endingTierTrigger}>
+                · 触发：{ending.failure_trigger}
+              </span>
+            ) : null}
+          </div>
+        </motion.div>
         <div style={ppStyles.endingCardInner}>
         <motion.div
           initial={{ opacity: 0, scale: 0.6 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ delay: 0.45, type: "spring", stiffness: 320, damping: 18 }}
-          style={ppStyles.endingLabelChip}
+          style={{ ...ppStyles.endingLabelChip, background: tv.chipBg, color: tv.chipColor }}
         >
           {ending.label}
         </motion.div>
@@ -451,8 +512,15 @@ function EndingScreen({
 // Single story beat (narrator passage or player move)
 // ---------------------------------------------------------------------------
 
-function StoryBeat({ message }: { message: NarrativeStoryMessage }) {
+function StoryBeat({
+  message,
+  castNameById,
+}: {
+  message: NarrativeStoryMessage
+  castNameById?: Record<string, string>
+}) {
   if (message.role === "narrator") {
+    const pulses = message.npc_pulse ?? []
     return (
       <motion.article
         layout
@@ -476,6 +544,33 @@ function StoryBeat({ message }: { message: NarrativeStoryMessage }) {
             </span>
           </motion.div>
         ) : null}
+        {pulses.length > 0 ? (
+          <motion.div
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2, ...itemTransition }}
+            style={ppStyles.pulseStrip}
+          >
+            {pulses.map((p, idx) => {
+              const name = (castNameById && castNameById[p.npc_id]) || p.npc_id
+              const shiftStyle =
+                ppStyles[
+                  ("pulseShift_" + p.shift) as keyof typeof ppStyles
+                ] as CSSProperties | undefined
+              return (
+                <span
+                  key={`${p.npc_id}-${idx}`}
+                  style={{ ...ppStyles.pulseChip, ...(shiftStyle ?? {}) }}
+                  title={`${name}: ${p.state} (${p.shift})`}
+                >
+                  <span style={ppStyles.pulseChipName}>{name}</span>
+                  <span style={ppStyles.pulseChipState}>· {p.state}</span>
+                  <span style={ppStyles.pulseChipArrow}>{shiftArrow(p.shift)}</span>
+                </span>
+              )
+            })}
+          </motion.div>
+        ) : null}
       </motion.article>
     )
   }
@@ -493,6 +588,17 @@ function StoryBeat({ message }: { message: NarrativeStoryMessage }) {
       <div style={ppStyles.playerText}>{message.content}</div>
     </motion.article>
   )
+}
+
+function shiftArrow(shift: NarrativeNPCPulse["shift"]): string {
+  switch (shift) {
+    case "warmer": return "↗"
+    case "colder": return "↘"
+    case "wary":   return "⚠"
+    case "broken": return "✕"
+    case "steady":
+    default:       return "—"
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -937,6 +1043,104 @@ const ppStyles: Record<string, CSSProperties> = {
   castChipName: { fontSize: 12.5, fontWeight: 500, color: "var(--text)" },
   castChipRole: { fontSize: 10.5, color: "var(--text-faint)", marginTop: 2 },
 
+  // Gauntlet-mode goals card
+  goalsCard: {
+    margin: "0 0 24px",
+    padding: "14px 16px",
+    background: "linear-gradient(180deg, rgba(220,80,60,0.10), rgba(220,80,60,0.04))",
+    border: "1px solid rgba(220,80,60,0.32)",
+    borderRadius: "var(--radius-md)",
+  },
+  goalsHeader: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 10,
+  },
+  gauntletBadge: {
+    padding: "2px 8px",
+    background: "#dc6b4a",
+    color: "white",
+    borderRadius: 4,
+    fontSize: 10.5,
+    fontWeight: 700,
+    letterSpacing: "0.12em",
+  },
+  goalsTitle: {
+    fontSize: 12.5,
+    color: "var(--text-muted)",
+    letterSpacing: "0.04em",
+  },
+  goalRow: {
+    marginBottom: 8,
+    paddingLeft: 4,
+  },
+  goalText: {
+    fontSize: 14,
+    color: "var(--text)",
+    fontFamily: "var(--font-narrative)",
+    lineHeight: 1.5,
+  },
+  goalStakes: {
+    fontSize: 11.5,
+    color: "var(--text-faint)",
+    marginTop: 3,
+    paddingLeft: 16,
+    fontStyle: "italic",
+    lineHeight: 1.4,
+  },
+
+  // Per-turn NPC pulse strip
+  pulseStrip: {
+    marginTop: 14,
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  pulseChip: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 4,
+    padding: "3px 10px",
+    border: "1px solid var(--line)",
+    borderRadius: 999,
+    fontSize: 11.5,
+    background: "var(--bg-elev)",
+  },
+  pulseChipName: { fontWeight: 600, color: "var(--text)" },
+  pulseChipState: { color: "var(--text-muted)" },
+  pulseChipArrow: { marginLeft: 2, fontSize: 12 },
+  pulseShift_warmer: { borderColor: "rgba(80,180,120,0.5)", background: "rgba(80,180,120,0.08)" },
+  pulseShift_colder: { borderColor: "rgba(140,160,200,0.5)", background: "rgba(140,160,200,0.08)" },
+  pulseShift_wary: { borderColor: "rgba(220,180,80,0.5)", background: "rgba(220,180,80,0.10)" },
+  pulseShift_broken: { borderColor: "rgba(220,80,60,0.6)", background: "rgba(220,80,60,0.12)", color: "var(--warn)" },
+  pulseShift_steady: {},
+
+  // Ending tier badge over banner image
+  endingTierBadge: {
+    position: "absolute",
+    top: 16,
+    left: 16,
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "5px 12px",
+    background: "rgba(0,0,0,0.55)",
+    backdropFilter: "blur(6px)",
+    borderRadius: 4,
+    border: "1px solid rgba(255,255,255,0.18)",
+  },
+  endingTierBadgeText: {
+    fontSize: 11,
+    color: "white",
+    fontWeight: 700,
+    letterSpacing: "0.18em",
+  },
+  endingTierTrigger: {
+    fontSize: 11,
+    color: "rgba(255,255,255,0.78)",
+  },
+
   narratorBeat: { marginBottom: 32 },
   narratorText: {
     fontFamily: "var(--font-narrative)",
@@ -1079,6 +1283,7 @@ const ppStyles: Record<string, CSSProperties> = {
     backgroundSize: "cover",
     backgroundPosition: "center",
     marginBottom: -1,
+    position: "relative",
   },
   endingCardInner: { padding: "24px 28px 28px" },
   endingLabelChip: {

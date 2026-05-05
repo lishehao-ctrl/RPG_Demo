@@ -348,9 +348,10 @@ export function createHttpApiClient(baseUrl: string): FrontendApiClient {
       })
     },
 
-    startNarrativeSession(templateId: string) {
+    startNarrativeSession(templateId: string, request?: { turn_budget?: number; difficulty?: "story" | "gauntlet" }) {
       return requestJson<NarrativeStartSessionResponse>("startNarrativeSession", {
         params: { template_id: templateId },
+        body: request ?? {},
       })
     },
 

@@ -1,5 +1,5 @@
 import { type CSSProperties, useEffect, useRef, useState } from "react"
-import type { NarrativeTemplateVisibility } from "../../api/contracts"
+import type { NarrativeDifficulty, NarrativeTemplateVisibility } from "../../api/contracts"
 import { useApi } from "../../app/api-context"
 import { useAuth } from "../../app/auth-context"
 import { friendlyError } from "../../shared/lib/friendly-error"
@@ -40,6 +40,26 @@ const BUDGET_OPTIONS: Array<{
   { budget: 20, label: "长", time: "25 分钟", desc: "多线索铺陈，情绪深入" },
 ]
 
+const DIFFICULTY_OPTIONS: Array<{
+  id: NarrativeDifficulty
+  label: string
+  tagline: string
+  desc: string
+}> = [
+  {
+    id: "story",
+    label: "故事模式",
+    tagline: "适合放松看戏",
+    desc: "你不会真正失败，故事一定会走到一个完整结局。",
+  },
+  {
+    id: "gauntlet",
+    label: "博弈模式",
+    tagline: "NPC 主动跟你斗",
+    desc: "NPC 各有目标和把柄。你可能在第 5 回合就翻车——结局也分胜利、妥协、崩盘三档。",
+  },
+]
+
 export function CreatePage({
   onBackHome,
   onSessionStarted,
@@ -52,6 +72,7 @@ export function CreatePage({
   const [seed, setSeed] = useState("")
   const [visibility, setVisibility] = useState<NarrativeTemplateVisibility>("private")
   const [turnBudget, setTurnBudget] = useState<number>(12)
+  const [difficulty, setDifficulty] = useState<NarrativeDifficulty>("story")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // Synchronous lock to prevent duplicate creates if the user manages to
@@ -83,6 +104,7 @@ export function CreatePage({
         seed: trimmed,
         visibility,
         turn_budget: turnBudget,
+        difficulty,
       })
       onSessionStarted(response.session.session_id)
     } catch (err) {
@@ -173,6 +195,29 @@ export function CreatePage({
                   <span style={cpStyles.budgetTime}> · {o.time}</span>
                 </div>
                 <div style={cpStyles.visBtnDesc}>{o.desc}</div>
+              </button>
+            ))}
+          </div>
+
+          <div style={cpStyles.fieldLabel}>难度</div>
+          <div style={cpStyles.difficultyRow}>
+            {DIFFICULTY_OPTIONS.map((o) => (
+              <button
+                key={o.id}
+                style={{
+                  ...cpStyles.difficultyBtn,
+                  ...(difficulty === o.id ? cpStyles.difficultyBtnActive : {}),
+                  ...(o.id === "gauntlet" && difficulty === o.id ? cpStyles.difficultyBtnGauntlet : {}),
+                }}
+                onClick={() => setDifficulty(o.id)}
+                disabled={busy}
+                type="button"
+              >
+                <div style={cpStyles.difficultyBtnLabel}>
+                  {o.label}
+                  <span style={cpStyles.difficultyBtnTagline}> · {o.tagline}</span>
+                </div>
+                <div style={cpStyles.difficultyBtnDesc}>{o.desc}</div>
               </button>
             ))}
           </div>
@@ -339,6 +384,47 @@ const cpStyles: Record<string, CSSProperties> = {
     fontSize: 12,
     color: "var(--accent)",
     fontWeight: 500,
+  },
+
+  difficultyRow: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: 10,
+    marginBottom: 32,
+  },
+  difficultyBtn: {
+    textAlign: "left",
+    padding: "16px 18px",
+    background: "rgba(255,255,255,0.06)",
+    border: "1px solid rgba(255,255,255,0.18)",
+    borderRadius: "var(--radius-md)",
+    color: "rgba(255,255,255,0.86)",
+    transition: "all 180ms",
+  },
+  difficultyBtnActive: {
+    borderColor: "var(--accent)",
+    background: "rgba(201,90,67,0.18)",
+    color: "white",
+  },
+  difficultyBtnGauntlet: {
+    borderColor: "#dc6b4a",
+    background: "rgba(220,80,60,0.18)",
+    boxShadow: "0 0 16px rgba(220,80,60,0.3)",
+  },
+  difficultyBtnLabel: {
+    fontSize: 15,
+    fontWeight: 600,
+    marginBottom: 6,
+  },
+  difficultyBtnTagline: {
+    fontSize: 12,
+    color: "var(--accent)",
+    fontWeight: 500,
+  },
+  difficultyBtnDesc: {
+    fontSize: 12,
+    color: "rgba(255,255,255,0.62)",
+    lineHeight: 1.45,
   },
 
   error: { marginBottom: 16, fontSize: 13, color: "var(--warn)" },

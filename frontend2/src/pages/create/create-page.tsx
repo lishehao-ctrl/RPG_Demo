@@ -22,6 +22,17 @@ const VISIBILITY_OPTIONS: Array<{
   { id: "public", label: "广场公开", desc: "任何人都能看到、玩你的故事" },
 ]
 
+const BUDGET_OPTIONS: Array<{
+  budget: number
+  label: string
+  time: string
+  desc: string
+}> = [
+  { budget: 8, label: "短", time: "10 分钟", desc: "一个戏剧瞬间，节奏紧凑" },
+  { budget: 12, label: "中", time: "15 分钟", desc: "一集短剧，起承转合完整" },
+  { budget: 20, label: "长", time: "25 分钟", desc: "多线索铺陈，情绪深入" },
+]
+
 export function CreatePage({
   onBackHome,
   onSessionStarted,
@@ -33,6 +44,7 @@ export function CreatePage({
   const auth = useAuth()
   const [seed, setSeed] = useState("")
   const [visibility, setVisibility] = useState<NarrativeTemplateVisibility>("private")
+  const [turnBudget, setTurnBudget] = useState<number>(12)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -54,7 +66,11 @@ export function CreatePage({
     setBusy(true)
     setError(null)
     try {
-      const response = await api.createNarrativeTemplate({ seed: trimmed, visibility })
+      const response = await api.createNarrativeTemplate({
+        seed: trimmed,
+        visibility,
+        turn_budget: turnBudget,
+      })
       onSessionStarted(response.session.session_id)
     } catch (err) {
       setError(err instanceof Error ? err.message : "无法创建故事，请稍后再试。")
@@ -104,6 +120,28 @@ export function CreatePage({
               disabled={busy}
             />
             <div style={cpStyles.count}>{seed.length} 字</div>
+          </div>
+
+          <div style={cpStyles.fieldLabel}>篇幅</div>
+          <div style={cpStyles.visibility}>
+            {BUDGET_OPTIONS.map((o) => (
+              <button
+                key={o.budget}
+                style={{
+                  ...cpStyles.visBtn,
+                  ...(turnBudget === o.budget ? cpStyles.visBtnActive : {}),
+                }}
+                onClick={() => setTurnBudget(o.budget)}
+                disabled={busy}
+                type="button"
+              >
+                <div style={cpStyles.visBtnLabel}>
+                  {o.label}
+                  <span style={cpStyles.budgetTime}> · {o.time}</span>
+                </div>
+                <div style={cpStyles.visBtnDesc}>{o.desc}</div>
+              </button>
+            ))}
           </div>
 
           <div style={cpStyles.fieldLabel}>谁能玩这个故事</div>
@@ -240,6 +278,11 @@ const cpStyles: Record<string, CSSProperties> = {
   },
   visBtnLabel: { fontSize: 15, fontWeight: 600, marginBottom: 6 },
   visBtnDesc: { fontSize: 12, color: "var(--text-muted)", lineHeight: 1.4 },
+  budgetTime: {
+    fontSize: 12,
+    color: "var(--accent)",
+    fontWeight: 500,
+  },
 
   error: { marginBottom: 16, fontSize: 13, color: "var(--warn)" },
   actions: { display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" },

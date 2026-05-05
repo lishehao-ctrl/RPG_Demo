@@ -19,6 +19,9 @@ import {
   type NarrativeAdvisorHistoryResponse,
   type NarrativeCreateTemplateRequest,
   type NarrativeCreateTemplateResponse,
+  type NarrativeEnding,
+  type NarrativeEndingDistributionResponse,
+  type NarrativePublicReplayResponse,
   type NarrativeSessionListResponse,
   type NarrativeStartSessionResponse,
   type NarrativeStoryHistoryResponse,
@@ -383,6 +386,27 @@ export function createHttpApiClient(baseUrl: string): FrontendApiClient {
 
     listMyNarrativeSessions() {
       return requestJson<NarrativeSessionListResponse>("listMyNarrativeSessions")
+    },
+
+    async getNarrativeSessionEnding(sessionId: string) {
+      const result = await requestJson<NarrativeEnding | null>(
+        "getNarrativeSessionEnding",
+        { params: { session_id: sessionId } },
+      )
+      return result
+    },
+
+    getNarrativeEndingDistribution(templateId: string) {
+      return requestJson<NarrativeEndingDistributionResponse>(
+        "getNarrativeEndingDistribution",
+        { params: { template_id: templateId } },
+      )
+    },
+
+    getNarrativePublicReplay(sessionId: string) {
+      return requestJson<NarrativePublicReplayResponse>("getNarrativePublicReplay", {
+        params: { session_id: sessionId },
+      })
     },
   }
 }

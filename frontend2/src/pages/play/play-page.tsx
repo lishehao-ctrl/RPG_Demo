@@ -1,6 +1,7 @@
 import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react"
 import type {
   NarrativeAdvisorMessage,
+  NarrativeEnding,
   NarrativeStoryHistoryResponse,
   NarrativeStoryMessage,
 } from "../../api/contracts"
@@ -20,21 +21,33 @@ export function PlayPage({
 }) {
   const api = useApi()
   const [story, setStory] = useState<NarrativeStoryHistoryResponse | null>(null)
+  const [ending, setEnding] = useState<NarrativeEnding | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [freeInput, setFreeInput] = useState("")
   const [showFreeInput, setShowFreeInput] = useState(false)
   const [advisorOpen, setAdvisorOpen] = useState(false)
+  const [shareCopied, setShareCopied] = useState(false)
 
-  // Initial load
+  // Initial load: story + (if already completed) the ending.
   useEffect(() => {
     let cancelled = false
     setError(null)
     api
       .getNarrativeStory(sessionId)
-      .then((response) => {
+      .then(async (response) => {
         if (cancelled) return
         setStory(response)
+        // If session already finished, fetch the ending so we can render
+        // the closing screen on direct-link visits.
+        if (response.session.ending_label) {
+          try {
+            const e = await api.getNarrativeSessionEnding(sessionId)
+            if (!cancelled && e) setEnding(e)
+          } catch {
+            // ignore — the summary still has the label/subtitle if needed
+          }
+        }
       })
       .catch((err) => {
         if (cancelled) return
@@ -77,9 +90,17 @@ export function PlayPage({
           return {
             ...prev,
             messages: [...updated, response.player_message, response.narrator_message],
-            session: { ...prev.session, turn_count: prev.session.turn_count + 1 },
+            session: {
+              ...prev.session,
+              turn_count: prev.session.turn_count + 1,
+              ending_label: response.ending?.label ?? prev.session.ending_label,
+              ending_subtitle: response.ending?.subtitle ?? prev.session.ending_subtitle,
+            },
           }
         })
+        if (response.ending) {
+          setEnding(response.ending)
+        }
         setFreeInput("")
         setShowFreeInput(false)
       } catch (err) {
@@ -114,6 +135,12 @@ export function PlayPage({
     story.template.advisor_persona,
   )
 
+  const turnsCompleted = story.session.turn_count
+  const turnBudget = story.session.turn_budget
+  const turnsRemaining = Math.max(0, turnBudget - turnsCompleted)
+  const isFinalApproaching = turnsRemaining <= 2 && !ending
+  const isComplete = ending !== null
+
   return (
     <div style={ppStyles.page}>
       <Header
@@ -121,6 +148,7 @@ export function PlayPage({
         title={story.template.title}
         cast={story.template.cast.map((c) => c.display_name)}
         turnCount={story.session.turn_count}
+        turnBudget={story.session.turn_budget}
         coverUrl={cover}
       />
 
@@ -150,8 +178,41 @@ export function PlayPage({
 
           {error ? <div style={ppStyles.errorInline}>{error}</div> : null}
 
-          {/* Action area pinned at the bottom of the story column */}
-          {isLastNarratorPending && lastNarrator ? (
+          {isFinalApproaching && !busy ? (
+            <div style={ppStyles.approachingFinaleBanner}>
+              {turnsRemaining === 0
+                ? "故事正在收尾…"
+                : turnsRemaining === 1
+                  ? "下一段就是结局——慎选。"
+                  : "还有 2 段就到结局——开始往那个方向收吧。"}
+            </div>
+          ) : null}
+
+          {/* Ending screen — only when the session has finished */}
+          {isComplete && ending ? (
+            <EndingScreen
+              ending={ending}
+              sessionId={sessionId}
+              shareCopied={shareCopied}
+              onShare={() => {
+                const url = `${window.location.origin}/#/replay/${sessionId}`
+                navigator.clipboard.writeText(url).then(
+                  () => {
+                    setShareCopied(true)
+                    setTimeout(() => setShareCopied(false), 2200)
+                  },
+                  () => {
+                    // Fallback: show URL in an alert if clipboard fails
+                    window.prompt("复制这个链接发给朋友：", url)
+                  },
+                )
+              }}
+            />
+          ) : null}
+
+          {/* Action area pinned at the bottom of the story column.
+              Hidden when the session is complete. */}
+          {!isComplete && isLastNarratorPending && lastNarrator ? (
             <ActionArea
               options={lastNarrator.options}
               showFreeInput={showFreeInput}
@@ -165,7 +226,7 @@ export function PlayPage({
                 void handleAdvance({ free_input: freeInput.trim() })
               }}
             />
-          ) : busy ? (
+          ) : !isComplete && busy ? (
             <div style={ppStyles.busyShim}>故事在续写中…</div>
           ) : null}
         </div>
@@ -198,12 +259,14 @@ function Header({
   title,
   cast,
   turnCount,
+  turnBudget,
   coverUrl,
 }: {
   onBackHome: () => void
   title: string
   cast?: string[]
   turnCount?: number
+  turnBudget?: number
   coverUrl?: string
 }) {
   const headerStyle: CSSProperties = coverUrl
@@ -213,36 +276,93 @@ function Header({
         backgroundImage: `linear-gradient(180deg, rgba(20,16,12,0.55) 0%, rgba(20,16,12,0.92) 100%), url(${coverUrl})`,
       }
     : ppStyles.header
+
+  const showProgress = typeof turnCount === "number" && typeof turnBudget === "number"
+  const pct = showProgress ? Math.min(100, (turnCount! / turnBudget!) * 100) : 0
+
   return (
     <header style={headerStyle}>
-      <button
-        style={coverUrl ? { ...ppStyles.backBtn, ...ppStyles.backBtnOnCover } : ppStyles.backBtn}
-        onClick={onBackHome}
-        type="button"
-      >
-        ← 回到首页
-      </button>
-      <div style={ppStyles.headerTitle}>
-        <div style={coverUrl ? { ...ppStyles.headerTitleLine, color: "white" } : ppStyles.headerTitleLine}>
-          {title}
-        </div>
-        {cast && cast.length ? (
-          <div
-            style={
-              coverUrl
-                ? { ...ppStyles.headerCast, color: "rgba(255,255,255,0.78)" }
-                : ppStyles.headerCast
-            }
-          >
-            {cast.join(" · ")}
-            {typeof turnCount === "number" ? (
-              <span style={ppStyles.headerTurns}>· 第 {turnCount + 1} 段</span>
-            ) : null}
+      <div style={ppStyles.headerRow}>
+        <button
+          style={coverUrl ? { ...ppStyles.backBtn, ...ppStyles.backBtnOnCover } : ppStyles.backBtn}
+          onClick={onBackHome}
+          type="button"
+        >
+          ← 回到首页
+        </button>
+        <div style={ppStyles.headerTitle}>
+          <div style={coverUrl ? { ...ppStyles.headerTitleLine, color: "white" } : ppStyles.headerTitleLine}>
+            {title}
           </div>
-        ) : null}
+          {cast && cast.length ? (
+            <div
+              style={
+                coverUrl
+                  ? { ...ppStyles.headerCast, color: "rgba(255,255,255,0.78)" }
+                  : ppStyles.headerCast
+              }
+            >
+              {cast.join(" · ")}
+              {showProgress ? (
+                <span style={ppStyles.headerTurns}>
+                  · 第 {turnCount} / 共 {turnBudget} 段
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+        <span style={{ width: 90 }} />
       </div>
-      <span style={{ width: 90 }} />
+      {showProgress ? (
+        <div style={ppStyles.progressTrack}>
+          <div
+            style={{
+              ...ppStyles.progressFill,
+              width: `${pct}%`,
+            }}
+          />
+        </div>
+      ) : null}
     </header>
+  )
+}
+
+function EndingScreen({
+  ending,
+  sessionId,
+  shareCopied,
+  onShare,
+}: {
+  ending: NarrativeEnding
+  sessionId: string
+  shareCopied: boolean
+  onShare: () => void
+}) {
+  void sessionId
+  return (
+    <section style={ppStyles.endingSection}>
+      <div style={ppStyles.endingDivider}>
+        <span style={ppStyles.endingDividerLabel}>故事到这里</span>
+      </div>
+      <div style={ppStyles.endingCard}>
+        <div style={ppStyles.endingLabelChip}>{ending.label}</div>
+        <h2 style={ppStyles.endingSubtitle}>「{ending.subtitle}」</h2>
+        <div style={ppStyles.endingPassage}>{ending.passage}</div>
+        <div style={ppStyles.endingActions}>
+          <button
+            className="ts-btn ts-btn--primary"
+            onClick={onShare}
+            type="button"
+            style={{ minWidth: 200 }}
+          >
+            {shareCopied ? "✓ 链接已复制" : "复制分享链接"}
+          </button>
+          <p style={ppStyles.endingShareHint}>
+            把链接发给朋友 — 他们能玩同一个开场，看自己会走出什么结局。
+          </p>
+        </div>
+      </div>
+    </section>
   )
 }
 
@@ -548,22 +668,37 @@ const ppStyles: Record<string, CSSProperties> = {
   },
 
   header: {
-    padding: "16px 32px",
+    padding: "0",
     borderBottom: "1px solid var(--line)",
     display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 16,
+    flexDirection: "column",
     background: "var(--bg)",
     position: "sticky",
     top: 0,
     zIndex: 5,
   },
+  headerRow: {
+    padding: "16px 32px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 16,
+  },
   headerWithCover: {
     backgroundSize: "cover",
     backgroundPosition: "center 35%",
     borderBottom: "1px solid rgba(255,255,255,0.1)",
-    padding: "20px 32px 22px",
+  },
+  progressTrack: {
+    height: 3,
+    background: "rgba(255,255,255,0.08)",
+    position: "relative",
+  },
+  progressFill: {
+    height: "100%",
+    background: "var(--accent)",
+    transition: "width 480ms ease-out",
+    boxShadow: "0 0 8px rgba(var(--accent-rgb,201,90,67), 0.6)",
   },
   backBtnOnCover: {
     color: "white",
@@ -729,6 +864,82 @@ const ppStyles: Record<string, CSSProperties> = {
     borderRadius: "var(--radius-sm)",
     fontSize: 13,
     color: "var(--warn)",
+  },
+
+  approachingFinaleBanner: {
+    marginTop: 12,
+    marginBottom: 20,
+    padding: "10px 14px",
+    background: "rgba(var(--accent-rgb,201,90,67), 0.08)",
+    border: "1px solid var(--accent)",
+    borderRadius: "var(--radius-sm)",
+    fontSize: 13,
+    color: "var(--accent)",
+    fontStyle: "italic",
+    textAlign: "center",
+    letterSpacing: "0.04em",
+  },
+
+  endingSection: { marginTop: 40 },
+  endingDivider: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    margin: "0 0 28px",
+    position: "relative",
+  },
+  endingDividerLabel: {
+    background: "var(--bg)",
+    padding: "0 16px",
+    fontSize: 12,
+    color: "var(--text-faint)",
+    letterSpacing: "0.16em",
+    textTransform: "uppercase",
+    position: "relative",
+    zIndex: 1,
+  },
+  endingCard: {
+    padding: "32px 28px",
+    background: "var(--bg-elev)",
+    border: "1px solid var(--line)",
+    borderRadius: "var(--radius-lg)",
+    boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
+  },
+  endingLabelChip: {
+    display: "inline-block",
+    padding: "5px 14px",
+    background: "var(--accent-soft)",
+    color: "var(--accent)",
+    borderRadius: 999,
+    fontSize: 13,
+    fontWeight: 600,
+    letterSpacing: "0.06em",
+    marginBottom: 16,
+  },
+  endingSubtitle: {
+    fontFamily: "var(--font-narrative)",
+    fontSize: 26,
+    lineHeight: 1.35,
+    fontWeight: 400,
+    margin: "0 0 24px",
+    color: "var(--text)",
+  },
+  endingPassage: {
+    fontFamily: "var(--font-narrative)",
+    fontSize: 16,
+    lineHeight: 1.85,
+    color: "var(--text)",
+    whiteSpace: "pre-wrap",
+    paddingBottom: 28,
+    borderBottom: "1px dashed var(--line)",
+    marginBottom: 24,
+  },
+  endingActions: { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 10 },
+  endingShareHint: {
+    fontSize: 12.5,
+    color: "var(--text-muted)",
+    margin: 0,
+    lineHeight: 1.5,
   },
 
   fab: {

@@ -50,6 +50,18 @@ export const BACKEND_ROUTE_MAP = {
   },
   listMyNarrativeTemplates: { method: "GET", path: "/me/narrative/templates" },
   listMyNarrativeSessions: { method: "GET", path: "/me/narrative/sessions" },
+  getNarrativeSessionEnding: {
+    method: "GET",
+    path: "/narrative/sessions/:session_id/ending",
+  },
+  getNarrativeEndingDistribution: {
+    method: "GET",
+    path: "/narrative/templates/:template_id/ending-distribution",
+  },
+  getNarrativePublicReplay: {
+    method: "GET",
+    path: "/narrative/sessions/:session_id/replay",
+  },
 } as const
 
 export type BackendRouteKey = keyof typeof BACKEND_ROUTE_MAP

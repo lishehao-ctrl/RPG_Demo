@@ -17,6 +17,9 @@ import type {
   NarrativeAdvisorHistoryResponse,
   NarrativeCreateTemplateRequest,
   NarrativeCreateTemplateResponse,
+  NarrativeEnding,
+  NarrativeEndingDistributionResponse,
+  NarrativePublicReplayResponse,
   NarrativeSessionListResponse,
   NarrativeStartSessionResponse,
   NarrativeStoryHistoryResponse,
@@ -78,4 +81,9 @@ export type FrontendApiClient = {
   getNarrativeAdvisorHistory(sessionId: string): Promise<NarrativeAdvisorHistoryResponse>
   listMyNarrativeTemplates(): Promise<NarrativeTemplateListResponse>
   listMyNarrativeSessions(): Promise<NarrativeSessionListResponse>
+  getNarrativeSessionEnding(sessionId: string): Promise<NarrativeEnding | null>
+  getNarrativeEndingDistribution(
+    templateId: string,
+  ): Promise<NarrativeEndingDistributionResponse>
+  getNarrativePublicReplay(sessionId: string): Promise<NarrativePublicReplayResponse>
 }

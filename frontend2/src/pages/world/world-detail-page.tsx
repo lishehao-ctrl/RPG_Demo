@@ -1,5 +1,6 @@
 import { type CSSProperties, useEffect, useState } from "react"
 import type {
+  NarrativeEndingDistributionResponse,
   NarrativeTemplateSummary,
   NarrativeTemplateVisibility,
 } from "../../api/contracts"
@@ -26,6 +27,7 @@ export function TemplateDetailPage({
   const api = useApi()
   const auth = useAuth()
   const [template, setTemplate] = useState<NarrativeTemplateSummary | null>(null)
+  const [distribution, setDistribution] = useState<NarrativeEndingDistributionResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [visBusy, setVisBusy] = useState(false)
@@ -42,6 +44,15 @@ export function TemplateDetailPage({
       .catch((err) => {
         if (cancelled) return
         setError(err instanceof Error ? err.message : "故事不见了。")
+      })
+    api
+      .getNarrativeEndingDistribution(templateId)
+      .then((res) => {
+        if (cancelled) return
+        setDistribution(res)
+      })
+      .catch(() => {
+        // Distribution failure is non-fatal — just skip rendering it.
       })
     return () => {
       cancelled = true
@@ -152,6 +163,31 @@ export function TemplateDetailPage({
             <div style={tdStyles.advisorText}>{template.advisor_persona}</div>
           </div>
         </section>
+
+        {distribution && distribution.total_completed > 0 ? (
+          <section style={tdStyles.section}>
+            <div style={tdStyles.sectionLabel}>
+              玩家走出来的结局 · 共 {distribution.total_completed} 局完结
+            </div>
+            <div style={tdStyles.distributionList}>
+              {distribution.entries.map((entry) => {
+                const pct = (entry.count / distribution.total_completed) * 100
+                return (
+                  <div key={entry.label} style={tdStyles.distributionRow}>
+                    <div style={tdStyles.distributionLabel}>{entry.label}</div>
+                    <div style={tdStyles.distributionBarTrack}>
+                      <div style={{ ...tdStyles.distributionBarFill, width: `${pct}%` }} />
+                    </div>
+                    <div style={tdStyles.distributionCount}>×{entry.count}</div>
+                  </div>
+                )
+              })}
+            </div>
+            <p style={tdStyles.distributionHint}>
+              你能玩出哪个？或者一个还没人走过的？
+            </p>
+          </section>
+        ) : null}
 
         {error ? <div style={tdStyles.errorBox}>{error}</div> : null}
 
@@ -341,6 +377,39 @@ const tdStyles: Record<string, CSSProperties> = {
     fontSize: 13,
     color: "var(--warn)",
     marginBottom: 16,
+  },
+
+  distributionList: { display: "flex", flexDirection: "column", gap: 6 },
+  distributionRow: {
+    display: "grid",
+    gridTemplateColumns: "70px 1fr 40px",
+    alignItems: "center",
+    gap: 12,
+  },
+  distributionLabel: { fontSize: 13, color: "var(--text)", fontWeight: 500 },
+  distributionBarTrack: {
+    height: 8,
+    background: "var(--bg-elev)",
+    borderRadius: 4,
+    overflow: "hidden",
+    border: "1px solid var(--line)",
+  },
+  distributionBarFill: {
+    height: "100%",
+    background: "var(--accent)",
+    borderRadius: 4,
+    transition: "width 480ms ease-out",
+  },
+  distributionCount: {
+    fontSize: 12,
+    color: "var(--text-muted)",
+    textAlign: "right",
+  },
+  distributionHint: {
+    fontSize: 12.5,
+    color: "var(--text-muted)",
+    fontStyle: "italic",
+    margin: "12px 0 0",
   },
 
   ownerSection: { marginTop: 56, paddingTop: 32, borderTop: "1px dashed var(--line)" },

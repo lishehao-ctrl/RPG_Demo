@@ -582,13 +582,49 @@ export type NarrativeSessionSummary = {
   template_seed: string
   player_user_id: string
   turn_count: number
+  turn_budget: number
+  ending_label: string | null
+  ending_subtitle: string | null
   created_at: string
   last_active_at: string
+}
+
+export type NarrativeEnding = {
+  label: string
+  subtitle: string
+  passage: string
+}
+
+export type NarrativeEndingDistributionEntry = {
+  label: string
+  count: number
+}
+
+export type NarrativeEndingDistributionResponse = {
+  template_id: string
+  total_completed: number
+  entries: NarrativeEndingDistributionEntry[]
+}
+
+export type NarrativePublicReplayResponse = {
+  session_id: string
+  template_title: string
+  template_seed: string
+  cast: NarrativeCastMember[]
+  advisor_persona: string
+  turn_budget: number
+  turn_count: number
+  completed: boolean
+  ending: NarrativeEnding | null
+  messages: NarrativeStoryMessage[]
+  advisor_messages: NarrativeAdvisorMessage[]
+  created_at: string
 }
 
 export type NarrativeCreateTemplateRequest = {
   seed: string
   visibility?: NarrativeTemplateVisibility
+  turn_budget?: number
 }
 
 export type NarrativeCreateTemplateResponse = {
@@ -629,6 +665,8 @@ export type NarrativeAdvanceTurnRequest = {
 export type NarrativeAdvanceTurnResponse = {
   player_message: NarrativeStoryMessage
   narrator_message: NarrativeStoryMessage
+  ending: NarrativeEnding | null
+  is_complete: boolean
 }
 
 export type NarrativeAdvisorAskRequest = {

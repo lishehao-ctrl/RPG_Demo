@@ -6,6 +6,7 @@ import { HomePage } from "../pages/home/home-page"
 import { CreatePage } from "../pages/create/create-page"
 import { PlayPage } from "../pages/play/play-page"
 import { LoginPage } from "../pages/auth/login-page"
+import { ReplayPage } from "../pages/replay/replay-page"
 import { TemplateDetailPage } from "../pages/world/world-detail-page"
 
 function NotFoundRedirect({ navigate }: { navigate: (next: AppRoute) => void }) {
@@ -60,6 +61,14 @@ function Router() {
         <PlayPage
           sessionId={route.sessionId}
           onBackHome={() => navigate({ name: "home" })}
+        />
+      )
+    case "replay":
+      return (
+        <ReplayPage
+          sessionId={route.sessionId}
+          onBackHome={() => navigate({ name: "home" })}
+          onOpenTemplate={(templateId) => navigate({ name: "template", templateId })}
         />
       )
   }

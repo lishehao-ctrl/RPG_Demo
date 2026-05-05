@@ -1,5 +1,6 @@
 import { type CSSProperties, type FormEvent, useState } from "react"
 import { useAuth } from "../../app/auth-context"
+import { friendlyError } from "../../shared/lib/friendly-error"
 
 const USERNAME_PATTERN = /^[A-Za-z0-9_]{2,20}$/
 
@@ -34,7 +35,7 @@ export function LoginPage({
       await auth.login(trimmed)
       onLoggedIn(next)
     } catch (err) {
-      setError(err instanceof Error ? err.message : "登录失败，请稍后再试。")
+      setError(friendlyError(err, "登录失败，请稍后再试。"))
       setSubmitting(false)
     }
   }

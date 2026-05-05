@@ -1,7 +1,8 @@
-import { type CSSProperties, useEffect, useState } from "react"
+import { type CSSProperties, useEffect, useRef, useState } from "react"
 import type { NarrativeTemplateVisibility } from "../../api/contracts"
 import { useApi } from "../../app/api-context"
 import { useAuth } from "../../app/auth-context"
+import { friendlyError } from "../../shared/lib/friendly-error"
 import { PAGE_BG } from "../../shared/lib/webtoon-assets"
 
 const PLACEHOLDER = `比如 —
@@ -47,6 +48,11 @@ export function CreatePage({
   const [turnBudget, setTurnBudget] = useState<number>(12)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Synchronous lock to prevent duplicate creates if the user manages to
+  // double-click before React flushes setBusy(true). useState alone doesn't
+  // guarantee that — React batches state updates, so two clicks within
+  // ~16ms can both pass the `busy` check and fire two requests.
+  const inflightRef = useRef(false)
 
   // Author flow requires a real account.
   useEffect(() => {
@@ -62,7 +68,8 @@ export function CreatePage({
       setError("先写一句开头吧。")
       return
     }
-    if (busy) return
+    if (inflightRef.current) return
+    inflightRef.current = true
     setBusy(true)
     setError(null)
     try {
@@ -73,9 +80,13 @@ export function CreatePage({
       })
       onSessionStarted(response.session.session_id)
     } catch (err) {
-      setError(err instanceof Error ? err.message : "无法创建故事，请稍后再试。")
+      setError(friendlyError(err, "无法创建故事，请稍后再试。"))
       setBusy(false)
+      inflightRef.current = false
     }
+    // Note: on success we deliberately leave inflightRef=true; the navigate
+    // unmounts this component anyway, and locking it prevents any late
+    // re-render race.
   }
 
   return (

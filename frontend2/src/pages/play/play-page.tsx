@@ -6,6 +6,7 @@ import type {
   NarrativeStoryMessage,
 } from "../../api/contracts"
 import { useApi } from "../../app/api-context"
+import { friendlyError } from "../../shared/lib/friendly-error"
 import {
   getAdvisorAvatar,
   getAvatarForCastMember,
@@ -51,7 +52,7 @@ export function PlayPage({
       })
       .catch((err) => {
         if (cancelled) return
-        setError(err instanceof Error ? err.message : "无法加载故事。")
+        setError(friendlyError(err, "无法加载故事。"))
       })
     return () => {
       cancelled = true
@@ -104,7 +105,7 @@ export function PlayPage({
         setFreeInput("")
         setShowFreeInput(false)
       } catch (err) {
-        setError(err instanceof Error ? err.message : "续写失败，请稍后再试。")
+        setError(friendlyError(err, "续写失败，请稍后再试。"))
       } finally {
         setBusy(false)
       }
@@ -550,7 +551,7 @@ function AdvisorSidechat({
       })
       .catch((err) => {
         if (cancelled) return
-        setError(err instanceof Error ? err.message : "顾问历史加载失败。")
+        setError(friendlyError(err, "顾问历史加载失败。"))
       })
     return () => {
       cancelled = true
@@ -573,7 +574,7 @@ function AdvisorSidechat({
       const res = await api.askNarrativeAdvisor(sessionId, { question })
       setMessages((prev) => [...prev, res.player_message, res.advisor_message])
     } catch (err) {
-      setError(err instanceof Error ? err.message : "顾问没回上你这一句，再试一次？")
+      setError(friendlyError(err, "顾问没回上你这一句，再试一次？"))
     } finally {
       setBusy(false)
     }

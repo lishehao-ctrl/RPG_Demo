@@ -1,6 +1,7 @@
 import { type CSSProperties, useEffect, useState } from "react"
 import type { NarrativePublicReplayResponse } from "../../api/contracts"
 import { useApi } from "../../app/api-context"
+import { friendlyError } from "../../shared/lib/friendly-error"
 import {
   getAdvisorAvatar,
   getAvatarForCastMember,
@@ -39,7 +40,7 @@ export function ReplayPage({
       })
       .catch((err) => {
         if (cancelled) return
-        setError(err instanceof Error ? err.message : "回放加载失败。")
+        setError(friendlyError(err, "回放加载失败。"))
       })
     return () => {
       cancelled = true

@@ -1,4 +1,4 @@
-import { type CSSProperties, useEffect, useState } from "react"
+import { type CSSProperties, useEffect, useRef, useState } from "react"
 import type {
   NarrativeEndingDistributionResponse,
   NarrativeTemplateSummary,
@@ -7,6 +7,7 @@ import type {
 import { useApi } from "../../app/api-context"
 import { useAuth } from "../../app/auth-context"
 import { Header } from "../../shared/ui/header"
+import { friendlyError } from "../../shared/lib/friendly-error"
 import {
   getAdvisorAvatar,
   getAvatarForCastMember,
@@ -31,6 +32,7 @@ export function TemplateDetailPage({
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [visBusy, setVisBusy] = useState(false)
+  const startInflightRef = useRef(false)
 
   useEffect(() => {
     let cancelled = false
@@ -43,7 +45,7 @@ export function TemplateDetailPage({
       })
       .catch((err) => {
         if (cancelled) return
-        setError(err instanceof Error ? err.message : "故事不见了。")
+        setError(friendlyError(err, "故事不见了。"))
       })
     api
       .getNarrativeEndingDistribution(templateId)
@@ -60,19 +62,21 @@ export function TemplateDetailPage({
   }, [api, templateId])
 
   const handleStart = async () => {
-    if (busy || !template) return
+    if (startInflightRef.current || !template) return
     if (auth.isAnonymous) {
       window.location.hash = `#/login?next=template/${templateId}`
       return
     }
+    startInflightRef.current = true
     setBusy(true)
     setError(null)
     try {
       const res = await api.startNarrativeSession(templateId)
       onSessionStarted(res.session.session_id)
     } catch (err) {
-      setError(err instanceof Error ? err.message : "开始游戏失败，请重试。")
+      setError(friendlyError(err, "开始游戏失败，请重试。"))
       setBusy(false)
+      startInflightRef.current = false
     }
   }
 
@@ -85,7 +89,7 @@ export function TemplateDetailPage({
       })
       setTemplate(updated)
     } catch (err) {
-      setError(err instanceof Error ? err.message : "可见性修改失败。")
+      setError(friendlyError(err, "可见性修改失败。"))
     } finally {
       setVisBusy(false)
     }

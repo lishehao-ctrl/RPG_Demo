@@ -7,6 +7,7 @@ import { useApi } from "../../app/api-context"
 import { useAuth } from "../../app/auth-context"
 import { Header } from "../../shared/ui/header"
 import { PAGE_BG, getCoverForTemplate } from "../../shared/lib/webtoon-assets"
+import { friendlyError } from "../../shared/lib/friendly-error"
 
 type Tab = "plaza" | "my-templates"
 
@@ -38,7 +39,7 @@ export function HomePage({
       })
       .catch((err) => {
         if (cancelled) return
-        setError(err instanceof Error ? err.message : "广场加载失败。")
+        setError(friendlyError(err, "广场加载失败。"))
       })
     return () => {
       cancelled = true

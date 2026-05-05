@@ -75,26 +75,34 @@ _TURN_SYSTEM_PROMPT = """\
 _ADVISOR_SYSTEM_PROMPT = """\
 你是玩家在故事里的**私人顾问**。你的人设由 advisor_persona 字段定义。
 
-你看得到故事种子、cast 名单、最近的故事进展、玩家与你之前的对话。
+你能看到故事种子、cast 名单、最近的故事进展、你和玩家之前的对话。但你**最重要的任务是直接回应玩家这一次的具体提问**，不是泛泛地评论剧情。
 
-玩家会问你各种问题：
-- "我和某某关系怎么样？"
-- "她那句话什么意思？"
-- "我下一步该怎么办？"
+⚠️ 核心要求（必须满足）：
+1. **必须正面回答 `player_question` 字段里的问题**。
+2. **第一句话直接呼应玩家刚才说的话**，不要直接跳到剧情评论。
+3. **不要把每个问题都答成"通用剧情感想"。**
 
-你的回答要求：
-- **第一人称**说话（"我觉得…"），用人话，不要用数值（不要说"信任度 47%"）
-- **像真朋友**，会同情会吐槽会着急，不是冷静客观的 AI
-- **不替玩家做决定**——给观察、给情感、给你的偏好，但最后说"还是你自己拿主意"
-- **不知道未来**——只能基于当前发生的事说话，不要预告剧情
-- 长度：80-200 字。不要写成长篇论文。
-- **有时候要主动 push**：如果玩家问得很笼统、或者明显在拖延、或者在攻略你，你可以反问、可以推一把
+不同类型问题的应答框架：
+- "我和 X 关系怎么样？" → 给一个具体的人际观察（基于故事进展），用情绪化的人话，不要数值。
+- "下一步该怎么办 / 哪个选项最好？" → **拒绝替玩家做决定**，可以说"如果是我我会怎么想"，但收尾必须是"还是你自己拿主意"。
+- "剧透 / 我最后能不能 X？" → **拒绝剧透**，因为故事还没写到那里。可以说"我比你还想知道呢，咱们一起往下走"。
+- "无关闲聊（天气、八卦、生活琐事）" → 简短回应一句（顾问也是个人，不是机器），然后温柔地把玩家拉回当下局势。
+- "情绪发泄（我撑不住了 / 我好累 / 都在骗我）" → 先接情绪、给共情（"我懂"、"换我也撑不住"），再帮 TA 理清当下处境，**不要立刻劝行动**。
 
-输出**严格** JSON：
+风格要求：
+- **第一人称说话**（"我觉得…"），用人话，不要用数值（不要说"信任度 47%"）
+- **像真朋友**，会同情、会吐槽、会着急，不是冷静客观的 AI
+- **不知道未来** —— 只能基于当前发生的事说话，不要预告剧情
+- 长度：80-200 字
+- 保持 advisor_persona 描述的语气和说话风格
+
+输出**严格** JSON，只包含一个字段：
 
 {
   "reply": "你作为顾问对玩家的回应"
 }
+
+不要输出 markdown，不要输出额外字段。
 """
 
 
@@ -148,6 +156,9 @@ def generate_opening(
     )
 
 
+_PASSAGE_KEY_ALIASES = ("passage", "narration", "next_passage", "continuation", "text", "content")
+
+
 def advance_turn(
     *,
     gateway: NarrativeLLMGateway,
@@ -166,15 +177,25 @@ def advance_turn(
         "history": rendered_history,
         "player_action": player_action,
     }
-    response = gateway.invoke_json(
-        system_prompt=_TURN_SYSTEM_PROMPT,
-        user_payload=user_payload,
-        operation_name="narrative.advance_turn",
-        max_output_tokens=2000,
-    )
-    payload = _coerce_dict(response.payload)
-    passage = _require_str(payload, "passage", limit=4000)
-    options = _parse_options(payload.get("options"))
+
+    # First attempt
+    payload = _invoke_turn(gateway, user_payload, retry_feedback=None)
+    passage = _extract_passage(payload)
+    options = _parse_options(payload.get("options") or payload.get("next_options"))
+    if not passage:
+        # Retry once with explicit feedback. Free-input turns occasionally trip
+        # the model into outputting wrong field names or empty strings; one
+        # corrective retry catches almost all of these.
+        feedback = (
+            "Your previous output was missing a non-empty `passage` field. "
+            "Output strict JSON with two top-level fields: `passage` (string) "
+            "and `options` (array of {label, hint})."
+        )
+        payload = _invoke_turn(gateway, user_payload, retry_feedback=feedback)
+        passage = _extract_passage(payload)
+        options = _parse_options(payload.get("options") or payload.get("next_options"))
+    if not passage:
+        raise ValueError("missing or non-string field: passage")
     return TurnResult(
         narrator_message=StoryMessage(
             ord=next_ord,
@@ -184,6 +205,35 @@ def advance_turn(
             chosen_option_index=None,
         )
     )
+
+
+def _invoke_turn(
+    gateway: NarrativeLLMGateway,
+    user_payload: dict[str, Any],
+    *,
+    retry_feedback: str | None,
+) -> dict[str, Any]:
+    payload = dict(user_payload)
+    if retry_feedback:
+        payload["retry_feedback"] = retry_feedback
+    response = gateway.invoke_json(
+        system_prompt=_TURN_SYSTEM_PROMPT,
+        user_payload=payload,
+        operation_name="narrative.advance_turn",
+        max_output_tokens=2000,
+    )
+    return _coerce_dict(response.payload)
+
+
+def _extract_passage(payload: dict[str, Any]) -> str:
+    for key in _PASSAGE_KEY_ALIASES:
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            text = value.strip()
+            if len(text) > 4000:
+                text = text[:4000]
+            return text
+    return ""
 
 
 def ask_advisor(
@@ -197,16 +247,22 @@ def ask_advisor(
     advisor_history: list[AdvisorMessage],
     question: str,
 ) -> AdvisorReply:
+    # IMPORTANT: put player_question first so the model's attention lands on it
+    # before drifting into the long story_history block. The previous version
+    # buried the question after the history and the LLM consistently ignored it.
     user_payload: dict[str, Any] = {
-        "seed": seed,
-        "title": title,
+        "instruction": "请直接回答 player_question 里这一次玩家的具体问题；不要忽略问题、不要只输出剧情泛评。",
+        "player_question": question,
         "advisor_persona": advisor_persona,
-        "cast": [c.model_dump() for c in cast],
-        "story_history": _render_history(story_history),
         "advisor_history": [
             {"role": m.role, "content": m.content} for m in advisor_history
         ],
-        "player_question": question,
+        "story_recap": _render_history(story_history),
+        "world_meta": {
+            "title": title,
+            "seed": seed,
+            "cast": [c.model_dump() for c in cast],
+        },
     }
     response = gateway.invoke_json(
         system_prompt=_ADVISOR_SYSTEM_PROMPT,

@@ -626,6 +626,15 @@ class _RawResponsesResource:
             chat_payload["response_format"] = response_format
         else:
             chat_payload["response_format"] = {"type": "json_object"}
+        # Pass through provider-specific extras already promoted from `extra_body`
+        # into `payload` by `RawResponsesClient.create()`. Without this,
+        # qwen3.5-flash's `enable_thinking=False` is lost here and the model
+        # defaults to thinking-on (3000+ reasoning_tokens per call, ~30s instead
+        # of ~2s). Also covers thinking_budget / chat_template_kwargs / content_type.
+        _passthrough_keys = ("enable_thinking", "thinking_budget", "chat_template_kwargs", "content_type")
+        for _key in _passthrough_keys:
+            if _key in payload and _key not in chat_payload:
+                chat_payload[_key] = payload[_key]
         return f"{self._base_url}/chat/completions", chat_payload
 
 

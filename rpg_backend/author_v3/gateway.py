@@ -99,7 +99,7 @@ class AuthorV3LLMGateway:
                 use_session_cache=self.use_session_cache,
                 temperature=0.2,
                 enable_thinking=False,
-                explicit_disable_thinking=self.profile_id in {"live_qwen3_5_plus", "live_qwen3_5_flash"},
+                explicit_disable_thinking=self.model.startswith("qwen"),
                 json_content_type_hint=self.json_content_type_hint,
                 json_object_prompt_only=self.json_object_prompt_only,
                 provider_failed_code="llm_provider_failed",

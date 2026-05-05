@@ -485,8 +485,10 @@ class PlaySessionSnapshot(BaseModel):
     state_bars: list[PlayStateBar] = Field(default_factory=list, max_length=16)
     current_route_target_id: str | None = None
     relationship_state: PlayRelationshipStateSnapshot | None = None
-    suggested_actions: list[PlaySuggestedAction] = Field(default_factory=list, max_length=3)
-    story_actions: list[PlaySuggestedAction] = Field(default_factory=list, max_length=3)
+    # 4 slots so the storylet engine can expose a 4th storylet-driven option
+    # alongside the 3 lane-based suggestions (relationship/side/burst).
+    suggested_actions: list[PlaySuggestedAction] = Field(default_factory=list, max_length=4)
+    story_actions: list[PlaySuggestedAction] = Field(default_factory=list, max_length=4)
     control_actions: list[PlayControlAction] = Field(default_factory=list, max_length=3)
     latent_radar: list[PlayLatentRadarItem] = Field(default_factory=list, max_length=4)
     ending: PlayEnding | None = None

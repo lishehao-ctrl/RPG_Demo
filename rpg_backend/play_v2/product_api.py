@@ -169,14 +169,15 @@ def build_v2_snapshot(plan: CompiledPlayPlan, state: UrbanWorldState) -> PlaySes
         state_bars=build_v2_state_bars(plan, state),
         current_route_target_id=state.current_route_target_id,
         relationship_state=build_v2_relationship_snapshot(state),
+        # Up to 4 suggestions: 3 lane-based (relationship/side/burst) + 1 storylet card.
         suggested_actions=[
             PlaySuggestedAction(suggestion_id=item.suggestion_id, action_type="story", label=item.label, prompt=item.prompt)
             for item in story_actions
-        ][:3],
+        ][:4],
         story_actions=[
             PlaySuggestedAction(suggestion_id=item.suggestion_id, action_type="story", label=item.label, prompt=item.prompt)
             for item in story_actions
-        ][:3],
+        ][:4],
         control_actions=[
             PlayControlAction(
                 action_id=item.action_id,

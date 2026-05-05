@@ -129,9 +129,42 @@ def generate_opening(
     gateway: NarrativeLLMGateway,
     seed: str,
 ) -> OpeningResult:
+    """Generate world opening. Retries once on JSON / shape failure."""
+    last_error: Exception | None = None
+    feedback: str | None = None
+    for attempt in range(2):
+        try:
+            return _generate_opening_once(gateway, seed, retry_feedback=feedback)
+        except (NarrativeGatewayError, ValueError) as exc:
+            last_error = exc
+            feedback = (
+                "Your previous output failed to parse. "
+                "Output strict JSON with fields: title, advisor_persona, "
+                "cast (array of {character_id, display_name, role, "
+                "relation_to_protagonist}), opening_passage, options "
+                "(array of {label, hint}). No markdown, no comments, "
+                "all string values double-quoted."
+            )
+            if isinstance(exc, NarrativeGatewayError) and exc.code != "llm_invalid_json":
+                # Non-JSON gateway errors (provider down, rate limit, etc.)
+                # should not be retried with feedback — surface immediately.
+                raise
+    assert last_error is not None
+    raise last_error
+
+
+def _generate_opening_once(
+    gateway: NarrativeLLMGateway,
+    seed: str,
+    *,
+    retry_feedback: str | None,
+) -> OpeningResult:
+    user_payload: dict[str, Any] = {"seed": seed}
+    if retry_feedback:
+        user_payload["retry_feedback"] = retry_feedback
     response = gateway.invoke_json(
         system_prompt=_OPENING_SYSTEM_PROMPT,
-        user_payload={"seed": seed},
+        user_payload=user_payload,
         operation_name="narrative.opening",
         max_output_tokens=2500,
     )
@@ -139,7 +172,9 @@ def generate_opening(
     title = _require_str(payload, "title", limit=120)
     advisor_persona = _require_str(payload, "advisor_persona", limit=200)
     cast = _parse_cast(payload.get("cast"))
-    opening_passage = _require_str(payload, "opening_passage", limit=4000)
+    opening_passage = _extract_passage_for_opening(payload)
+    if not opening_passage:
+        raise ValueError("missing or non-string field: opening_passage")
     options = _parse_options(payload.get("options"))
     opening_message = StoryMessage(
         ord=0,
@@ -154,6 +189,20 @@ def generate_opening(
         cast=cast,
         opening_message=opening_message,
     )
+
+
+_OPENING_PASSAGE_KEY_ALIASES = ("opening_passage", "passage", "narration", "opening", "intro", "scene")
+
+
+def _extract_passage_for_opening(payload: dict[str, Any]) -> str:
+    for key in _OPENING_PASSAGE_KEY_ALIASES:
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            text = value.strip()
+            if len(text) > 4000:
+                text = text[:4000]
+            return text
+    return ""
 
 
 _PASSAGE_KEY_ALIASES = ("passage", "narration", "next_passage", "continuation", "text", "content")

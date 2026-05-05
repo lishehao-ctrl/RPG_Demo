@@ -14,6 +14,13 @@
       "runtimeArgs": ["run", "dev"],
       "port": 5174,
       "cwd": "frontend2"
+    },
+    {
+      "name": "frontend2-refactor",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "--port", "5175"],
+      "port": 5175,
+      "cwd": "/Users/lishehao/Desktop/Project/Personal/RPG_Demo_refactor/frontend2"
     }
   ]
 }

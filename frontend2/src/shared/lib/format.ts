@@ -1,4 +1,4 @@
-import type { PlayLengthPreset } from "../../api/contracts"
+import type { PlayLengthPreset, StoryShellId } from "../../api/contracts"
 
 export function formatRelativeTime(savedAt: number): string {
   const diffMs = Date.now() - savedAt
@@ -33,9 +33,35 @@ const THEME_ZH: Record<string, string> = {
   betrayal: "背叛",
   redemption: "救赎",
   mystery: "悬疑",
+  wealth_families: "豪门",
+  entertainment_scandal: "娱乐圈",
+  office_power: "职场",
+  campus_romance: "校园",
+  urban_supernatural: "都市怪谈",
 }
 
 export function localizeTheme(theme: string | null | undefined): string {
   if (!theme) return "未分类"
   return THEME_ZH[theme] ?? theme.replace(/_/g, " ")
+}
+
+const SHELL_COVERS: Record<string, string> = {
+  wealth_families: "/webtoons/shells/wealth_families.jpg",
+  entertainment_scandal: "/webtoons/shells/entertainment_scandal.jpg",
+  office_power: "/webtoons/shells/office_power.jpg",
+  campus_romance: "/webtoons/shells/campus_romance.jpg",
+  urban_supernatural: "/webtoons/shells/urban_supernatural.jpg",
+}
+
+export function shellCover(shellId: StoryShellId | string | null | undefined): string {
+  if (!shellId) return SHELL_COVERS.office_power
+  return SHELL_COVERS[shellId] ?? SHELL_COVERS.office_power
+}
+
+// ISO timestamp → loose human relative ("3 天前").
+export function relativeTime(iso: string | null | undefined): string {
+  if (!iso) return ""
+  const t = Date.parse(iso)
+  if (Number.isNaN(t)) return ""
+  return formatRelativeTime(t)
 }

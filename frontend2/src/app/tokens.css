@@ -1,0 +1,106 @@
+/* Tiny Stories — Design Tokens */
+:root {
+  --bg: #0c0c10;
+  --bg-elev: #15161c;
+  --bg-elev-2: #1d1f27;
+  --bg-elev-3: #25272f;
+  --line: rgba(255, 255, 255, 0.08);
+  --line-strong: rgba(255, 255, 255, 0.16);
+  --text: #f4efe6;
+  --text-muted: rgba(244, 239, 230, 0.62);
+  --text-faint: rgba(244, 239, 230, 0.38);
+  --accent: #d4a853;
+  --accent-soft: rgba(212, 168, 83, 0.18);
+  --accent-softer: rgba(212, 168, 83, 0.08);
+  --warn: #e07a5f;
+  --warn-soft: rgba(224, 122, 95, 0.18);
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 22px;
+  --font-ui: "Inter", system-ui, -apple-system, sans-serif;
+  --font-narrative: "Newsreader", Georgia, "Songti SC", serif;
+  --shadow-drawer: -24px 0 60px rgba(0, 0, 0, 0.5);
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; font-family: var(--font-ui); color: var(--text); background: var(--bg); -webkit-font-smoothing: antialiased; }
+button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; padding: 0; }
+input, textarea { font-family: inherit; color: inherit; }
+
+/* Reusable primitives */
+.ts-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid rgba(212, 168, 83, 0.28);
+}
+.ts-tag--muted {
+  color: var(--text-muted);
+  background: rgba(255,255,255,0.04);
+  border-color: var(--line);
+}
+.ts-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 18px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 160ms ease;
+  border: 1px solid transparent;
+}
+.ts-btn--primary {
+  background: var(--accent);
+  color: #1a1408;
+  font-weight: 600;
+}
+.ts-btn--primary:hover { background: #e1b969; transform: translateY(-1px); }
+.ts-btn--ghost {
+  color: var(--text-muted);
+  border-color: var(--line);
+}
+.ts-btn--ghost:hover { color: var(--text); border-color: var(--line-strong); background: rgba(255,255,255,0.02); }
+.ts-btn--lg { height: 48px; padding: 0 24px; font-size: 15px; border-radius: 12px; }
+
+.ts-link-dashed {
+  color: var(--text-muted);
+  font-size: 14px;
+  border-bottom: 1px dashed var(--line-strong);
+  padding-bottom: 2px;
+  transition: color 160ms;
+}
+.ts-link-dashed:hover { color: var(--text); }
+
+/* Animations from design v2 (Tiny Stories.html <style> block) */
+@keyframes tsFadeUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes tsSwapIn {
+  from { opacity: 0; transform: translateX(-6px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes tsBlink { 50% { opacity: 0; } }
+@keyframes tsPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(212, 168, 83, 0.5); }
+  50%      { box-shadow: 0 0 0 6px rgba(212, 168, 83, 0); }
+}
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.06); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.12); }
+::-webkit-scrollbar-track { background: transparent; }
+textarea::placeholder, input::placeholder { color: var(--text-faint); }
+textarea:focus, input:focus { border-color: var(--line-strong); }

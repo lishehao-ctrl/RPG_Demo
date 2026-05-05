@@ -62,7 +62,7 @@ _OPENING_SYSTEM_PROMPT = """\
 _TURN_SYSTEM_PROMPT = """\
 你是一名擅长写关系剧的剧作家。玩家正在玩一个互动故事，你负责续写下一段。
 
-每个回合你会收到：故事种子、cast 名单（每个 NPC 都带有 `hidden_objective` 和 `leverage_over_player`）、最近若干段故事历史、玩家这一回合的动作、**当前所处的故事阶段**（关键！）、`difficulty` 字段（`story` 或 `gauntlet`）。
+每个回合你会收到：故事种子、cast 名单（每个 NPC 都带有 `hidden_objective` 和 `leverage_over_player`）、最近若干段故事历史、玩家这一回合的动作、**当前所处的故事阶段**（关键！）、`difficulty` 字段（`story` 或 `gauntlet`）、可选的 `npc_agenda_this_turn`（gauntlet 主动调度）和 `recent_consequences`（上一回合结构化回响）。
 
 你的任务是续写**一段**叙述（200-400 字），并给出**3 个新选项**，同时输出每个 NPC 的当下反应（`npc_pulse`）。
 
@@ -111,6 +111,32 @@ _TURN_SYSTEM_PROMPT = """\
 - **难度感来自压力的累积**，不是单点的暴力推进
 
 当 difficulty 是 "story" 时（默认），NPC 反应可以更温和、更顺着玩家的方向流动，让玩家"看个故事"而不是"打仗"。
+
+**主动调度（npc_agenda_this_turn —— 仅 gauntlet 模式出现）**:
+当 user_payload 含 `npc_agenda_this_turn` 字段，它告诉你**这一回合谁该主动出招、出什么招**。每条 agenda 是 `{npc_id, display_name, intent, intent_brief}`，intent 一定是下面之一：
+- `probe` —— TA 在试探玩家立场，挖一个细节，引诱玩家说漏嘴
+- `pressure` —— TA 直接施压：最后通牒、断财路、当众逼问、抢资源
+- `leverage` —— TA 亮出 `leverage_over_player` 字段里的那张牌，逼玩家做让步或交底
+- `reveal` —— TA 主动揭开自己 `hidden_objective` 的一角，让玩家看到 TA 真在打什么算盘
+- `betray` —— TA 背刺：之前装作站玩家这边，这一刻撤回支持或反水
+- `ally` —— TA 暗中递过一只手：提出某种同盟（可能真心，可能圈套）
+
+⚠️ 处理规则：
+- 本回合 passage **必须让 agenda 里指定的 NPC 主动行动**——TA 自己开口、自己出手、自己推进 intent，**不是被动反应玩家**
+- 玩家这一回合的动作仍然要承接（见下面"承接玩家选择"）——但 agenda NPC 的主动出招是**这段叙述的主体戏**
+- 如果 agenda 里有 2 个 NPC，把两个动作组合在同一个场景里——让两个 NPC 互相牵制，或一个动作触发另一个的反应
+- 没有 `npc_agenda_this_turn` 字段时（hook 阶段或 story 模式），按惯常的反应式叙事写
+
+**承接玩家选择（recent_consequences）**:
+当 user_payload 含 `recent_consequences` 字段，它结构化地告诉你"上回合发生了什么"：
+- `last_player_action`: 玩家上一回合的具体动作（自由输入文本 + 选的选项标签）
+- `npc_pulse_trend`: 每个 NPC 最近 3-4 回合的情绪轨迹（旧→新，举例 `["warmer", "steady", "colder"]`）
+- `unused_leverage`: 哪些 NPC 还**没用过**自己的 leverage——这些是 climax 阶段最该出手的对象
+
+⚠️ 处理规则：
+- passage 必须**让玩家在叙述里看见自己的选择产生了具体后果**——至少有一个细节直接呼应 `last_player_action`（**不是机械重述**，而是把那个动作的"涟漪"写出来：别人怎么看 TA、空气怎么变、谁的态度松动了、谁记下了这笔账）
+- 如果某个 NPC 的 `pulse_trend` 已经是 `broken` 或连续 `colder`，**TA 这一回合的反应应当延续那个轨迹**，不要让 TA 突然回温——除非玩家这一回合明确做了挽回的动作
+- climax/pre_finale 阶段，优先让 `unused_leverage` 列表里的 NPC 把那张牌打出来——不要让一张 leverage 一直闲在手里到结束
 
 **选项要求**:
 - 选项必须**反映当下局势的具体可能性**，不要给"继续观察 / 离开 / 思考"这种空洞选项
@@ -464,6 +490,24 @@ def advance_turn(
     if player_goals:
         user_payload["player_goals"] = [g.model_dump() for g in player_goals]
 
+    # Active scheduling: tell the LLM which NPC should actively push their
+    # agenda this turn. Empty in story mode and during the hook phase.
+    agenda = _pick_npc_agenda(
+        stage_phase=stage_phase,
+        turn_index=turn_index,
+        cast=cast,
+        history=history,
+        difficulty=difficulty,
+    )
+    if agenda:
+        user_payload["npc_agenda_this_turn"] = agenda
+
+    # Action echo: structured snapshot of the player's last move + NPC
+    # pulse trends + unused leverage. Empty on the opening turn.
+    consequences = _summarize_recent_consequences(history, cast)
+    if consequences:
+        user_payload["recent_consequences"] = consequences
+
     valid_ids = {c.character_id for c in cast}
 
     # First attempt
@@ -603,6 +647,175 @@ def _stage_for(turn_index: int, turn_budget: int) -> str:
     if turn_index < turn_budget:
         return "pre_finale"
     return "pre_finale_open"
+
+
+# --------------------------------------------------------------------------
+# Active scheduling — make NPCs push their agenda instead of just reacting.
+# Story mode leaves NPCs reactive (returns empty agenda). Gauntlet mode
+# explicitly tells the LLM which NPC should act this turn and what to do.
+# --------------------------------------------------------------------------
+
+
+_AGENDA_INTENTS: dict[str, str] = {
+    "probe": "试探玩家立场，挖一个细节，引诱玩家说漏嘴",
+    "pressure": "直接施压：最后通牒、断财路、当众逼问、抢一份资源",
+    "leverage": "亮出 cast.leverage_over_player 里写的那张牌，逼玩家做让步或交底",
+    "reveal": "主动揭开自己 hidden_objective 的一角——让玩家看到 TA 真在打什么算盘",
+    "betray": "背刺：之前装作站玩家这边的姿态，这一刻撤回支持或反水",
+    "ally": "暗中递过一只手：提出某种同盟或交易（可能真心，也可能是圈套）",
+}
+
+
+def _recent_active_npcs(history: list[StoryMessage], *, lookback: int) -> set[str]:
+    """NPCs that have moved (non-steady shift) in the last `lookback`
+    narrator beats. Used to push 'stale' NPCs to the front of the agenda
+    queue so each NPC gets airtime over a 12-turn arc."""
+    active: set[str] = set()
+    seen = 0
+    for msg in reversed(history):
+        if msg.role != "narrator":
+            continue
+        seen += 1
+        for pulse in msg.npc_pulse:
+            if pulse.shift != "steady":
+                active.add(pulse.npc_id)
+        if seen >= lookback:
+            break
+    return active
+
+
+def _make_agenda_entry(npc: CastMember, *, intent: str) -> dict[str, str]:
+    return {
+        "npc_id": npc.character_id,
+        "display_name": npc.display_name,
+        "intent": intent,
+        "intent_brief": _AGENDA_INTENTS.get(intent, ""),
+    }
+
+
+def _pick_npc_agenda(
+    *,
+    stage_phase: str,
+    turn_index: int,
+    cast: list[CastMember],
+    history: list[StoryMessage],
+    difficulty: str,
+) -> list[dict[str, str]]:
+    """Pick which NPC(s) should actively push their agenda this turn.
+
+    Story mode → empty list (NPCs stay reactive).
+    Gauntlet mode → 1-2 NPCs with an explicit intent. The schedule
+    escalates with stage_phase; staleness (NPCs whose pulse has been
+    quiet) bumps them up the queue so airtime distributes.
+    """
+    if difficulty != "gauntlet":
+        return []
+
+    # Only NPCs with hidden_objective qualify — those are the gauntlet
+    # adversaries. NPCs without one are scenery/allies the LLM owns.
+    pool = [c for c in cast if c.hidden_objective]
+    if not pool:
+        return []
+
+    # Stale NPCs (no recent non-steady shift) get priority. `False < True`
+    # so `key=lambda c: c.character_id in active` puts stale ones first.
+    active = _recent_active_npcs(history, lookback=3)
+    rotated = sorted(pool, key=lambda c: c.character_id in active)
+
+    pick_one = rotated[turn_index % len(rotated)]
+    pick_two = rotated[(turn_index + 1) % len(rotated)] if len(rotated) > 1 else None
+
+    if stage_phase == "hook":
+        return []
+    if stage_phase == "pressure":
+        # Probe every other pressure turn — keeps the build from feeling
+        # like a single NPC monologue while still letting tension breathe.
+        if turn_index % 2 == 0:
+            return [_make_agenda_entry(pick_one, intent="probe")]
+        return []
+    if stage_phase == "reversal":
+        first_intent = "leverage" if pick_one.leverage_over_player else "reveal"
+        agenda = [_make_agenda_entry(pick_one, intent=first_intent)]
+        if pick_two:
+            agenda.append(_make_agenda_entry(pick_two, intent="pressure"))
+        return agenda
+    if stage_phase in ("climax", "pre_finale", "pre_finale_open"):
+        first_intent = "leverage" if pick_one.leverage_over_player else "betray"
+        agenda = [_make_agenda_entry(pick_one, intent=first_intent)]
+        if pick_two:
+            agenda.append(_make_agenda_entry(pick_two, intent="reveal"))
+        return agenda
+    return []
+
+
+# --------------------------------------------------------------------------
+# Action echo — structured snapshot of what just happened so the LLM can
+# write a passage that explicitly calls back to the player's last move
+# instead of producing a generic continuation.
+# --------------------------------------------------------------------------
+
+
+def _summarize_recent_consequences(
+    history: list[StoryMessage],
+    cast: list[CastMember],
+) -> dict[str, Any]:
+    """Build {last_player_action, npc_pulse_trend, unused_leverage}.
+
+    Returns an empty dict when there's no history yet (opening turn).
+    """
+    last_player_action: dict[str, Any] | None = None
+    for msg in reversed(history):
+        if msg.role != "player":
+            continue
+        chosen_label: str | None = None
+        if (
+            msg.chosen_option_index is not None
+            and 0 <= msg.chosen_option_index < len(msg.options)
+        ):
+            chosen_label = msg.options[msg.chosen_option_index].label
+        last_player_action = {
+            "ord": msg.ord,
+            "content": msg.content[:240],
+            "chosen_label": chosen_label,
+        }
+        break
+
+    # Last 4 narrator beats — one shift per NPC per beat, oldest-to-newest.
+    pulse_trend: dict[str, list[str]] = {}
+    seen_narrator = 0
+    for msg in reversed(history):
+        if msg.role != "narrator":
+            continue
+        for pulse in msg.npc_pulse:
+            pulse_trend.setdefault(pulse.npc_id, []).insert(0, pulse.shift)
+        seen_narrator += 1
+        if seen_narrator >= 4:
+            break
+
+    # NPCs whose leverage hasn't visibly fired yet. Heuristic: trend is
+    # empty or all warmer/steady → leverage card is still in their hand.
+    unused_leverage: list[dict[str, str]] = []
+    for c in cast:
+        if not c.leverage_over_player:
+            continue
+        trend = pulse_trend.get(c.character_id, [])
+        if not trend or all(s in ("steady", "warmer") for s in trend):
+            unused_leverage.append(
+                {
+                    "npc_id": c.character_id,
+                    "display_name": c.display_name,
+                    "leverage": c.leverage_over_player,
+                }
+            )
+
+    summary: dict[str, Any] = {}
+    if last_player_action:
+        summary["last_player_action"] = last_player_action
+    if pulse_trend:
+        summary["npc_pulse_trend"] = pulse_trend
+    if unused_leverage:
+        summary["unused_leverage"] = unused_leverage
+    return summary
 
 
 def synthesize_ending(

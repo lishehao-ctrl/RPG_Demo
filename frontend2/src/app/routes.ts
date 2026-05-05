@@ -1,13 +1,11 @@
 import { useEffect, useState } from "react"
 
 export type AppRoute =
-  | { name: "home"; openStoryId?: string }
+  | { name: "home" }
   | { name: "login"; next?: string }
   | { name: "create" }
-  | { name: "generating"; jobId: string }
-  | { name: "world"; storyId: string }
+  | { name: "template"; templateId: string }
   | { name: "play"; sessionId: string }
-  | { name: "replay"; sessionId: string }
 
 function parseRoute(hash: string): AppRoute {
   const raw = hash.replace(/^#/, "") || "/"
@@ -16,7 +14,7 @@ function parseRoute(hash: string): AppRoute {
   const params = new URLSearchParams(search)
 
   if (segments.length === 0) {
-    return { name: "home", openStoryId: params.get("story") ?? undefined }
+    return { name: "home" }
   }
   if (segments[0] === "login") {
     return { name: "login", next: params.get("next") ?? undefined }
@@ -24,16 +22,10 @@ function parseRoute(hash: string): AppRoute {
   if (segments[0] === "create") {
     return { name: "create" }
   }
-  if (segments[0] === "generating" && segments[1]) {
-    return { name: "generating", jobId: segments[1] }
-  }
-  if (segments[0] === "world" && segments[1]) {
-    return { name: "world", storyId: segments[1] }
+  if (segments[0] === "template" && segments[1]) {
+    return { name: "template", templateId: segments[1] }
   }
   if (segments[0] === "play" && segments[1]) {
-    if (segments[2] === "replay") {
-      return { name: "replay", sessionId: segments[1] }
-    }
     return { name: "play", sessionId: segments[1] }
   }
   return { name: "home" }
@@ -41,13 +33,8 @@ function parseRoute(hash: string): AppRoute {
 
 export function buildHash(route: AppRoute): string {
   switch (route.name) {
-    case "home": {
-      if (route.openStoryId) {
-        const params = new URLSearchParams({ story: route.openStoryId })
-        return `#/?${params.toString()}`
-      }
+    case "home":
       return "#/"
-    }
     case "login": {
       if (route.next) {
         const params = new URLSearchParams({ next: route.next })
@@ -57,14 +44,10 @@ export function buildHash(route: AppRoute): string {
     }
     case "create":
       return "#/create"
-    case "generating":
-      return `#/generating/${route.jobId}`
-    case "world":
-      return `#/world/${route.storyId}`
+    case "template":
+      return `#/template/${route.templateId}`
     case "play":
       return `#/play/${route.sessionId}`
-    case "replay":
-      return `#/play/${route.sessionId}/replay`
   }
 }
 

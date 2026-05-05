@@ -1,752 +1,427 @@
-import { type CSSProperties, useEffect, useMemo, useState } from "react"
+import { type CSSProperties, useEffect, useState } from "react"
+import type {
+  NarrativeSessionSummary,
+  NarrativeTemplateSummary,
+} from "../../api/contracts"
 import { useApi } from "../../app/api-context"
 import { useAuth } from "../../app/auth-context"
-import { HeaderUserMenu } from "../../shared/ui/header-user-menu"
-import { readContinueSession, type ContinueSession } from "../../shared/lib/continue-session"
-import { formatRelativeTime } from "../../shared/lib/format"
-import { adaptStory, type UiStory } from "./adapt"
-import { StoryDrawer } from "./story-drawer"
+import { Header } from "../../shared/ui/header"
 
-type Group = {
-  id: "mine" | "popular" | "latest"
-  eyebrow: string
-  title: string
-  stories: UiStory[]
-}
+type Tab = "plaza" | "my-templates"
 
 export function HomePage({
-  initialOpenStoryId,
   onOpenCreate,
+  onOpenTemplate,
   onOpenPlay,
 }: {
-  initialOpenStoryId?: string
   onOpenCreate: () => void
+  onOpenTemplate: (templateId: string) => void
   onOpenPlay: (sessionId: string) => void
 }) {
   const api = useApi()
   const auth = useAuth()
-  const [groups, setGroups] = useState<Group[] | null>(null)
-  const [loadError, setLoadError] = useState<string | null>(null)
-  const [continueSession, setContinueSession] = useState<ContinueSession | null>(null)
-  const [continueIgnored, setContinueIgnored] = useState(false)
-  const [query, setQuery] = useState("")
-  const [drawerStory, setDrawerStory] = useState<UiStory | null>(null)
-  const [drawerOpen, setDrawerOpen] = useState(false)
-  const [starting, setStarting] = useState(false)
-  const [startError, setStartError] = useState<string | null>(null)
+  const [tab, setTab] = useState<Tab>("plaza")
+  const [publicTemplates, setPublicTemplates] = useState<NarrativeTemplateSummary[] | null>(null)
+  const [myTemplates, setMyTemplates] = useState<NarrativeTemplateSummary[] | null>(null)
+  const [mySessions, setMySessions] = useState<NarrativeSessionSummary[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    setContinueSession(readContinueSession())
-  }, [])
-
-  // Deep link to specific world (e.g. shared link arrives with #/?story=xyz).
-  useEffect(() => {
-    if (initialOpenStoryId) {
-      window.location.hash = `#/world/${initialOpenStoryId}`
-    }
-  }, [initialOpenStoryId])
-
-  // Initial load.
-  useEffect(() => {
-    if (auth.loading) return
-    let active = true
-    setLoadError(null)
-
-    const load = async () => {
-      try {
-        const popularReq = api.listStories({ view: "public", sort: "play_count_desc", limit: 12 })
-        const latestReq = api.listStories({ view: "public", sort: "published_at_desc", limit: 12 })
-        const mineReq = !auth.isAnonymous ? api.listMyWorlds({ limit: 12 }) : null
-
-        const [popular, latest, mine] = await Promise.all([popularReq, latestReq, mineReq])
-        if (!active) return
-
-        const handle = auth.user?.display_name ?? null
-        const out: Group[] = []
-        if (mine && mine.stories.length > 0) {
-          out.push({
-            id: "mine",
-            eyebrow: "你的",
-            title: "你写的 worlds",
-            stories: mine.stories.map((s) => adaptStory(s, handle)),
-          })
-        }
-        out.push({
-          id: "popular",
-          eyebrow: "热门",
-          title: "热门",
-          stories: popular.stories.map((s) => adaptStory(s, null)),
-        })
-        out.push({
-          id: "latest",
-          eyebrow: "最新",
-          title: "最新",
-          stories: latest.stories.map((s) => adaptStory(s, null)),
-        })
-        setGroups(out)
-      } catch (err) {
-        if (!active) return
-        setLoadError(err instanceof Error ? err.message : "无法加载故事")
-        setGroups([])
-      }
-    }
-    void load()
+    let cancelled = false
+    setError(null)
+    api
+      .listPublicNarrativeTemplates()
+      .then((res) => {
+        if (cancelled) return
+        setPublicTemplates(res.items)
+      })
+      .catch((err) => {
+        if (cancelled) return
+        setError(err instanceof Error ? err.message : "广场加载失败。")
+      })
     return () => {
-      active = false
+      cancelled = true
     }
-  }, [api, auth.loading, auth.isAnonymous, auth.user?.display_name])
+  }, [api])
 
-  const searching = query.trim().length > 0
-  const searchResults = useMemo(() => {
-    if (!searching || !groups) return []
-    const q = query.trim().toLowerCase()
-    const seen = new Set<string>()
-    const all: UiStory[] = []
-    groups.forEach((g) =>
-      g.stories.forEach((s) => {
-        if (seen.has(s.id)) return
-        const hit =
-          s.title.toLowerCase().includes(q) ||
-          s.theme.toLowerCase().includes(q) ||
-          s.lede.toLowerCase().includes(q) ||
-          s.authorUsername.toLowerCase().includes(q)
-        if (hit) {
-          seen.add(s.id)
-          all.push(s)
-        }
-      }),
-    )
-    return all
-  }, [searching, query, groups])
-
-  const handleOpenStory = (story: UiStory) => {
-    setStartError(null)
-    setDrawerStory(story)
-    setDrawerOpen(true)
-  }
-
-  const handlePlay = async () => {
-    if (!drawerStory || starting) return
-    setStarting(true)
-    setStartError(null)
-    try {
-      const session = await api.createPlaySession({ story_id: drawerStory.id })
-      onOpenPlay(session.session_id)
-    } catch (err) {
-      setStartError(err instanceof Error ? err.message : "无法开始游玩")
-      setStarting(false)
+  useEffect(() => {
+    if (auth.loading || auth.isAnonymous) return
+    let cancelled = false
+    api
+      .listMyNarrativeSessions()
+      .then((res) => {
+        if (cancelled) return
+        setMySessions(res.items)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setMySessions([])
+      })
+    api
+      .listMyNarrativeTemplates()
+      .then((res) => {
+        if (cancelled) return
+        setMyTemplates(res.items)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setMyTemplates([])
+      })
+    return () => {
+      cancelled = true
     }
-  }
-
-  const handleOpenFullPage = () => {
-    if (!drawerStory) return
-    window.location.hash = `#/world/${drawerStory.id}`
-  }
-
-  const continueAgo = continueSession ? formatRelativeTime(continueSession.saved_at) : ""
-  const headerUser = auth.isAnonymous || !auth.user
-    ? null
-    : { name: auth.user.display_name, world_count: groups?.find((g) => g.id === "mine")?.stories.length ?? 0 }
+  }, [api, auth.loading, auth.isAnonymous])
 
   return (
     <div style={hpStyles.page}>
-      <header style={hpStyles.header}>
-        <div style={hpStyles.brand}>
-          <span style={hpStyles.brandDot}>·</span>
-          <span style={hpStyles.brandName}>Tiny Stories</span>
-        </div>
-        <div style={hpStyles.headerRight}>
-          <button className="ts-btn ts-btn--primary" onClick={onOpenCreate}>
-            写一个 world
-          </button>
-          <HeaderUserMenu user={headerUser} />
-        </div>
-      </header>
+      <Header onHome={() => {}} onCreate={onOpenCreate} />
 
       <main style={hpStyles.main}>
-        {continueSession && !continueIgnored && (
-          <div style={hpStyles.continue}>
-            <div style={hpStyles.continueBg} />
-            <div style={hpStyles.continueInner}>
-              <div>
-                <div style={hpStyles.continueEyebrow}>继续上次</div>
-                <div style={hpStyles.continueTitle}>
-                  <span style={hpStyles.continueWorld}>{continueSession.story_title}</span>
-                  <span style={hpStyles.continueDot}>·</span>
-                  <span style={hpStyles.continueAgo}>
-                    {continueSession.beat_title} · {continueAgo}
-                  </span>
-                </div>
-              </div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button
-                  className="ts-btn ts-btn--primary"
-                  onClick={() => onOpenPlay(continueSession.session_id)}
-                >
-                  继续游玩
-                </button>
-                <button className="ts-btn ts-btn--ghost" onClick={() => setContinueIgnored(true)}>
-                  忽略
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
         <section style={hpStyles.hero}>
-          <div style={hpStyles.heroAmbient} />
-          <div style={hpStyles.heroLeft}>
-            <h1 style={hpStyles.heroTitle}>
-              写一个 world,
-              <br />
-              朋友来玩。
-            </h1>
-            <p style={hpStyles.heroSub}>
-              把一个故事开头交给 AI,几分钟内变成一份可以分享的剧本。每个朋友进来玩,都会写出他们自己的版本。
-            </p>
-            <div style={hpStyles.heroCtas}>
-              <button className="ts-btn ts-btn--primary ts-btn--lg" onClick={onOpenCreate}>
-                写一个 world
-              </button>
-              <a
-                className="ts-link-dashed"
-                href="#stories"
-                onClick={(e) => {
-                  e.preventDefault()
-                  document.getElementById("hp-stories")?.scrollIntoView({ behavior: "smooth", block: "start" })
-                }}
-              >
-                先看朋友们做了什么 ↓
-              </a>
-            </div>
+          <h1 style={hpStyles.heroTitle}>
+            一句话起头，
+            <br />
+            AI 给你一整个故事。
+          </h1>
+          <p style={hpStyles.heroSub}>
+            写下任何一个人物关系的瞬间——
+            豪门家宴、办公室博弈、初恋重逢、深夜电话——
+            AI 立刻为你搭起场景、人物、第一个戏剧时刻，然后你接手往下玩。
+          </p>
+          <div style={hpStyles.heroActions}>
+            <button
+              className="ts-btn ts-btn--primary ts-btn--lg"
+              onClick={onOpenCreate}
+              type="button"
+            >
+              写一个新故事 →
+            </button>
           </div>
         </section>
 
-        <section id="hp-stories" style={hpStyles.storiesSection}>
-          {loadError ? <div style={hpStyles.error}>{loadError}</div> : null}
+        {/* Continue playing (my sessions) — only when signed in and has sessions */}
+        {!auth.isAnonymous && mySessions && mySessions.length > 0 ? (
+          <section style={hpStyles.section}>
+            <SectionHeader title="继续未完成的故事" />
+            <div style={hpStyles.sessionRow}>
+              {mySessions.slice(0, 6).map((s) => (
+                <SessionCard
+                  key={s.session_id}
+                  session={s}
+                  onClick={() => onOpenPlay(s.session_id)}
+                />
+              ))}
+            </div>
+          </section>
+        ) : null}
 
-          {!groups ? (
-            <div style={hpStyles.empty}>
-              <div style={hpStyles.emptyTitle}>正在拉取故事…</div>
-            </div>
-          ) : searching ? (
-            <div>
-              <GroupHeader
-                eyebrow="搜索"
-                title={`搜索结果 · ${searchResults.length}`}
-                sub={searchResults.length === 0 ? null : `匹配 "${query}"`}
-                rightSlot={<SearchInput value={query} onChange={setQuery} />}
-              />
-              {searchResults.length === 0 ? (
-                <div style={hpStyles.empty}>
-                  <div style={hpStyles.emptyTitle}>没找到 — 试试别的词</div>
-                  <div style={hpStyles.emptySub}>
-                    或者,
-                    <button style={hpStyles.emptyLink} onClick={onOpenCreate}>
-                      写一个新的 world →
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div style={hpStyles.grid}>
-                  {searchResults.map((s) => (
-                    <StoryCard key={s.id} story={s} onClick={() => handleOpenStory(s)} />
-                  ))}
-                </div>
-              )}
-            </div>
+        <section style={hpStyles.section}>
+          <div style={hpStyles.tabs}>
+            <button
+              style={{ ...hpStyles.tab, ...(tab === "plaza" ? hpStyles.tabActive : {}) }}
+              onClick={() => setTab("plaza")}
+              type="button"
+            >
+              广场
+            </button>
+            {!auth.isAnonymous ? (
+              <button
+                style={{
+                  ...hpStyles.tab,
+                  ...(tab === "my-templates" ? hpStyles.tabActive : {}),
+                }}
+                onClick={() => setTab("my-templates")}
+                type="button"
+              >
+                我创建的
+              </button>
+            ) : null}
+          </div>
+
+          {tab === "plaza" ? (
+            <TemplateGrid
+              templates={publicTemplates}
+              error={error}
+              emptyText="还没有公开作品。写一个让所有人来玩？"
+              onOpenTemplate={onOpenTemplate}
+            />
           ) : (
-            groups.map((g, gi) => {
-              const isPopular = g.id === "popular"
-              const isMine = g.id === "mine"
-              const sub =
-                g.id === "mine"
-                  ? `${g.stories.length} 个 world · 累计被玩 ${g.stories.reduce(
-                      (a, s) => a + s.played_count,
-                      0,
-                    )} 次`
-                  : g.id === "popular"
-                    ? "这周最多人玩"
-                    : null
-              return (
-                <div key={g.id} style={{ marginBottom: gi < groups.length - 1 ? 64 : 0 }}>
-                  <GroupHeader
-                    eyebrow={g.eyebrow}
-                    title={g.title}
-                    sub={sub}
-                    rightSlot={isPopular ? <SearchInput value={query} onChange={setQuery} /> : null}
-                  />
-                  {g.stories.length === 0 ? (
-                    <div style={hpStyles.empty}>
-                      <div style={hpStyles.emptyTitle}>还没有人玩 — 你的 world 可以是第一个</div>
-                    </div>
-                  ) : (
-                    <div style={hpStyles.grid}>
-                      {g.stories.map((s) => (
-                        <StoryCard key={s.id} story={s} mine={isMine} onClick={() => handleOpenStory(s)} />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )
-            })
+            <TemplateGrid
+              templates={myTemplates}
+              error={null}
+              emptyText="你还没有创建过故事。"
+              onOpenTemplate={onOpenTemplate}
+            />
           )}
         </section>
-
-        <footer style={hpStyles.footer}>
-          <span style={{ color: "var(--text-faint)" }}>· Tiny Stories</span>
-          <span style={{ color: "var(--text-faint)" }}>一个 world,无数个版本。</span>
-        </footer>
       </main>
-
-      <StoryDrawer
-        story={drawerStory}
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        onPlay={() => void handlePlay()}
-        onOpenFullPage={handleOpenFullPage}
-        starting={starting}
-        mode={drawerStory?.isOwnWorld ? "mine" : "default"}
-      />
-      {startError ? <div style={hpStyles.toast}>{startError}</div> : null}
     </div>
   )
 }
 
-function GroupHeader({
-  eyebrow,
-  title,
-  sub,
-  rightSlot,
-}: {
-  eyebrow: string
-  title: string
-  sub: string | null
-  rightSlot: React.ReactNode
-}) {
+function SectionHeader({ title }: { title: string }) {
   return (
-    <div style={hpStyles.groupHeader}>
-      <div style={hpStyles.groupHeaderLeft}>
-        <div style={hpStyles.groupEyebrow}>{eyebrow}</div>
-        <h3 style={hpStyles.groupTitle}>{title}</h3>
-        {sub && <div style={hpStyles.groupSub}>{sub}</div>}
-      </div>
-      {rightSlot && <div style={hpStyles.groupHeaderRight}>{rightSlot}</div>}
+    <div style={hpStyles.sectionHeader}>
+      <h2 style={hpStyles.sectionTitle}>{title}</h2>
     </div>
   )
 }
 
-function SearchInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  return (
-    <div style={hpStyles.searchWrap}>
-      <svg
-        width="14"
-        height="14"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        style={hpStyles.searchIcon}
-      >
-        <circle cx="11" cy="11" r="7" />
-        <path d="m20 20-3.5-3.5" strokeLinecap="round" />
-      </svg>
-      <input
-        style={hpStyles.search}
-        placeholder="搜索 world、作者、主题"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      />
-      {value && (
-        <button style={hpStyles.searchClear} onClick={() => onChange("")} aria-label="清除">
-          ×
-        </button>
-      )}
-    </div>
-  )
-}
-
-function StoryCard({
-  story,
+function SessionCard({
+  session,
   onClick,
-  mine = false,
 }: {
-  story: UiStory
+  session: NarrativeSessionSummary
   onClick: () => void
-  mine?: boolean
 }) {
-  const [hover, setHover] = useState(false)
-  const hasProof = story.played_count > 0
   return (
-    <button
-      style={{
-        ...hpStyles.card,
-        borderColor: hover ? "rgba(212,168,83,0.55)" : "var(--line)",
-        transform: hover ? "translateY(-2px)" : "translateY(0)",
-        boxShadow: hover ? "0 18px 40px rgba(0,0,0,0.45)" : "0 0 0 rgba(0,0,0,0)",
-      }}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      onClick={onClick}
-    >
-      <div style={hpStyles.cardCover}>
-        <div
-          style={{
-            ...hpStyles.cardCoverImg,
-            backgroundImage: `url(${story.cover_url})`,
-            transform: hover ? "scale(1.04)" : "scale(1)",
-          }}
-        />
-        <div style={hpStyles.cardCoverDarken} />
-        <div style={hpStyles.cardCoverGrad} />
-        <span style={hpStyles.cardCoverTag}>{story.theme}</span>
-        {mine && <span style={hpStyles.cardMineTag}>你写的</span>}
-        <h3 style={hpStyles.cardCoverTitle}>{story.title}</h3>
-      </div>
-      <div style={hpStyles.cardBody}>
-        <p style={hpStyles.cardLede}>{story.lede}</p>
-        {hasProof && (
-          <div style={hpStyles.cardProof}>
-            <span style={hpStyles.cardProofNum}>{story.played_count}</span>
-            <span> 人玩过</span>
-            <span style={hpStyles.cardProofDot}>·</span>
-            <span style={hpStyles.cardProofNum}>{story.unique_ending_count}</span>
-            <span> 种结局</span>
-          </div>
-        )}
+    <button style={hpStyles.sessionCard} onClick={onClick} type="button">
+      <div style={hpStyles.sessionTitle}>{session.template_title}</div>
+      <div style={hpStyles.sessionMeta}>
+        第 {session.turn_count + 1} 段 · {formatRelative(session.last_active_at)}
       </div>
     </button>
   )
 }
 
+function TemplateGrid({
+  templates,
+  error,
+  emptyText,
+  onOpenTemplate,
+}: {
+  templates: NarrativeTemplateSummary[] | null
+  error: string | null
+  emptyText: string
+  onOpenTemplate: (templateId: string) => void
+}) {
+  if (error) {
+    return <div style={hpStyles.errorBox}>{error}</div>
+  }
+  if (!templates) {
+    return <div style={hpStyles.loading}>加载中…</div>
+  }
+  if (templates.length === 0) {
+    return <div style={hpStyles.empty}>{emptyText}</div>
+  }
+  return (
+    <div style={hpStyles.grid}>
+      {templates.map((t) => (
+        <TemplateCard
+          key={t.template_id}
+          template={t}
+          onClick={() => onOpenTemplate(t.template_id)}
+        />
+      ))}
+    </div>
+  )
+}
+
+function TemplateCard({
+  template,
+  onClick,
+}: {
+  template: NarrativeTemplateSummary
+  onClick: () => void
+}) {
+  return (
+    <button style={hpStyles.card} onClick={onClick} type="button">
+      <div style={hpStyles.cardTitle}>{template.title}</div>
+      <div style={hpStyles.cardSeed}>"{template.seed}"</div>
+      <div style={hpStyles.cardCast}>
+        {template.cast.map((c) => c.display_name).join(" · ")}
+      </div>
+      <div style={hpStyles.cardFooter}>
+        <span style={hpStyles.cardBadge}>{visibilityLabel(template.visibility)}</span>
+        <span style={hpStyles.cardPlays}>· 已玩 {template.play_count} 局</span>
+        {template.is_owner ? (
+          <span style={hpStyles.cardOwnerBadge}>我创建的</span>
+        ) : null}
+      </div>
+    </button>
+  )
+}
+
+function visibilityLabel(v: NarrativeTemplateSummary["visibility"]): string {
+  if (v === "public") return "公开"
+  if (v === "unlisted") return "凭链接"
+  return "只有我"
+}
+
+function formatRelative(isoString: string): string {
+  const date = new Date(isoString)
+  const diffMs = Date.now() - date.getTime()
+  const minutes = Math.floor(diffMs / 60000)
+  if (minutes < 1) return "刚刚"
+  if (minutes < 60) return `${minutes} 分钟前`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours} 小时前`
+  const days = Math.floor(hours / 24)
+  if (days < 30) return `${days} 天前`
+  return date.toLocaleDateString()
+}
+
 const hpStyles: Record<string, CSSProperties> = {
-  page: { minHeight: "100%", background: "var(--bg)", color: "var(--text)" },
-  header: {
-    position: "sticky",
-    top: 0,
-    zIndex: 5,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: "16px 40px",
-    background: "rgba(12,12,16,0.82)",
-    backdropFilter: "blur(14px)",
-    borderBottom: "1px solid var(--line)",
-  },
-  brand: { display: "flex", alignItems: "center", gap: 8 },
-  brandDot: { color: "var(--accent)", fontSize: 22, lineHeight: 1, transform: "translateY(-2px)" },
-  brandName: { fontFamily: "var(--font-narrative)", fontSize: 18, letterSpacing: "0.01em" },
-  headerRight: { display: "flex", alignItems: "center", gap: 14 },
+  page: { minHeight: "100%", background: "var(--bg)" },
+  main: { maxWidth: 1100, margin: "0 auto", padding: "48px 32px 80px" },
 
-  main: { maxWidth: 1180, margin: "0 auto", padding: "32px 40px 80px" },
-
-  continue: {
-    position: "relative",
-    borderRadius: "var(--radius-md)",
-    overflow: "hidden",
-    border: "1px solid rgba(212,168,83,0.32)",
-    marginBottom: 56,
-  },
-  continueBg: {
-    position: "absolute",
-    inset: 0,
-    background:
-      "linear-gradient(90deg, rgba(212,168,83,0.14) 0%, rgba(212,168,83,0.04) 50%, rgba(212,168,83,0.0) 100%)",
-  },
-  continueInner: {
-    position: "relative",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: "16px 22px",
-  },
-  continueEyebrow: {
-    fontSize: 11,
-    letterSpacing: "0.16em",
-    textTransform: "uppercase",
-    color: "var(--accent)",
-    marginBottom: 4,
-    fontWeight: 600,
-  },
-  continueTitle: { fontSize: 15, color: "var(--text)" },
-  continueWorld: { fontWeight: 600, fontFamily: "var(--font-narrative)", fontSize: 17 },
-  continueDot: { color: "var(--text-faint)", margin: "0 8px" },
-  continueAgo: { color: "var(--text-muted)" },
-
-  hero: {
-    position: "relative",
-    padding: "72px 0 80px",
-    minHeight: 360,
-    overflow: "hidden",
-    marginBottom: 24,
-  },
-  heroAmbient: {
-    position: "absolute",
-    right: -40,
-    top: -20,
-    width: 540,
-    height: 480,
-    backgroundImage: "url(/webtoons/ui/library_bg.jpg)",
-    backgroundSize: "cover",
-    backgroundPosition: "center",
-    filter: "brightness(0.42) saturate(0.85)",
-    WebkitMaskImage:
-      "radial-gradient(ellipse at 60% 50%, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.5) 50%, rgba(0,0,0,0) 80%)",
-    maskImage: "radial-gradient(ellipse at 60% 50%, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.5) 50%, rgba(0,0,0,0) 80%)",
-    pointerEvents: "none",
-  },
-  heroLeft: { position: "relative", maxWidth: 720 },
+  hero: { textAlign: "center", padding: "32px 0 56px" },
   heroTitle: {
     fontFamily: "var(--font-narrative)",
-    fontSize: 60,
-    lineHeight: 1.1,
-    letterSpacing: "-0.01em",
+    fontSize: 48,
+    lineHeight: 1.15,
     fontWeight: 400,
-    margin: "0 0 24px",
+    margin: "0 0 20px",
   },
   heroSub: {
-    fontSize: 18,
-    lineHeight: 1.6,
+    fontSize: 16,
+    lineHeight: 1.65,
     color: "var(--text-muted)",
-    margin: "0 0 36px",
-    maxWidth: 580,
+    maxWidth: 600,
+    margin: "0 auto 32px",
   },
-  heroCtas: { display: "flex", alignItems: "center", gap: 24 },
+  heroActions: { display: "flex", justifyContent: "center", gap: 12 },
 
-  storiesSection: { paddingTop: 8 },
-  groupHeader: {
-    display: "flex",
-    alignItems: "flex-end",
-    justifyContent: "space-between",
-    gap: 24,
-    marginBottom: 24,
-    paddingBottom: 4,
-  },
-  groupHeaderLeft: { minWidth: 0 },
-  groupHeaderRight: { flexShrink: 0 },
-  groupEyebrow: {
-    fontSize: 11,
-    color: "var(--accent)",
-    letterSpacing: "0.18em",
-    textTransform: "uppercase",
-    marginBottom: 8,
-    fontWeight: 600,
-  },
-  groupTitle: {
+  section: { marginTop: 56 },
+  sectionHeader: { marginBottom: 20 },
+  sectionTitle: {
     fontFamily: "var(--font-narrative)",
-    fontSize: 26,
+    fontSize: 22,
     fontWeight: 500,
-    margin: "0 0 6px",
-    letterSpacing: "0.005em",
-  },
-  groupSub: {
-    fontSize: 13,
-    color: "var(--text-muted)",
+    margin: 0,
   },
 
-  searchWrap: {
-    position: "relative",
+  tabs: {
     display: "flex",
-    alignItems: "center",
+    gap: 4,
+    borderBottom: "1px solid var(--line)",
+    marginBottom: 28,
   },
-  searchIcon: {
-    position: "absolute",
-    left: 14,
-    color: "var(--text-faint)",
-    pointerEvents: "none",
+  tab: {
+    background: "none",
+    border: "none",
+    padding: "12px 18px",
+    fontSize: 14,
+    color: "var(--text-muted)",
+    cursor: "pointer",
+    borderBottom: "2px solid transparent",
+    marginBottom: -1,
   },
-  search: {
-    width: 280,
-    height: 38,
-    padding: "0 36px 0 38px",
+  tabActive: {
+    color: "var(--text)",
+    borderBottomColor: "var(--accent)",
+  },
+
+  sessionRow: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
+    gap: 12,
+  },
+  sessionCard: {
+    textAlign: "left",
+    padding: "14px 16px",
     background: "var(--bg-elev)",
     border: "1px solid var(--line)",
-    borderRadius: 999,
+    borderRadius: "var(--radius-md)",
+    cursor: "pointer",
+    transition: "all 160ms",
+  },
+  sessionTitle: {
+    fontSize: 14.5,
+    fontWeight: 500,
     color: "var(--text)",
-    fontSize: 13,
-    outline: "none",
-    transition: "border-color 160ms",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    display: "-webkit-box",
+    WebkitLineClamp: 1,
+    WebkitBoxOrient: "vertical",
   },
-  searchClear: {
-    position: "absolute",
-    right: 12,
-    width: 22,
-    height: 22,
-    borderRadius: 999,
-    color: "var(--text-faint)",
-    fontSize: 14,
-    lineHeight: 1,
-    background: "transparent",
-    border: "none",
-  },
+  sessionMeta: { fontSize: 12, color: "var(--text-faint)", marginTop: 6 },
 
   grid: {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
-    gap: 20,
+    gap: 16,
   },
   card: {
     textAlign: "left",
+    padding: "20px 22px",
     background: "var(--bg-elev)",
     border: "1px solid var(--line)",
     borderRadius: "var(--radius-md)",
-    overflow: "hidden",
-    transition: "border-color 240ms ease, transform 240ms ease, box-shadow 240ms ease",
-    padding: 0,
-    color: "var(--text)",
+    cursor: "pointer",
+    transition: "all 180ms",
     display: "flex",
     flexDirection: "column",
-  },
-  cardCover: {
-    position: "relative",
-    aspectRatio: "4/5",
-    overflow: "hidden",
-    background: "#11121a",
-  },
-  cardCoverImg: {
-    position: "absolute",
-    inset: 0,
-    backgroundSize: "cover",
-    backgroundPosition: "center",
-    transition: "transform 320ms ease",
-    filter: "brightness(0.78) saturate(0.95)",
-  },
-  cardCoverDarken: {
-    position: "absolute",
-    inset: 0,
-    background: "rgba(12,12,16,0.18)",
-  },
-  cardCoverGrad: {
-    position: "absolute",
-    inset: 0,
-    background: "linear-gradient(to bottom, rgba(12,12,16,0) 50%, rgba(12,12,16,0.55) 75%, rgba(12,12,16,0.95) 100%)",
-  },
-  cardCoverTag: {
-    position: "absolute",
-    left: 12,
-    top: 12,
-    padding: "4px 9px",
-    background: "rgba(12,12,16,0.78)",
-    border: "1px solid rgba(212,168,83,0.5)",
-    color: "var(--accent)",
-    fontSize: 9,
-    fontWeight: 600,
-    letterSpacing: "0.18em",
-    borderRadius: 999,
-    textTransform: "uppercase",
-  },
-  cardMineTag: {
-    position: "absolute",
-    right: 12,
-    top: 12,
-    padding: "4px 9px",
-    background: "var(--accent)",
-    color: "var(--bg)",
-    fontSize: 9,
-    fontWeight: 700,
-    letterSpacing: "0.16em",
-    borderRadius: 999,
-    textTransform: "uppercase",
-  },
-  cardCoverTitle: {
-    position: "absolute",
-    left: 16,
-    right: 16,
-    bottom: 14,
-    fontFamily: "var(--font-narrative)",
-    fontSize: 22,
-    fontWeight: 500,
-    lineHeight: 1.2,
-    margin: 0,
-    color: "var(--text)",
-    letterSpacing: "0.005em",
-  },
-  cardBody: {
-    padding: "14px 18px 18px",
-    flex: 1,
-    display: "flex",
-    flexDirection: "column",
-    justifyContent: "space-between",
     gap: 10,
+    minHeight: 180,
   },
-  cardLede: {
-    fontSize: 13.5,
-    lineHeight: 1.5,
+  cardTitle: {
+    fontFamily: "var(--font-narrative)",
+    fontSize: 18,
+    lineHeight: 1.3,
+    color: "var(--text)",
+  },
+  cardSeed: {
+    fontSize: 13,
     color: "var(--text-muted)",
-    margin: 0,
+    fontStyle: "italic",
+    lineHeight: 1.5,
+    overflow: "hidden",
     display: "-webkit-box",
     WebkitLineClamp: 2,
     WebkitBoxOrient: "vertical",
+  },
+  cardCast: {
+    fontSize: 12,
+    color: "var(--text-faint)",
+    marginTop: "auto",
     overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
   },
-  cardProof: {
-    fontSize: 12,
-    color: "var(--text-faint)",
-    fontVariantNumeric: "tabular-nums",
-  },
-  cardProofNum: {
-    color: "var(--accent)",
-    fontWeight: 600,
-  },
-  cardProofDot: {
-    margin: "0 6px",
-    color: "var(--text-faint)",
-  },
-
-  empty: {
-    padding: "56px 24px",
-    background: "var(--bg-elev)",
-    border: "1px dashed var(--line-strong)",
-    borderRadius: "var(--radius-md)",
-    textAlign: "center",
-  },
-  emptyTitle: {
-    fontFamily: "var(--font-narrative)",
-    fontSize: 18,
-    color: "var(--text)",
-    marginBottom: 8,
-  },
-  emptySub: {
-    fontSize: 13,
-    color: "var(--text-muted)",
-  },
-  emptyLink: {
-    background: "none",
-    color: "var(--accent)",
-    borderBottom: "1px dashed rgba(212,168,83,0.4)",
-    padding: 0,
-    fontSize: 13,
-  },
-  error: {
-    padding: "14px 18px",
-    background: "rgba(224,122,95,0.08)",
-    border: "1px solid rgba(224,122,95,0.32)",
-    color: "var(--warn)",
-    borderRadius: "var(--radius-md)",
-    marginBottom: 24,
-    fontSize: 13,
-  },
-
-  footer: {
-    marginTop: 80,
-    padding: "24px 0",
-    borderTop: "1px solid var(--line)",
+  cardFooter: {
     display: "flex",
-    justifyContent: "space-between",
-    fontSize: 12,
+    alignItems: "center",
+    gap: 8,
+    fontSize: 11,
+    color: "var(--text-faint)",
+    paddingTop: 10,
+    borderTop: "1px dashed var(--line)",
+  },
+  cardBadge: {
+    padding: "3px 8px",
+    background: "var(--bg)",
+    border: "1px solid var(--line)",
+    borderRadius: 999,
+  },
+  cardPlays: { fontSize: 11 },
+  cardOwnerBadge: {
+    marginLeft: "auto",
+    padding: "3px 8px",
+    background: "var(--accent-soft)",
+    color: "var(--accent)",
+    borderRadius: 999,
+    fontSize: 11,
   },
 
-  toast: {
-    position: "fixed",
-    left: "50%",
-    bottom: 32,
-    transform: "translateX(-50%)",
-    padding: "10px 18px",
-    background: "rgba(15,15,20,0.96)",
-    border: "1px solid var(--line-strong)",
-    borderRadius: 999,
-    fontSize: 13,
+  errorBox: {
+    padding: 20,
+    background: "rgba(220,80,80,0.08)",
+    border: "1px solid rgba(220,80,80,0.25)",
+    borderRadius: "var(--radius-md)",
     color: "var(--warn)",
-    zIndex: 60,
+    fontSize: 14,
+  },
+  loading: { padding: 40, textAlign: "center", color: "var(--text-faint)", fontSize: 14 },
+  empty: {
+    padding: 40,
+    textAlign: "center",
+    color: "var(--text-faint)",
+    fontSize: 14,
+    fontStyle: "italic",
+    background: "var(--bg-elev)",
+    borderRadius: "var(--radius-md)",
+    border: "1px dashed var(--line)",
   },
 }

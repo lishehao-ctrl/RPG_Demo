@@ -19,6 +19,37 @@ export const BACKEND_ROUTE_MAP = {
   getPlaySessionReplay: { method: "GET", path: "/play/sessions/:session_id/replay" },
   submitPlayTurn: { method: "POST", path: "/play/sessions/:session_id/turns" },
   listMyWorlds: { method: "GET", path: "/me/worlds" },
+
+  // ---------- Narrative (template/session) ----------
+  createNarrativeTemplate: { method: "POST", path: "/narrative/templates" },
+  listPublicNarrativeTemplates: { method: "GET", path: "/narrative/templates" },
+  getNarrativeTemplate: { method: "GET", path: "/narrative/templates/:template_id" },
+  updateNarrativeTemplateVisibility: {
+    method: "PATCH",
+    path: "/narrative/templates/:template_id/visibility",
+  },
+  startNarrativeSession: {
+    method: "POST",
+    path: "/narrative/templates/:template_id/sessions",
+  },
+  getNarrativeStory: {
+    method: "GET",
+    path: "/narrative/sessions/:session_id/story",
+  },
+  advanceNarrativeTurn: {
+    method: "POST",
+    path: "/narrative/sessions/:session_id/story/turns",
+  },
+  askNarrativeAdvisor: {
+    method: "POST",
+    path: "/narrative/sessions/:session_id/advisor",
+  },
+  getNarrativeAdvisorHistory: {
+    method: "GET",
+    path: "/narrative/sessions/:session_id/advisor",
+  },
+  listMyNarrativeTemplates: { method: "GET", path: "/me/narrative/templates" },
+  listMyNarrativeSessions: { method: "GET", path: "/me/narrative/sessions" },
 } as const
 
 export type BackendRouteKey = keyof typeof BACKEND_ROUTE_MAP

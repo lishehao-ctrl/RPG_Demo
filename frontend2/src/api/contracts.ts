@@ -525,3 +525,122 @@ export type AuthorJobEvent = {
   event: AuthorJobEventName
   data: Record<string, unknown>
 }
+
+// ---------------------------------------------------------------------------
+// Narrative — template/session architecture
+// ---------------------------------------------------------------------------
+
+export type NarrativeCastMember = {
+  character_id: string
+  display_name: string
+  role: string
+  relation_to_protagonist: string
+}
+
+export type NarrativeStoryOption = {
+  label: string
+  hint: string
+}
+
+export type NarrativeStoryRole = "narrator" | "player"
+
+export type NarrativeStoryMessage = {
+  ord: number
+  role: NarrativeStoryRole
+  content: string
+  options: NarrativeStoryOption[]
+  chosen_option_index: number | null
+}
+
+export type NarrativeAdvisorRole = "player" | "advisor"
+
+export type NarrativeAdvisorMessage = {
+  ord: number
+  role: NarrativeAdvisorRole
+  content: string
+}
+
+export type NarrativeTemplateVisibility = "private" | "unlisted" | "public"
+
+export type NarrativeTemplateSummary = {
+  template_id: string
+  owner_user_id: string
+  seed: string
+  title: string
+  cast: NarrativeCastMember[]
+  advisor_persona: string
+  visibility: NarrativeTemplateVisibility
+  play_count: number
+  created_at: string
+  is_owner: boolean
+}
+
+export type NarrativeSessionSummary = {
+  session_id: string
+  template_id: string
+  template_title: string
+  template_seed: string
+  player_user_id: string
+  turn_count: number
+  created_at: string
+  last_active_at: string
+}
+
+export type NarrativeCreateTemplateRequest = {
+  seed: string
+  visibility?: NarrativeTemplateVisibility
+}
+
+export type NarrativeCreateTemplateResponse = {
+  template: NarrativeTemplateSummary
+  session: NarrativeSessionSummary
+  opening: NarrativeStoryMessage
+}
+
+export type NarrativeStartSessionResponse = {
+  template: NarrativeTemplateSummary
+  session: NarrativeSessionSummary
+  opening: NarrativeStoryMessage
+}
+
+export type NarrativeTemplateListResponse = {
+  items: NarrativeTemplateSummary[]
+}
+
+export type NarrativeSessionListResponse = {
+  items: NarrativeSessionSummary[]
+}
+
+export type NarrativeUpdateVisibilityRequest = {
+  visibility: NarrativeTemplateVisibility
+}
+
+export type NarrativeStoryHistoryResponse = {
+  template: NarrativeTemplateSummary
+  session: NarrativeSessionSummary
+  messages: NarrativeStoryMessage[]
+}
+
+export type NarrativeAdvanceTurnRequest = {
+  chosen_option_index?: number | null
+  free_input?: string | null
+}
+
+export type NarrativeAdvanceTurnResponse = {
+  player_message: NarrativeStoryMessage
+  narrator_message: NarrativeStoryMessage
+}
+
+export type NarrativeAdvisorAskRequest = {
+  question: string
+}
+
+export type NarrativeAdvisorAskResponse = {
+  player_message: NarrativeAdvisorMessage
+  advisor_message: NarrativeAdvisorMessage
+}
+
+export type NarrativeAdvisorHistoryResponse = {
+  persona: string
+  messages: NarrativeAdvisorMessage[]
+}

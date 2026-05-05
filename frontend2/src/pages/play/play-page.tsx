@@ -1,25 +1,10 @@
-import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react"
+import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react"
 import type {
-  PlayControlAction,
-  PlayLatentRadarItem,
-  PlayRelationshipTargetState,
-  PlaySessionSnapshot,
-  PlayStateBar,
-  PlaySuggestedAction,
+  NarrativeAdvisorMessage,
+  NarrativeStoryHistoryResponse,
+  NarrativeStoryMessage,
 } from "../../api/contracts"
-import { type TranscriptEntry, usePlaySession } from "./use-play-session"
-
-type DrawerTab = "characters" | "state" | "echoes" | "transcript"
-
-type ActionDescriptor = {
-  kind: "story" | "press" | "redirect" | "detonate" | "none"
-  title: string
-  prompt: string
-}
-
-type PendingPlayer =
-  | { kind: "next-hand"; title: string; text: string }
-  | { kind: "free"; text: string }
+import { useApi } from "../../app/api-context"
 
 export function PlayPage({
   sessionId,
@@ -28,1030 +13,748 @@ export function PlayPage({
   sessionId: string
   onBackHome: () => void
 }) {
-  const session = usePlaySession(sessionId)
-  const [drawerOpen, setDrawerOpen] = useState(false)
-  const [pendingPlayer, setPendingPlayer] = useState<PendingPlayer | null>(null)
-  const [streamed, setStreamed] = useState("")
-  const [freeOpen, setFreeOpen] = useState(false)
-  const [freeText, setFreeText] = useState("")
-  const lastNarrationRef = useRef<string | null>(null)
+  const api = useApi()
+  const [story, setStory] = useState<NarrativeStoryHistoryResponse | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [freeInput, setFreeInput] = useState("")
+  const [showFreeInput, setShowFreeInput] = useState(false)
+  const [advisorOpen, setAdvisorOpen] = useState(false)
 
-  // Typewriter effect — restart whenever narration changes.
+  // Initial load
   useEffect(() => {
-    if (!session.snapshot) return
-    const fullText = session.snapshot.narration ?? ""
-    if (fullText === lastNarrationRef.current) return
-    lastNarrationRef.current = fullText
-    setStreamed("")
-    let i = 0
-    const id = window.setInterval(() => {
-      i += 1
-      setStreamed(fullText.slice(0, i))
-      if (i >= fullText.length) window.clearInterval(id)
-    }, 22)
-    return () => window.clearInterval(id)
-  }, [session.snapshot])
-
-  // Clear pending player bubble after a turn lands.
-  useEffect(() => {
-    if (!pendingPlayer) return
-    const t = window.setTimeout(() => setPendingPlayer(null), 1800)
-    return () => window.clearTimeout(t)
-  }, [pendingPlayer])
-
-  if (session.loading) {
-    return (
-      <div style={ppStyles.page}>
-        <SimpleHeader onHome={onBackHome} />
-        <main style={ppStyles.main}>
-          <div style={ppStyles.loading}>正在接入会话…</div>
-        </main>
-      </div>
-    )
-  }
-  if (!session.snapshot) {
-    return (
-      <div style={ppStyles.page}>
-        <SimpleHeader onHome={onBackHome} />
-        <main style={ppStyles.main}>
-          <div style={ppStyles.loading}>{session.error ?? "这场会话当前不可访问。"}</div>
-          <div style={{ marginTop: 16 }}>
-            <button className="ts-btn ts-btn--primary" onClick={onBackHome}>
-              返回首页
-            </button>
-          </div>
-        </main>
-      </div>
-    )
-  }
-
-  const snapshot = session.snapshot
-  const fullText = snapshot.narration ?? ""
-
-  const storyActionsRaw = snapshot.story_actions?.length ? snapshot.story_actions : snapshot.suggested_actions
-  const storyActions: ActionDescriptor[] = (storyActionsRaw ?? []).map((a) => ({
-    kind: "story",
-    title: a.label,
-    prompt: a.prompt,
-  }))
-  const controlActions: ActionDescriptor[] = (snapshot.control_actions ?? []).map((a) => ({
-    kind: a.action_type,
-    title: a.label,
-    prompt: a.prompt,
-  }))
-  const allActions = [...storyActions, ...controlActions]
-
-  const completed = snapshot.status === "completed" || Boolean(snapshot.ending)
-
-  const pickAction = (a: ActionDescriptor, raw: PlaySuggestedAction | PlayControlAction, isControl: boolean) => {
-    if (session.submitting) return
-    setPendingPlayer({ kind: "next-hand", title: a.title, text: a.prompt })
-    if (isControl) {
-      void session.submitTurn({ inputText: raw.prompt, controlAction: raw as PlayControlAction })
-    } else {
-      void session.submitTurn({ inputText: raw.prompt, storyAction: raw as PlaySuggestedAction })
+    let cancelled = false
+    setError(null)
+    api
+      .getNarrativeStory(sessionId)
+      .then((response) => {
+        if (cancelled) return
+        setStory(response)
+      })
+      .catch((err) => {
+        if (cancelled) return
+        setError(err instanceof Error ? err.message : "无法加载故事。")
+      })
+    return () => {
+      cancelled = true
     }
-  }
+  }, [api, sessionId])
 
-  const sendFree = () => {
-    if (!freeText.trim()) return
-    if (session.submitting) return
-    setPendingPlayer({ kind: "free", text: freeText })
-    void session.submitTurn({ inputText: freeText })
-    setFreeText("")
-    setFreeOpen(false)
-  }
+  // Auto-scroll the story column to the bottom whenever new content arrives.
+  const scrollerRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    const el = scrollerRef.current
+    if (!el) return
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" })
+  }, [story?.messages.length])
 
-  const totalActs = snapshot.progress?.total_beats ?? 0
-  const currentAct = (snapshot.progress?.completed_beats ?? snapshot.beat_index) + 1
+  const handleAdvance = useCallback(
+    async (action: { chosen_option_index?: number; free_input?: string }) => {
+      if (busy) return
+      setBusy(true)
+      setError(null)
+      try {
+        const response = await api.advanceNarrativeTurn(sessionId, action)
+        setStory((prev) => {
+          if (!prev) return prev
+          // Mark the prior narrator's chosen_option_index in the local copy
+          // so the option chips render the dim+selected state.
+          const updated = prev.messages.map((m) => {
+            if (
+              m.role === "narrator" &&
+              m.ord === response.player_message.ord - 1 &&
+              action.chosen_option_index != null
+            ) {
+              return { ...m, chosen_option_index: action.chosen_option_index }
+            }
+            return m
+          })
+          return {
+            ...prev,
+            messages: [...updated, response.player_message, response.narrator_message],
+            session: { ...prev.session, turn_count: prev.session.turn_count + 1 },
+          }
+        })
+        setFreeInput("")
+        setShowFreeInput(false)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "续写失败，请稍后再试。")
+      } finally {
+        setBusy(false)
+      }
+    },
+    [api, busy, sessionId],
+  )
+
+  const lastNarrator = story
+    ? [...story.messages].reverse().find((m) => m.role === "narrator") ?? null
+    : null
+  const isLastNarratorPending =
+    lastNarrator !== null && lastNarrator.chosen_option_index == null
+
+  if (!story) {
+    return (
+      <div style={ppStyles.page}>
+        <Header onBackHome={onBackHome} title="" />
+        <div style={ppStyles.centerNote}>
+          {error ? `加载失败：${error}` : "故事加载中…"}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div style={ppStyles.page}>
-      <header style={ppStyles.meta}>
-        <div style={ppStyles.metaInner}>
-          <div style={ppStyles.metaLeft}>
-            <button style={ppStyles.brandLink} onClick={onBackHome}>
-              <span
-                style={{
-                  color: "var(--accent)",
-                  fontSize: 18,
-                  transform: "translateY(-1px)",
-                  display: "inline-block",
-                }}
-              >
-                ·
-              </span>
-              <span style={{ fontFamily: "var(--font-narrative)", fontSize: 14, color: "var(--text-muted)" }}>
-                Tiny Stories
-              </span>
-            </button>
-            <span style={ppStyles.divider}>/</span>
-            <span style={ppStyles.storyTitle}>{snapshot.story_title}</span>
-            <span style={ppStyles.dot}>·</span>
-            <span style={ppStyles.beatTitle}>{snapshot.beat_title}</span>
-          </div>
-          <div style={ppStyles.metaRight}>
-            <span style={ppStyles.progress}>
-              {currentAct}/{totalActs} 幕
-              <span style={ppStyles.dot}>·</span>第 {snapshot.turn_index} 轮
-            </span>
-            <button style={ppStyles.metaBtn} onClick={() => setDrawerOpen(true)}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="12" cy="8" r="3.5" />
-                <path d="M5 20c0-3.5 3.5-6 7-6s7 2.5 7 6" strokeLinecap="round" />
-              </svg>
-              人物 · 状态
-            </button>
-          </div>
-        </div>
-      </header>
+      <Header
+        onBackHome={onBackHome}
+        title={story.template.title}
+        cast={story.template.cast.map((c) => c.display_name)}
+        turnCount={story.session.turn_count}
+      />
 
       <main style={ppStyles.main}>
-        <section style={ppStyles.narration}>
-          {streamed.split("\n\n").map((p, i) => (
-            <p key={i} style={ppStyles.para}>
-              {p}
-              {i === streamed.split("\n\n").length - 1 && streamed.length < fullText.length && (
-                <span style={ppStyles.caret}>▍</span>
-              )}
-            </p>
+        <div style={ppStyles.storyColumn} ref={scrollerRef}>
+          {story.messages.map((m) => (
+            <StoryBeat key={`${m.role}-${m.ord}`} message={m} />
           ))}
-        </section>
 
-        {pendingPlayer && (
-          <div style={ppStyles.playerBubble}>
-            <div style={ppStyles.playerEyebrow}>你刚刚</div>
-            <div style={ppStyles.playerText}>
-              {pendingPlayer.kind === "next-hand" ? `「${pendingPlayer.title}」` : `「${pendingPlayer.text}」`}
-            </div>
-          </div>
-        )}
+          {error ? <div style={ppStyles.errorInline}>{error}</div> : null}
 
-        {completed ? (
-          <PlayEndingPanel
-            label={snapshot.ending?.label ?? "故事到这里了"}
-            summary={snapshot.ending?.summary ?? ""}
-            sessionId={sessionId}
-            endingArtworkUrl={endingArtworkFor(snapshot)}
-            onCreate={() => {
-              window.location.hash = "#/create"
-            }}
-            onHome={onBackHome}
-          />
-        ) : (
-          <>
-            <div style={ppStyles.actionsLabel}>下一手</div>
-            <div style={ppStyles.actionsGrid}>
-              {storyActions.map((a, i) => (
-                <ActionCard
-                  key={`s-${i}`}
-                  action={a}
-                  onClick={() => {
-                    const raw = (storyActionsRaw ?? [])[i]
-                    if (raw) pickAction(a, raw, false)
-                  }}
-                />
-              ))}
-              {controlActions.map((a, i) => (
-                <ActionCard
-                  key={`c-${i}`}
-                  action={a}
-                  onClick={() => {
-                    const raw = (snapshot.control_actions ?? [])[i]
-                    if (raw) pickAction(a, raw, true)
-                  }}
-                />
-              ))}
-            </div>
-
-            {!freeOpen ? (
-              <button style={ppStyles.freeToggle} onClick={() => setFreeOpen(true)}>
-                自由输入 ↓
-              </button>
-            ) : (
-              <div style={ppStyles.freeBox}>
-                <textarea
-                  style={ppStyles.freeText}
-                  placeholder="说点什么、做点什么…"
-                  value={freeText}
-                  onChange={(e) => setFreeText(e.target.value)}
-                  autoFocus
-                />
-                <div style={ppStyles.freeActions}>
-                  <button
-                    className="ts-btn ts-btn--ghost"
-                    onClick={() => {
-                      setFreeOpen(false)
-                      setFreeText("")
-                    }}
-                  >
-                    收起
-                  </button>
-                  <button className="ts-btn ts-btn--primary" onClick={sendFree}>
-                    发送
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {session.error ? <div style={ppStyles.error}>{session.error}</div> : null}
-          </>
-        )}
+          {/* Action area pinned at the bottom of the story column */}
+          {isLastNarratorPending && lastNarrator ? (
+            <ActionArea
+              options={lastNarrator.options}
+              showFreeInput={showFreeInput}
+              freeInput={freeInput}
+              setFreeInput={setFreeInput}
+              setShowFreeInput={setShowFreeInput}
+              busy={busy}
+              onPickOption={(i) => void handleAdvance({ chosen_option_index: i })}
+              onSubmitFree={() => {
+                if (!freeInput.trim()) return
+                void handleAdvance({ free_input: freeInput.trim() })
+              }}
+            />
+          ) : busy ? (
+            <div style={ppStyles.busyShim}>故事在续写中…</div>
+          ) : null}
+        </div>
       </main>
 
-      <PlayDrawer
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        snapshot={snapshot}
-        transcript={session.transcript}
-        actsTotal={totalActs}
-        currentAct={currentAct}
-      />
+      {/* Floating advisor button + sidechat */}
+      <AdvisorFab onOpen={() => setAdvisorOpen(true)} persona={story.template.advisor_persona} />
+      {advisorOpen ? (
+        <AdvisorSidechat
+          sessionId={sessionId}
+          persona={story.template.advisor_persona}
+          onClose={() => setAdvisorOpen(false)}
+        />
+      ) : null}
     </div>
   )
 }
 
-function endingArtworkFor(snapshot: PlaySessionSnapshot): string {
-  // Placeholder fallback — backend hasn't surfaced an explicit ending artwork URL yet.
-  // Use the shell-based cover (or burned_alone segment image) so the panel still has art.
-  const shell = snapshot.story_shell_id ?? "office_power"
-  return `/webtoons/shells/${shell}.jpg`
-}
+// ---------------------------------------------------------------------------
+// Header
+// ---------------------------------------------------------------------------
 
-function ActionCard({ action, onClick }: { action: ActionDescriptor; onClick: () => void }) {
-  const [hover, setHover] = useState(false)
-  const isControl =
-    action.kind === "press" || action.kind === "redirect" || action.kind === "detonate"
-  return (
-    <button
-      style={{
-        ...ppStyles.actionCard,
-        borderStyle: isControl ? "dashed" : "solid",
-        borderColor: hover ? "var(--accent)" : "var(--line)",
-        transform: hover ? "translateY(-1px)" : "none",
-      }}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      onClick={onClick}
-    >
-      <div style={ppStyles.actionLabel}>{isControl ? action.kind.toUpperCase() : "下一手"}</div>
-      <div style={ppStyles.actionTitle}>{action.title}</div>
-      <div style={ppStyles.actionPrompt}>{action.prompt}</div>
-    </button>
-  )
-}
-
-// ────────────── Drawer ──────────────
-
-function PlayDrawer({
-  open,
-  onClose,
-  snapshot,
-  transcript,
-  actsTotal,
-  currentAct,
+function Header({
+  onBackHome,
+  title,
+  cast,
+  turnCount,
 }: {
-  open: boolean
-  onClose: () => void
-  snapshot: PlaySessionSnapshot
-  transcript: TranscriptEntry[]
-  actsTotal: number
-  currentAct: number
-}) {
-  const [tab, setTab] = useState<DrawerTab>("characters")
-  const [mounted, setMounted] = useState(open)
-  const [visible, setVisible] = useState(false)
-
-  useEffect(() => {
-    if (open) {
-      setMounted(true)
-      requestAnimationFrame(() => setVisible(true))
-    } else {
-      setVisible(false)
-      const t = window.setTimeout(() => setMounted(false), 280)
-      return () => window.clearTimeout(t)
-    }
-  }, [open])
-
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose()
-    }
-    if (open) window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [open, onClose])
-
-  if (!mounted) return null
-
-  const tabs: Array<{ id: DrawerTab; label: string }> = [
-    { id: "characters", label: "人物" },
-    { id: "state", label: "状态" },
-    { id: "echoes", label: "余波" },
-    { id: "transcript", label: "转录" },
-  ]
-
-  void actsTotal
-  return (
-    <div style={{ ...pdStyles.host, pointerEvents: visible ? "auto" : "none" }}>
-      <div style={{ ...pdStyles.scrim, opacity: visible ? 1 : 0 }} onClick={onClose} />
-      <aside
-        style={{
-          ...pdStyles.drawer,
-          transform: visible ? "translateX(0)" : "translateX(24px)",
-          opacity: visible ? 1 : 0,
-        }}
-      >
-        <div style={pdStyles.head}>
-          <div style={pdStyles.eyebrow}>
-            《{snapshot.story_title}》· 第 {currentAct} 幕
-          </div>
-          <button style={pdStyles.close} onClick={onClose} aria-label="关闭">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <path d="M6 6l12 12M18 6l-12 12" strokeLinecap="round" />
-            </svg>
-          </button>
-        </div>
-
-        <div style={pdStyles.segwrap}>
-          <div style={pdStyles.seg}>
-            {tabs.map((t) => (
-              <button
-                key={t.id}
-                style={{
-                  ...pdStyles.segBtn,
-                  ...(tab === t.id ? pdStyles.segBtnActive : {}),
-                }}
-                onClick={() => setTab(t.id)}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div style={pdStyles.body}>
-          {tab === "characters" && (
-            <Characters list={snapshot.relationship_state?.targets ?? []} />
-          )}
-          {tab === "state" && (
-            <StateTab
-              bars={snapshot.state_bars}
-              consequences={snapshot.feedback?.last_turn_consequences ?? []}
-              latent={snapshot.latent_radar}
-            />
-          )}
-          {tab === "echoes" && <EchoesTab consequences={snapshot.feedback?.last_turn_consequences ?? []} />}
-          {tab === "transcript" && <Transcript transcript={transcript} />}
-        </div>
-      </aside>
-    </div>
-  )
-}
-
-function Bar({ value, color = "var(--accent)" }: { value: number; color?: string }) {
-  const clamped = Math.max(0, Math.min(1, value))
-  return (
-    <div style={pdStyles.barTrack}>
-      <div style={{ ...pdStyles.barFill, width: `${clamped * 100}%`, background: color }} />
-    </div>
-  )
-}
-
-function Characters({ list }: { list: PlayRelationshipTargetState[] }) {
-  if (list.length === 0) {
-    return <div style={pdStyles.empty}>还没有人出场</div>
-  }
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-      {list.map((c) => {
-        const metrics = [
-          { label: "亲密", value: normalize(c.affection, -3, 6) },
-          { label: "信任", value: normalize(c.trust, -3, 6) },
-          { label: "拉扯", value: normalize(c.tension, 0, 6) },
-          { label: "怀疑", value: normalize(c.suspicion, 0, 6) },
-        ]
-        return (
-          <div key={c.character_id} style={pdStyles.charCard}>
-            <div style={pdStyles.charHead}>
-              <div style={pdStyles.charName}>{c.name}</div>
-              {c.is_route_focus && <span className="ts-tag">焦点</span>}
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
-              {metrics.map((m) => (
-                <div key={m.label} style={pdStyles.miniRow}>
-                  <span style={pdStyles.miniLabel}>{m.label}</span>
-                  <Bar value={m.value} />
-                  <span style={pdStyles.miniValue}>{Math.round(m.value * 100)}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-function StateTab({
-  bars,
-  consequences,
-  latent,
-}: {
-  bars: PlayStateBar[]
-  consequences: string[]
-  latent: PlayLatentRadarItem[]
+  onBackHome: () => void
+  title: string
+  cast?: string[]
+  turnCount?: number
 }) {
   return (
-    <div>
-      <div style={pdStyles.section}>
-        {bars.map((b) => {
-          const v = normalize(b.current_value, b.min_value, b.max_value)
-          return (
-            <div key={b.bar_id} style={{ ...pdStyles.miniRow, marginBottom: 10 }}>
-              <span style={pdStyles.miniLabel}>{b.label}</span>
-              <Bar value={v} />
-              <span style={pdStyles.miniValue}>{Math.round(v * 100)}</span>
-            </div>
-          )
-        })}
-      </div>
-      <div style={pdStyles.sectionLabel}>这一手的后果</div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24 }}>
-        {consequences.length === 0 ? (
-          <div style={pdStyles.empty}>暂无</div>
-        ) : (
-          consequences.map((c, i) => (
-            <div key={i} style={pdStyles.consequence}>
-              {c}
-            </div>
-          ))
-        )}
-      </div>
-      <div style={pdStyles.sectionLabel}>水面下</div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {latent.map((l, i) => (
-          <div key={i} style={pdStyles.latent}>
-            <div style={pdStyles.latentNote}>{l.note}</div>
-            <Bar value={Math.min(1, l.pressure / 100)} color="var(--warn)" />
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function EchoesTab({ consequences }: { consequences: string[] }) {
-  if (consequences.length === 0) {
-    return <div style={pdStyles.empty}>还没有余波</div>
-  }
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      {consequences.map((c, i) => (
-        <div key={i} style={pdStyles.consequence}>
-          {c}
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function Transcript({ transcript }: { transcript: TranscriptEntry[] }) {
-  if (transcript.length === 0) {
-    return <div style={pdStyles.empty}>还没有对话记录</div>
-  }
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      {transcript.map((m) => (
-        <div key={m.id} style={m.speaker === "player" ? pdStyles.bubblePlayer : pdStyles.bubbleGM}>
-          <div style={pdStyles.bubbleLabel}>{m.speaker === "player" ? "你" : "讲述"}</div>
-          <div style={pdStyles.bubbleText}>{m.text}</div>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function normalize(value: number, min: number, max: number): number {
-  if (max <= min) return 0.5
-  return Math.max(0, Math.min(1, (value - min) / (max - min)))
-}
-
-// ────────────── Ending Panel ──────────────
-
-function PlayEndingPanel({
-  label,
-  summary,
-  sessionId,
-  endingArtworkUrl,
-  onCreate,
-  onHome,
-}: {
-  label: string
-  summary: string
-  sessionId: string
-  endingArtworkUrl: string
-  onCreate: () => void
-  onHome: () => void
-}) {
-  const [pulse, setPulse] = useState(false)
-  const [toast, setToast] = useState(false)
-  const shareUrl = useMemo(
-    () => `${window.location.origin}${window.location.pathname}#/play/${sessionId}/replay`,
-    [sessionId],
-  )
-
-  const shareEnding = async () => {
-    try {
-      await navigator.clipboard.writeText(shareUrl)
-    } catch {
-      window.prompt("复制这个链接发给朋友：", shareUrl)
-    }
-    setPulse(true)
-    setToast(true)
-    window.setTimeout(() => setPulse(false), 600)
-    window.setTimeout(() => setToast(false), 2000)
-  }
-
-  return (
-    <div style={pepStyles.panel}>
-      <div style={pepStyles.artwork}>
-        <div style={{ ...pepStyles.artworkImg, backgroundImage: `url(${endingArtworkUrl})` }} />
-        <div style={pepStyles.artworkDarken} />
-        <div style={pepStyles.artworkGradient} />
-        <div style={pepStyles.artworkInner}>
-          <span style={pepStyles.artworkEyebrow}>结局</span>
-          <h2 style={pepStyles.artworkTitle}>{label}</h2>
-        </div>
-      </div>
-
-      {summary ? <p style={pepStyles.summary}>{summary}</p> : null}
-
-      <div style={pepStyles.actions}>
-        <button className="ts-btn ts-btn--primary ts-btn--lg" onClick={() => void shareEnding()}>
-          <svg
-            width="14"
-            height="14"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            style={{ marginRight: 6 }}
-          >
-            <path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1 1" strokeLinecap="round" />
-            <path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1-1" strokeLinecap="round" />
-          </svg>
-          分享我的结局
-        </button>
-        <button className="ts-btn ts-btn--ghost ts-btn--lg" onClick={onCreate}>
-          写我自己的 world
-        </button>
-        <button
-          className="ts-btn ts-btn--ghost ts-btn--lg"
-          onClick={onHome}
-          style={{ color: "var(--text-faint)" }}
-        >
-          回首页
-        </button>
-      </div>
-
-      <div
-        style={{
-          ...pepStyles.shareUrl,
-          background: pulse ? "rgba(212,168,83,0.18)" : "transparent",
-          color: pulse ? "var(--accent)" : "var(--text-faint)",
-        }}
-      >
-        {shareUrl}
-      </div>
-
-      <div
-        style={{
-          ...pepStyles.toast,
-          opacity: toast ? 1 : 0,
-          transform: toast ? "translate(-50%, 0)" : "translate(-50%, 8px)",
-        }}
-      >
-        <span style={{ color: "var(--accent)" }}>✓</span> 已复制 replay 链接
-      </div>
-    </div>
-  )
-}
-
-function SimpleHeader({ onHome }: { onHome: () => void }) {
-  return (
-    <header style={ppStyles.simpleHeader}>
-      <button style={ppStyles.brandLink} onClick={onHome}>
-        <span
-          style={{
-            color: "var(--accent)",
-            fontSize: 22,
-            lineHeight: 1,
-            transform: "translateY(-2px)",
-            display: "inline-block",
-          }}
-        >
-          ·
-        </span>
-        <span style={{ fontFamily: "var(--font-narrative)", fontSize: 18 }}>Tiny Stories</span>
+    <header style={ppStyles.header}>
+      <button style={ppStyles.backBtn} onClick={onBackHome} type="button">
+        ← 回到首页
       </button>
+      <div style={ppStyles.headerTitle}>
+        <div style={ppStyles.headerTitleLine}>{title}</div>
+        {cast && cast.length ? (
+          <div style={ppStyles.headerCast}>
+            {cast.join(" · ")}
+            {typeof turnCount === "number" ? (
+              <span style={ppStyles.headerTurns}>· 第 {turnCount + 1} 段</span>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+      <span style={{ width: 90 }} />
     </header>
   )
 }
 
+// ---------------------------------------------------------------------------
+// Single story beat (narrator passage or player move)
+// ---------------------------------------------------------------------------
+
+function StoryBeat({ message }: { message: NarrativeStoryMessage }) {
+  if (message.role === "narrator") {
+    return (
+      <article style={ppStyles.narratorBeat}>
+        <div style={ppStyles.narratorText}>{message.content}</div>
+        {message.chosen_option_index != null && message.options.length > 0 ? (
+          <div style={ppStyles.chosenChip}>
+            <span style={ppStyles.chosenLabel}>你选了</span>
+            <span style={ppStyles.chosenText}>
+              {message.options[message.chosen_option_index]?.label ?? "?"}
+            </span>
+          </div>
+        ) : null}
+      </article>
+    )
+  }
+  // player move (echoed action)
+  return (
+    <article style={ppStyles.playerBeat}>
+      <div style={ppStyles.playerLabel}>你</div>
+      <div style={ppStyles.playerText}>{message.content}</div>
+    </article>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Action area — options + free input
+// ---------------------------------------------------------------------------
+
+function ActionArea({
+  options,
+  showFreeInput,
+  freeInput,
+  setFreeInput,
+  setShowFreeInput,
+  busy,
+  onPickOption,
+  onSubmitFree,
+}: {
+  options: NarrativeStoryMessage["options"]
+  showFreeInput: boolean
+  freeInput: string
+  setFreeInput: (v: string) => void
+  setShowFreeInput: (v: boolean) => void
+  busy: boolean
+  onPickOption: (idx: number) => void
+  onSubmitFree: () => void
+}) {
+  return (
+    <div style={ppStyles.actionArea}>
+      <div style={ppStyles.optionsList}>
+        {options.length === 0 ? (
+          <div style={ppStyles.noOptions}>
+            （这一段没给选项，写下你想做的事）
+          </div>
+        ) : (
+          options.map((opt, i) => (
+            <button
+              key={i}
+              style={{
+                ...ppStyles.optionBtn,
+                opacity: busy ? 0.5 : 1,
+                pointerEvents: busy ? "none" : "auto",
+              }}
+              onClick={() => onPickOption(i)}
+              disabled={busy}
+              type="button"
+            >
+              <div style={ppStyles.optionLabel}>{opt.label}</div>
+              {opt.hint ? <div style={ppStyles.optionHint}>{opt.hint}</div> : null}
+            </button>
+          ))
+        )}
+      </div>
+
+      {showFreeInput || options.length === 0 ? (
+        <div style={ppStyles.freeInputBox}>
+          <textarea
+            style={ppStyles.freeTextarea}
+            value={freeInput}
+            placeholder="写下你想做的事——可以是动作、对话、或者一个决定。"
+            onChange={(e) => setFreeInput(e.target.value)}
+            disabled={busy}
+            spellCheck={false}
+            rows={3}
+          />
+          <div style={ppStyles.freeInputActions}>
+            <button
+              className="ts-btn ts-btn--primary"
+              style={{
+                opacity: !freeInput.trim() || busy ? 0.5 : 1,
+                pointerEvents: !freeInput.trim() || busy ? "none" : "auto",
+              }}
+              onClick={onSubmitFree}
+              type="button"
+            >
+              {busy ? "续写中…" : "就这么做 →"}
+            </button>
+            {options.length > 0 ? (
+              <button
+                className="ts-btn ts-btn--ghost"
+                onClick={() => {
+                  setShowFreeInput(false)
+                  setFreeInput("")
+                }}
+                disabled={busy}
+                type="button"
+              >
+                取消
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : (
+        <button
+          style={ppStyles.freeInputToggle}
+          onClick={() => setShowFreeInput(true)}
+          disabled={busy}
+          type="button"
+        >
+          + 我想自己写一个动作
+        </button>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Floating Advisor button
+// ---------------------------------------------------------------------------
+
+function AdvisorFab({
+  onOpen,
+  persona,
+}: {
+  onOpen: () => void
+  persona: string
+}) {
+  const initials = (persona.match(/^[^，。、]{1,4}/)?.[0] ?? "顾问").slice(0, 2)
+  return (
+    <button style={ppStyles.fab} onClick={onOpen} title={`找 ${initials} 聊聊`} type="button">
+      <span style={ppStyles.fabAvatar}>{initials.slice(0, 1)}</span>
+      <span style={ppStyles.fabLabel}>聊聊</span>
+    </button>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Advisor sidechat panel
+// ---------------------------------------------------------------------------
+
+function AdvisorSidechat({
+  sessionId,
+  persona,
+  onClose,
+}: {
+  sessionId: string
+  persona: string
+  onClose: () => void
+}) {
+  const api = useApi()
+  const [messages, setMessages] = useState<NarrativeAdvisorMessage[]>([])
+  const [draft, setDraft] = useState("")
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const scrollerRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    api
+      .getNarrativeAdvisorHistory(sessionId)
+      .then((res) => {
+        if (cancelled) return
+        setMessages(res.messages)
+      })
+      .catch((err) => {
+        if (cancelled) return
+        setError(err instanceof Error ? err.message : "顾问历史加载失败。")
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [api, sessionId])
+
+  useEffect(() => {
+    const el = scrollerRef.current
+    if (!el) return
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" })
+  }, [messages.length])
+
+  const handleAsk = async () => {
+    const question = draft.trim()
+    if (!question || busy) return
+    setBusy(true)
+    setError(null)
+    setDraft("")
+    try {
+      const res = await api.askNarrativeAdvisor(sessionId, { question })
+      setMessages((prev) => [...prev, res.player_message, res.advisor_message])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "顾问没回上你这一句，再试一次？")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <>
+      <div style={ppStyles.advisorBackdrop} onClick={onClose} />
+      <aside style={ppStyles.advisorPanel}>
+        <header style={ppStyles.advisorHeader}>
+          <div>
+            <div style={ppStyles.advisorTitle}>跟你的局外人朋友聊</div>
+            <div style={ppStyles.advisorPersona}>{persona}</div>
+          </div>
+          <button style={ppStyles.advisorClose} onClick={onClose} type="button">
+            ✕
+          </button>
+        </header>
+
+        <div style={ppStyles.advisorMessages} ref={scrollerRef}>
+          {messages.length === 0 ? (
+            <div style={ppStyles.advisorIntro}>
+              问 TA 任何事——你和谁的关系到了哪一步、那句话什么意思、你是不是太冲动了。
+              TA 不会替你做决定，但会陪你想清楚。
+            </div>
+          ) : (
+            messages.map((m) => (
+              <div
+                key={`${m.role}-${m.ord}`}
+                style={m.role === "player" ? ppStyles.advisorRowPlayer : ppStyles.advisorRowAdvisor}
+              >
+                <div
+                  style={
+                    m.role === "player"
+                      ? ppStyles.advisorBubblePlayer
+                      : ppStyles.advisorBubbleAdvisor
+                  }
+                >
+                  {m.content}
+                </div>
+              </div>
+            ))
+          )}
+          {busy ? <div style={ppStyles.advisorTyping}>TA 在打字…</div> : null}
+        </div>
+
+        {error ? <div style={ppStyles.advisorError}>{error}</div> : null}
+
+        <div style={ppStyles.advisorInput}>
+          <textarea
+            style={ppStyles.advisorTextarea}
+            value={draft}
+            placeholder="想问什么？按 ⌘/Ctrl + Enter 发送"
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                e.preventDefault()
+                void handleAsk()
+              }
+            }}
+            disabled={busy}
+            rows={2}
+          />
+          <button
+            className="ts-btn ts-btn--primary"
+            onClick={() => void handleAsk()}
+            disabled={busy || !draft.trim()}
+            type="button"
+          >
+            发送
+          </button>
+        </div>
+      </aside>
+    </>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Styles
+// ---------------------------------------------------------------------------
+
 const ppStyles: Record<string, CSSProperties> = {
-  page: { minHeight: "100%", background: "var(--bg)" },
-  meta: {
-    position: "sticky",
-    top: 0,
-    zIndex: 4,
-    background: "rgba(12,12,16,0.86)",
-    backdropFilter: "blur(14px)",
-    borderBottom: "1px solid var(--line)",
+  page: { minHeight: "100%", background: "var(--bg)", display: "flex", flexDirection: "column" },
+  centerNote: {
+    flex: 1,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    color: "var(--text-muted)",
+    fontSize: 14,
   },
-  metaInner: {
-    maxWidth: 1100,
-    margin: "0 auto",
-    padding: "12px 28px",
+
+  header: {
+    padding: "16px 32px",
+    borderBottom: "1px solid var(--line)",
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    fontSize: 13,
+    gap: 16,
+    background: "var(--bg)",
+    position: "sticky",
+    top: 0,
+    zIndex: 5,
   },
-  metaLeft: { display: "flex", alignItems: "center", gap: 8 },
-  metaRight: { display: "flex", alignItems: "center", gap: 14 },
-  brandLink: { display: "inline-flex", alignItems: "center", gap: 6 },
-  divider: { color: "var(--text-faint)" },
-  storyTitle: { color: "var(--text)", fontFamily: "var(--font-narrative)", fontSize: 14 },
-  beatTitle: { color: "var(--text-muted)" },
-  dot: { color: "var(--text-faint)", margin: "0 6px" },
-  progress: { color: "var(--text-muted)", fontVariantNumeric: "tabular-nums" },
-  metaBtn: {
+  backBtn: {
+    fontSize: 13,
+    color: "var(--text-muted)",
+    background: "none",
+    border: "none",
+    cursor: "pointer",
+    padding: 4,
+    width: 90,
+    textAlign: "left",
+  },
+  headerTitle: { flex: 1, textAlign: "center", minWidth: 0 },
+  headerTitleLine: {
+    fontFamily: "var(--font-narrative)",
+    fontSize: 17,
+    color: "var(--text)",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  headerCast: {
+    fontSize: 12,
+    color: "var(--text-faint)",
+    marginTop: 4,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  headerTurns: { marginLeft: 8 },
+
+  main: { flex: 1, display: "flex", justifyContent: "center", overflow: "hidden" },
+  storyColumn: { width: "100%", maxWidth: 720, padding: "40px 32px 120px", overflowY: "auto" },
+
+  narratorBeat: { marginBottom: 32 },
+  narratorText: {
+    fontFamily: "var(--font-narrative)",
+    fontSize: 16.5,
+    lineHeight: 1.85,
+    color: "var(--text)",
+    whiteSpace: "pre-wrap",
+  },
+  chosenChip: {
+    marginTop: 14,
+    fontSize: 12,
+    color: "var(--text-faint)",
     display: "inline-flex",
     alignItems: "center",
-    gap: 6,
-    height: 30,
-    padding: "0 12px",
+    gap: 8,
+    padding: "5px 12px",
     border: "1px solid var(--line)",
     borderRadius: 999,
-    color: "var(--text-muted)",
-    fontSize: 12,
-    transition: "all 160ms",
+    background: "var(--bg-elev)",
   },
+  chosenLabel: { letterSpacing: "0.06em" },
+  chosenText: { color: "var(--text-muted)" },
 
-  simpleHeader: {
-    padding: "16px 40px",
-    borderBottom: "1px solid var(--line)",
-    display: "flex",
-    alignItems: "center",
-  },
-
-  main: { maxWidth: 820, margin: "0 auto", padding: "48px 32px 100px" },
-  loading: { padding: "48px 0", color: "var(--text-muted)" },
-  narration: { marginBottom: 36, minHeight: 200 },
-  para: {
-    fontFamily: "var(--font-narrative)",
-    fontSize: 22,
-    lineHeight: 1.65,
-    color: "var(--text)",
-    margin: "0 0 18px",
-    letterSpacing: "0.005em",
-    animation: "tsFadeUp 420ms ease",
-  },
-  caret: {
+  playerBeat: { marginBottom: 28, paddingLeft: 16, borderLeft: "2px solid var(--accent)" },
+  playerLabel: {
+    fontSize: 11,
     color: "var(--accent)",
-    marginLeft: 2,
-    animation: "tsBlink 1s steps(2) infinite",
-  },
-
-  playerBubble: {
-    borderLeft: "2px solid var(--accent)",
-    background: "var(--accent-softer)",
-    padding: "12px 18px",
-    borderRadius: "0 10px 10px 0",
-    marginBottom: 28,
-    animation: "tsFadeUp 320ms ease",
-  },
-  playerEyebrow: {
-    fontSize: 10,
-    color: "var(--accent)",
-    letterSpacing: "0.16em",
+    letterSpacing: "0.12em",
     textTransform: "uppercase",
     marginBottom: 4,
   },
-  playerText: {
-    fontFamily: "var(--font-narrative)",
-    fontSize: 15,
-    color: "var(--text)",
-    lineHeight: 1.5,
-  },
+  playerText: { fontSize: 14.5, lineHeight: 1.6, color: "var(--text-muted)", fontStyle: "italic" },
 
-  actionsLabel: {
-    fontSize: 11,
-    color: "var(--text-faint)",
-    letterSpacing: "0.16em",
-    textTransform: "uppercase",
-    marginBottom: 14,
-  },
-  actionsGrid: { display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12, marginBottom: 24 },
-  actionCard: {
+  actionArea: { marginTop: 28, paddingTop: 24, borderTop: "1px dashed var(--line)" },
+  optionsList: { display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 },
+  optionBtn: {
     textAlign: "left",
-    padding: "18px 20px",
+    padding: "14px 18px",
     background: "var(--bg-elev)",
     border: "1px solid var(--line)",
     borderRadius: "var(--radius-md)",
-    transition: "all 180ms",
     color: "var(--text)",
-  },
-  actionLabel: {
-    fontSize: 10,
-    color: "var(--text-faint)",
-    letterSpacing: "0.16em",
-    textTransform: "uppercase",
-    marginBottom: 6,
-  },
-  actionTitle: { fontSize: 14, fontWeight: 600, marginBottom: 6, color: "var(--text)" },
-  actionPrompt: { fontSize: 13, color: "var(--text-muted)", lineHeight: 1.5 },
-
-  freeToggle: {
-    width: "100%",
-    padding: "14px 20px",
-    background: "transparent",
-    border: "1px dashed var(--line-strong)",
-    borderRadius: "var(--radius-md)",
-    color: "var(--text-muted)",
-    fontSize: 13,
+    cursor: "pointer",
     transition: "all 160ms",
   },
-  freeBox: {
+  optionLabel: { fontSize: 15, fontWeight: 500, lineHeight: 1.4 },
+  optionHint: { fontSize: 12.5, color: "var(--text-muted)", marginTop: 5, lineHeight: 1.45 },
+  noOptions: { fontSize: 13, color: "var(--text-faint)", fontStyle: "italic" },
+
+  freeInputBox: {
     background: "var(--bg-elev)",
     border: "1px solid var(--line)",
     borderRadius: "var(--radius-md)",
     padding: 14,
   },
-  freeText: {
+  freeTextarea: {
     width: "100%",
-    minHeight: 88,
-    padding: "10px 12px",
-    background: "var(--bg-elev-2)",
-    border: "1px solid var(--line)",
-    borderRadius: 10,
-    fontSize: 14,
-    lineHeight: 1.55,
+    background: "transparent",
+    border: "none",
+    fontFamily: "var(--font-narrative)",
+    fontSize: 15,
+    lineHeight: 1.6,
     color: "var(--text)",
     resize: "vertical",
     outline: "none",
-    fontFamily: "var(--font-narrative)",
+    minHeight: 64,
   },
-  freeActions: { display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 10 },
+  freeInputActions: { display: "flex", gap: 8, marginTop: 10 },
+  freeInputToggle: {
+    background: "none",
+    border: "none",
+    color: "var(--text-muted)",
+    fontSize: 13,
+    padding: "8px 0",
+    cursor: "pointer",
+    textAlign: "left",
+  },
 
-  error: {
-    marginTop: 16,
+  busyShim: {
+    marginTop: 24,
+    paddingTop: 20,
+    borderTop: "1px dashed var(--line)",
+    color: "var(--text-faint)",
+    fontSize: 13,
+    fontStyle: "italic",
+  },
+
+  errorInline: {
+    margin: "8px 0",
+    padding: "10px 14px",
+    background: "rgba(220,80,80,0.08)",
+    border: "1px solid rgba(220,80,80,0.25)",
+    borderRadius: "var(--radius-sm)",
     fontSize: 13,
     color: "var(--warn)",
   },
-}
 
-const pdStyles: Record<string, CSSProperties> = {
-  host: { position: "fixed", inset: 0, zIndex: 50 },
-  scrim: {
-    position: "absolute",
-    inset: 0,
-    background: "rgba(0,0,0,0.58)",
-    backdropFilter: "blur(2px)",
-    transition: "opacity 240ms ease",
+  fab: {
+    position: "fixed",
+    bottom: 24,
+    right: 24,
+    background: "var(--accent)",
+    color: "white",
+    border: "none",
+    borderRadius: 999,
+    padding: "10px 16px 10px 10px",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 10,
+    cursor: "pointer",
+    boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
+    zIndex: 20,
   },
-  drawer: {
-    position: "absolute",
+  fabAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: "50%",
+    background: "rgba(255,255,255,0.2)",
+    color: "white",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: 14,
+    fontWeight: 600,
+    fontFamily: "var(--font-narrative)",
+  },
+  fabLabel: { fontSize: 14, fontWeight: 500 },
+
+  advisorBackdrop: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.18)", zIndex: 30 },
+  advisorPanel: {
+    position: "fixed",
     top: 0,
     right: 0,
     bottom: 0,
-    width: 420,
-    background: "var(--bg-elev)",
+    width: "min(420px, 95vw)",
+    background: "var(--bg)",
     borderLeft: "1px solid var(--line)",
-    boxShadow: "var(--shadow-drawer)",
     display: "flex",
     flexDirection: "column",
-    transition: "transform 320ms cubic-bezier(0.32,0.72,0.24,1), opacity 280ms ease",
+    zIndex: 31,
+    boxShadow: "-12px 0 32px rgba(0,0,0,0.12)",
   },
-  head: {
-    padding: "16px 22px 12px",
+  advisorHeader: {
     display: "flex",
+    alignItems: "flex-start",
     justifyContent: "space-between",
-    alignItems: "center",
+    padding: "18px 20px",
     borderBottom: "1px solid var(--line)",
   },
-  eyebrow: {
-    fontSize: 11,
-    color: "var(--text-faint)",
-    letterSpacing: "0.1em",
-    textTransform: "uppercase",
-  },
-  close: {
-    width: 30,
-    height: 30,
-    borderRadius: 999,
-    color: "var(--text-muted)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  segwrap: { padding: "14px 22px 0" },
-  seg: { display: "flex", padding: 4, background: "var(--bg-elev-2)", borderRadius: 999 },
-  segBtn: {
-    flex: 1,
-    height: 30,
-    padding: "0 8px",
+  advisorTitle: { fontFamily: "var(--font-narrative)", fontSize: 16, color: "var(--text)" },
+  advisorPersona: {
     fontSize: 12,
+    color: "var(--text-faint)",
+    lineHeight: 1.4,
+    marginTop: 4,
+    maxWidth: 320,
+  },
+  advisorClose: {
+    background: "none",
+    border: "none",
     color: "var(--text-muted)",
-    borderRadius: 999,
-    transition: "all 160ms",
-  },
-  segBtnActive: { background: "var(--bg-elev-3)", color: "var(--text)" },
-
-  body: { flex: 1, overflowY: "auto", padding: "20px 22px 32px" },
-  section: { marginBottom: 20 },
-  sectionLabel: {
-    fontSize: 11,
-    color: "var(--text-faint)",
-    letterSpacing: "0.14em",
-    textTransform: "uppercase",
-    margin: "16px 0 10px",
-  },
-
-  charCard: {
-    background: "var(--bg-elev-2)",
-    border: "1px solid var(--line)",
-    borderRadius: "var(--radius-md)",
-    padding: "14px 16px",
-  },
-  charHead: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 },
-  charName: { fontWeight: 600, fontSize: 14, color: "var(--text)" },
-
-  miniRow: {
-    display: "grid",
-    gridTemplateColumns: "56px 1fr 32px",
-    alignItems: "center",
-    gap: 10,
-  },
-  miniLabel: { fontSize: 11, color: "var(--text-muted)" },
-  miniValue: {
-    fontSize: 11,
-    color: "var(--text-faint)",
-    fontVariantNumeric: "tabular-nums",
-    textAlign: "right",
-  },
-
-  barTrack: { height: 4, background: "rgba(255,255,255,0.06)", borderRadius: 999, overflow: "hidden" },
-  barFill: { height: "100%", borderRadius: 999, transition: "width 320ms ease" },
-
-  consequence: {
-    borderLeft: "2px solid var(--accent)",
-    background: "var(--accent-softer)",
-    padding: "9px 14px",
-    borderRadius: "0 8px 8px 0",
-    fontSize: 13,
-    color: "var(--text)",
-    lineHeight: 1.55,
-  },
-  latent: {
-    background: "var(--bg-elev-2)",
-    border: "1px solid var(--line)",
-    borderRadius: 10,
-    padding: "10px 14px",
-  },
-  latentNote: { fontSize: 12, color: "var(--text-muted)", marginBottom: 8, lineHeight: 1.5 },
-
-  bubblePlayer: {
-    background: "var(--accent-softer)",
-    borderLeft: "2px solid var(--accent)",
-    padding: "10px 14px",
-    borderRadius: "0 10px 10px 0",
-  },
-  bubbleGM: {
-    background: "var(--bg-elev-2)",
-    border: "1px solid var(--line)",
-    padding: "10px 14px",
-    borderRadius: 10,
-  },
-  bubbleLabel: {
-    fontSize: 10,
-    color: "var(--text-faint)",
-    letterSpacing: "0.14em",
-    textTransform: "uppercase",
-    marginBottom: 4,
-  },
-  bubbleText: {
-    fontSize: 13,
-    color: "var(--text)",
-    lineHeight: 1.55,
-    fontFamily: "var(--font-narrative)",
-  },
-
-  empty: {
-    padding: "24px 0",
-    fontSize: 13,
-    color: "var(--text-faint)",
-    textAlign: "center",
-  },
-}
-
-const pepStyles: Record<string, CSSProperties> = {
-  panel: {
-    position: "relative",
-    paddingTop: 32,
-    marginTop: 16,
-    borderTop: "1px solid var(--line)",
-  },
-  artwork: {
-    position: "relative",
-    width: "100%",
-    height: 280,
-    borderRadius: 14,
-    overflow: "hidden",
-    marginBottom: 28,
-    border: "1px solid var(--line)",
-    boxShadow: "0 30px 60px rgba(0,0,0,0.45)",
-  },
-  artworkImg: {
-    position: "absolute",
-    inset: 0,
-    backgroundSize: "cover",
-    backgroundPosition: "center",
-    filter: "brightness(0.85) saturate(0.92)",
-  },
-  artworkDarken: {
-    position: "absolute",
-    inset: 0,
-    background: "rgba(12,12,16,0.18)",
-  },
-  artworkGradient: {
-    position: "absolute",
-    inset: 0,
-    background:
-      "linear-gradient(to bottom, rgba(12,12,16,0) 30%, rgba(12,12,16,0.55) 60%, rgba(12,12,16,0.92) 100%)",
-  },
-  artworkInner: {
-    position: "absolute",
-    left: 28,
-    right: 28,
-    bottom: 24,
-  },
-  artworkEyebrow: {
-    display: "inline-block",
-    fontSize: 10,
-    color: "var(--accent)",
-    letterSpacing: "0.22em",
-    textTransform: "uppercase",
-    marginBottom: 10,
-    fontWeight: 600,
-  },
-  artworkTitle: {
-    fontFamily: "var(--font-narrative)",
-    fontSize: 32,
-    fontWeight: 400,
-    color: "var(--accent)",
-    margin: 0,
-    letterSpacing: "0.04em",
-  },
-  summary: {
-    fontFamily: "var(--font-narrative)",
     fontSize: 18,
-    lineHeight: 1.7,
-    color: "var(--text)",
-    margin: "0 0 32px",
-    maxWidth: 680,
+    cursor: "pointer",
+    padding: 4,
   },
-  actions: {
-    display: "flex",
-    gap: 12,
-    flexWrap: "wrap",
-    marginBottom: 22,
-  },
-  shareUrl: {
-    fontSize: 11,
-    fontFamily: "ui-monospace, SF Mono, Menlo, monospace",
-    letterSpacing: "0.02em",
-    padding: "6px 10px",
-    borderRadius: 6,
-    display: "inline-block",
-    transition: "background 400ms ease, color 400ms ease",
-  },
-  toast: {
-    position: "fixed",
-    left: "50%",
-    bottom: 60,
-    padding: "10px 18px",
-    background: "var(--bg-elev-2)",
-    border: "1px solid var(--line-strong)",
-    borderRadius: 999,
+  advisorMessages: { flex: 1, overflowY: "auto", padding: "20px" },
+  advisorIntro: {
     fontSize: 13,
-    transition: "opacity 220ms ease, transform 220ms ease",
-    pointerEvents: "none",
-    boxShadow: "0 12px 32px rgba(0,0,0,0.4)",
+    color: "var(--text-faint)",
+    lineHeight: 1.6,
+    padding: "16px 14px",
+    background: "var(--bg-elev)",
+    borderRadius: "var(--radius-sm)",
+    border: "1px solid var(--line)",
+  },
+  advisorRowPlayer: { display: "flex", justifyContent: "flex-end", marginBottom: 12 },
+  advisorRowAdvisor: { display: "flex", justifyContent: "flex-start", marginBottom: 12 },
+  advisorBubblePlayer: {
+    background: "var(--accent)",
+    color: "white",
+    padding: "10px 14px",
+    borderRadius: "16px 16px 4px 16px",
+    fontSize: 14,
+    lineHeight: 1.55,
+    maxWidth: "82%",
+  },
+  advisorBubbleAdvisor: {
+    background: "var(--bg-elev)",
+    color: "var(--text)",
+    padding: "10px 14px",
+    borderRadius: "16px 16px 16px 4px",
+    fontSize: 14,
+    lineHeight: 1.6,
+    maxWidth: "82%",
+    border: "1px solid var(--line)",
+  },
+  advisorTyping: { fontSize: 12, color: "var(--text-faint)", fontStyle: "italic", padding: "6px 14px" },
+  advisorError: {
+    margin: "0 20px 8px",
+    padding: "8px 12px",
+    background: "rgba(220,80,80,0.08)",
+    border: "1px solid rgba(220,80,80,0.25)",
+    borderRadius: "var(--radius-sm)",
+    fontSize: 12,
+    color: "var(--warn)",
+  },
+  advisorInput: {
+    padding: "14px 20px",
+    borderTop: "1px solid var(--line)",
     display: "flex",
-    alignItems: "center",
-    gap: 8,
-    zIndex: 10,
+    gap: 10,
+    alignItems: "flex-end",
+  },
+  advisorTextarea: {
+    flex: 1,
+    background: "var(--bg-elev)",
+    border: "1px solid var(--line)",
+    borderRadius: "var(--radius-sm)",
+    fontSize: 14,
+    lineHeight: 1.5,
+    color: "var(--text)",
+    padding: "10px 12px",
+    resize: "none",
+    outline: "none",
+    fontFamily: "inherit",
   },
 }

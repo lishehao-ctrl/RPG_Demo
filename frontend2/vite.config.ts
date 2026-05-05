@@ -10,7 +10,7 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 5174,
       proxy: {
-        "^/(health|me|auth|author|stories|play|benchmark)": {
+        "^/(health|me|auth|author|stories|play|benchmark|narrative)": {
           target: backendTarget,
           changeOrigin: true,
         },

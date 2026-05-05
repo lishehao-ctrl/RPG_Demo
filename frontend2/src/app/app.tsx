@@ -4,11 +4,9 @@ import { AuthProvider } from "./auth-context"
 import { type AppRoute, useAppRoute } from "./routes"
 import { HomePage } from "../pages/home/home-page"
 import { CreatePage } from "../pages/create/create-page"
-import { GeneratingPage } from "../pages/generating/generating-page"
 import { PlayPage } from "../pages/play/play-page"
 import { LoginPage } from "../pages/auth/login-page"
-import { WorldDetailPage } from "../pages/world/world-detail-page"
-import { ReplayPage } from "../pages/play/replay-page"
+import { TemplateDetailPage } from "../pages/world/world-detail-page"
 
 function NotFoundRedirect({ navigate }: { navigate: (next: AppRoute) => void }) {
   useEffect(() => {
@@ -24,8 +22,8 @@ function Router() {
     case "home":
       return (
         <HomePage
-          initialOpenStoryId={route.openStoryId}
           onOpenCreate={() => navigate({ name: "create" })}
+          onOpenTemplate={(templateId) => navigate({ name: "template", templateId })}
           onOpenPlay={(sessionId) => navigate({ name: "play", sessionId })}
         />
       )
@@ -45,15 +43,16 @@ function Router() {
       return (
         <CreatePage
           onBackHome={() => navigate({ name: "home" })}
-          onJobCreated={(jobId) => navigate({ name: "generating", jobId })}
+          onSessionStarted={(sessionId) => navigate({ name: "play", sessionId })}
         />
       )
-    case "generating":
+    case "template":
       return (
-        <GeneratingPage
-          jobId={route.jobId}
+        <TemplateDetailPage
+          templateId={route.templateId}
           onBackHome={() => navigate({ name: "home" })}
-          onOpenWorld={(storyId) => navigate({ name: "world", storyId })}
+          onOpenCreate={() => navigate({ name: "create" })}
+          onSessionStarted={(sessionId) => navigate({ name: "play", sessionId })}
         />
       )
     case "play":
@@ -63,24 +62,8 @@ function Router() {
           onBackHome={() => navigate({ name: "home" })}
         />
       )
-    case "world":
-      return (
-        <WorldDetailPage
-          storyId={route.storyId}
-          onBackHome={() => navigate({ name: "home" })}
-          onOpenCreate={() => navigate({ name: "create" })}
-          onOpenPlay={(sessionId) => navigate({ name: "play", sessionId })}
-        />
-      )
-    case "replay":
-      return (
-        <ReplayPage
-          sessionId={route.sessionId}
-          onBackHome={() => navigate({ name: "home" })}
-          onOpenCreate={() => navigate({ name: "create" })}
-        />
-      )
   }
+  return <NotFoundRedirect navigate={navigate} />
 }
 
 export default function App() {

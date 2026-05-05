@@ -12,6 +12,19 @@ import {
   type DeleteStoryResponse,
   type FrontendApiError,
   type ListStoriesParams,
+  type NarrativeAdvanceTurnRequest,
+  type NarrativeAdvanceTurnResponse,
+  type NarrativeAdvisorAskRequest,
+  type NarrativeAdvisorAskResponse,
+  type NarrativeAdvisorHistoryResponse,
+  type NarrativeCreateTemplateRequest,
+  type NarrativeCreateTemplateResponse,
+  type NarrativeSessionListResponse,
+  type NarrativeStartSessionResponse,
+  type NarrativeStoryHistoryResponse,
+  type NarrativeTemplateListResponse,
+  type NarrativeTemplateSummary,
+  type NarrativeUpdateVisibilityRequest,
   type PlaySessionCreateRequest,
   type PlaySessionHistoryResponse,
   type PlaySessionReplayResponse,
@@ -302,6 +315,74 @@ export function createHttpApiClient(baseUrl: string): FrontendApiClient {
         params: { session_id: sessionId },
         body: request,
       })
+    },
+
+    // ---------- Narrative ----------
+
+    createNarrativeTemplate(request: NarrativeCreateTemplateRequest) {
+      return requestJson<NarrativeCreateTemplateResponse>("createNarrativeTemplate", {
+        body: request,
+      })
+    },
+
+    listPublicNarrativeTemplates() {
+      return requestJson<NarrativeTemplateListResponse>("listPublicNarrativeTemplates")
+    },
+
+    getNarrativeTemplate(templateId: string) {
+      return requestJson<NarrativeTemplateSummary>("getNarrativeTemplate", {
+        params: { template_id: templateId },
+      })
+    },
+
+    updateNarrativeTemplateVisibility(
+      templateId: string,
+      request: NarrativeUpdateVisibilityRequest,
+    ) {
+      return requestJson<NarrativeTemplateSummary>("updateNarrativeTemplateVisibility", {
+        params: { template_id: templateId },
+        body: request,
+      })
+    },
+
+    startNarrativeSession(templateId: string) {
+      return requestJson<NarrativeStartSessionResponse>("startNarrativeSession", {
+        params: { template_id: templateId },
+      })
+    },
+
+    getNarrativeStory(sessionId: string) {
+      return requestJson<NarrativeStoryHistoryResponse>("getNarrativeStory", {
+        params: { session_id: sessionId },
+      })
+    },
+
+    advanceNarrativeTurn(sessionId: string, request: NarrativeAdvanceTurnRequest) {
+      return requestJson<NarrativeAdvanceTurnResponse>("advanceNarrativeTurn", {
+        params: { session_id: sessionId },
+        body: request,
+      })
+    },
+
+    askNarrativeAdvisor(sessionId: string, request: NarrativeAdvisorAskRequest) {
+      return requestJson<NarrativeAdvisorAskResponse>("askNarrativeAdvisor", {
+        params: { session_id: sessionId },
+        body: request,
+      })
+    },
+
+    getNarrativeAdvisorHistory(sessionId: string) {
+      return requestJson<NarrativeAdvisorHistoryResponse>("getNarrativeAdvisorHistory", {
+        params: { session_id: sessionId },
+      })
+    },
+
+    listMyNarrativeTemplates() {
+      return requestJson<NarrativeTemplateListResponse>("listMyNarrativeTemplates")
+    },
+
+    listMyNarrativeSessions() {
+      return requestJson<NarrativeSessionListResponse>("listMyNarrativeSessions")
     },
   }
 }

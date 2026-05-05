@@ -10,6 +10,19 @@ import type {
   CurrentActorResponse,
   DeleteStoryResponse,
   ListStoriesParams,
+  NarrativeAdvanceTurnRequest,
+  NarrativeAdvanceTurnResponse,
+  NarrativeAdvisorAskRequest,
+  NarrativeAdvisorAskResponse,
+  NarrativeAdvisorHistoryResponse,
+  NarrativeCreateTemplateRequest,
+  NarrativeCreateTemplateResponse,
+  NarrativeSessionListResponse,
+  NarrativeStartSessionResponse,
+  NarrativeStoryHistoryResponse,
+  NarrativeTemplateListResponse,
+  NarrativeTemplateSummary,
+  NarrativeUpdateVisibilityRequest,
   PlaySessionCreateRequest,
   PlaySessionHistoryResponse,
   PlaySessionReplayResponse,
@@ -43,4 +56,26 @@ export type FrontendApiClient = {
   getPlaySessionHistory(sessionId: string): Promise<PlaySessionHistoryResponse>
   getPlaySessionReplay(sessionId: string): Promise<PlaySessionReplayResponse>
   submitPlayTurn(sessionId: string, request: PlayTurnRequest): Promise<PlaySessionSnapshot>
+
+  // ---------- Narrative (template/session) ----------
+  createNarrativeTemplate(request: NarrativeCreateTemplateRequest): Promise<NarrativeCreateTemplateResponse>
+  listPublicNarrativeTemplates(): Promise<NarrativeTemplateListResponse>
+  getNarrativeTemplate(templateId: string): Promise<NarrativeTemplateSummary>
+  updateNarrativeTemplateVisibility(
+    templateId: string,
+    request: NarrativeUpdateVisibilityRequest,
+  ): Promise<NarrativeTemplateSummary>
+  startNarrativeSession(templateId: string): Promise<NarrativeStartSessionResponse>
+  getNarrativeStory(sessionId: string): Promise<NarrativeStoryHistoryResponse>
+  advanceNarrativeTurn(
+    sessionId: string,
+    request: NarrativeAdvanceTurnRequest,
+  ): Promise<NarrativeAdvanceTurnResponse>
+  askNarrativeAdvisor(
+    sessionId: string,
+    request: NarrativeAdvisorAskRequest,
+  ): Promise<NarrativeAdvisorAskResponse>
+  getNarrativeAdvisorHistory(sessionId: string): Promise<NarrativeAdvisorHistoryResponse>
+  listMyNarrativeTemplates(): Promise<NarrativeTemplateListResponse>
+  listMyNarrativeSessions(): Promise<NarrativeSessionListResponse>
 }

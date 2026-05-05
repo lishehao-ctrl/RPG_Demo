@@ -47,6 +47,17 @@ from rpg_backend.play.contracts import (
     PlayTurnRequest,
 )
 from rpg_backend.play.service import PlayServiceError, PlaySessionService
+from rpg_backend.narrative.contracts import (
+    AdvanceTurnRequest,
+    AdvanceTurnResponse,
+    AdvisorAskRequest,
+    AdvisorAskResponse,
+    AdvisorHistoryResponse,
+    CreateNarrativeWorldRequest,
+    CreateNarrativeWorldResponse,
+    StoryHistoryResponse,
+)
+from rpg_backend.narrative.service import NarrativeServiceError, get_narrative_service
 
 app = FastAPI(title="rpg-demo-rebuild")
 settings = get_settings()
@@ -54,6 +65,7 @@ auth_service = AuthService(settings=settings)
 author_job_service = ProductAuthorJobService(settings=settings)
 story_library_service = get_story_library_service(settings)
 play_session_service = PlaySessionService(story_library_service=story_library_service, settings=settings)
+narrative_service = get_narrative_service(settings)
 
 
 def _require_benchmark_api() -> None:
@@ -151,6 +163,14 @@ def handle_play_error(_: Request, exc: PlayServiceError) -> JSONResponse:
 
 @app.exception_handler(AuthServiceError)
 def handle_auth_error(_: Request, exc: AuthServiceError) -> JSONResponse:
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"error": {"code": exc.code, "message": exc.message}},
+    )
+
+
+@app.exception_handler(NarrativeServiceError)
+def handle_narrative_error(_: Request, exc: NarrativeServiceError) -> JSONResponse:
     return JSONResponse(
         status_code=exc.status_code,
         content={"error": {"code": exc.code, "message": exc.message}},
@@ -408,3 +428,59 @@ def get_play_session_diagnostics(
 ) -> BenchmarkPlaySessionDiagnosticsResponse:
     _require_benchmark_api()
     return play_session_service.get_session_diagnostics(session_id, actor_user_id=user.user_id)
+
+
+# --------------------------------------------------------------------------
+# Narrative (new architecture: realtime LLM-driven exploration + advisor)
+# --------------------------------------------------------------------------
+
+
+@app.post("/narrative/worlds", response_model=CreateNarrativeWorldResponse)
+def create_narrative_world(
+    payload: CreateNarrativeWorldRequest,
+    user=Depends(get_required_request_user),
+) -> CreateNarrativeWorldResponse:
+    return narrative_service.create_world(payload, owner_user_id=user.user_id)
+
+
+@app.get("/narrative/worlds/{world_id}/story", response_model=StoryHistoryResponse)
+def get_narrative_story(
+    world_id: str,
+    user=Depends(get_required_request_user),
+) -> StoryHistoryResponse:
+    return narrative_service.get_story_history(world_id, owner_user_id=user.user_id)
+
+
+@app.post(
+    "/narrative/worlds/{world_id}/story/turns",
+    response_model=AdvanceTurnResponse,
+)
+def advance_narrative_turn(
+    world_id: str,
+    payload: AdvanceTurnRequest,
+    user=Depends(get_required_request_user),
+) -> AdvanceTurnResponse:
+    return narrative_service.advance(world_id, payload, owner_user_id=user.user_id)
+
+
+@app.post(
+    "/narrative/worlds/{world_id}/advisor",
+    response_model=AdvisorAskResponse,
+)
+def ask_narrative_advisor(
+    world_id: str,
+    payload: AdvisorAskRequest,
+    user=Depends(get_required_request_user),
+) -> AdvisorAskResponse:
+    return narrative_service.ask_advisor(world_id, payload, owner_user_id=user.user_id)
+
+
+@app.get(
+    "/narrative/worlds/{world_id}/advisor",
+    response_model=AdvisorHistoryResponse,
+)
+def get_narrative_advisor_history(
+    world_id: str,
+    user=Depends(get_required_request_user),
+) -> AdvisorHistoryResponse:
+    return narrative_service.get_advisor_history(world_id, owner_user_id=user.user_id)

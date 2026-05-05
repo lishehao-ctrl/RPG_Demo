@@ -12,10 +12,14 @@ from rpg_backend.narrative.contracts import (
     AdvisorMessage,
     CreateTemplateRequest,
     CreateTemplateResponse,
+    EndingDistributionEntry,
+    EndingDistributionResponse,
+    NarrativeEnding,
     NarrativeSession,
     NarrativeSessionSummary,
     NarrativeTemplate,
     NarrativeTemplateSummary,
+    PublicReplayResponse,
     SessionListResponse,
     StartSessionResponse,
     StoryHistoryResponse,
@@ -27,6 +31,7 @@ from rpg_backend.narrative.engine import (
     advance_turn,
     ask_advisor,
     generate_opening,
+    synthesize_ending,
 )
 from rpg_backend.narrative.gateway import (
     NarrativeGatewayError,
@@ -132,7 +137,7 @@ class NarrativeService:
         )
 
         # Auto-create the creator's session.
-        session, opening_message = self._spawn_session(template, owner_user_id)
+        session, opening_message = self._spawn_session(template, owner_user_id, request.turn_budget)
 
         return CreateTemplateResponse(
             template=_summarize_template(template, viewer_user_id=owner_user_id),
@@ -175,10 +180,10 @@ class NarrativeService:
     # ------------------------------------------------------------------
 
     def start_session(
-        self, template_id: str, *, player_user_id: str
+        self, template_id: str, *, player_user_id: str, turn_budget: int = 12
     ) -> StartSessionResponse:
         template = self._load_template_for_viewer(template_id, player_user_id)
-        session, opening_message = self._spawn_session(template, player_user_id)
+        session, opening_message = self._spawn_session(template, player_user_id, turn_budget)
         return StartSessionResponse(
             template=_summarize_template(template, viewer_user_id=player_user_id),
             session=_summarize_session(session, template),
@@ -222,6 +227,12 @@ class NarrativeService:
         player_user_id: str,
     ) -> AdvanceTurnResponse:
         session = self._load_session_for_player(session_id, player_user_id)
+        if session.ending_label is not None:
+            raise NarrativeServiceError(
+                code="session_complete",
+                message="这一局故事已经走完了——去看你的结局吧。",
+                status_code=409,
+            )
         template = self._repo.get_template(session.template_id)
         history = self._repo.list_story_messages(session_id)
         if not history:
@@ -254,6 +265,12 @@ class NarrativeService:
             chosen_option_index=chosen_index,
         )
 
+        # turn_index = the index of the new narrator beat we're about to write.
+        # turn_count is the number of completed narrator/player pairs so far.
+        # The opening counts as turn 0; this advance produces turn_count+1.
+        upcoming_turn_index = session.turn_count + 1
+        is_final_turn = upcoming_turn_index >= session.turn_budget
+
         try:
             turn = advance_turn(
                 gateway=self.gateway,
@@ -263,6 +280,8 @@ class NarrativeService:
                 history=history + [player_message],
                 player_action=player_action_text,
                 next_ord=next_ord + 1,
+                turn_index=upcoming_turn_index,
+                turn_budget=session.turn_budget,
             )
         except NarrativeGatewayError as exc:
             raise NarrativeServiceError(
@@ -287,9 +306,126 @@ class NarrativeService:
         self._repo.append_story_message(session_id, turn.narrator_message)
         self._repo.touch_session(session_id, increment_turns=1)
 
+        ending_payload: NarrativeEnding | None = None
+        if is_final_turn:
+            ending_payload = self._finalize_session(session_id, template)
+
         return AdvanceTurnResponse(
             player_message=player_message,
             narrator_message=turn.narrator_message,
+            ending=ending_payload,
+            is_complete=ending_payload is not None,
+        )
+
+    def _finalize_session(
+        self, session_id: str, template: NarrativeTemplate
+    ) -> NarrativeEnding | None:
+        """Synthesize the ending and persist it. Logs and silently no-ops on
+        LLM failure — the player can still read the final narrator beat;
+        the frontend will show 'ending generation failed, refresh' if it
+        sees is_complete=False on a budget-reached turn."""
+        full_history = self._repo.list_story_messages(session_id)
+        try:
+            result = synthesize_ending(
+                gateway=self.gateway,
+                seed=template.seed,
+                title=template.title,
+                cast=template.cast,
+                history=full_history,
+                turn_count=len([m for m in full_history if m.role == "narrator"]) - 1,
+            )
+        except (NarrativeGatewayError, ValueError) as exc:
+            print(
+                f"[narrative.service] ending synthesis failed for session={session_id}: {exc}",
+                flush=True,
+            )
+            return None
+        self._repo.record_session_ending(
+            session_id,
+            label=result.label,
+            subtitle=result.subtitle,
+            passage=result.passage,
+        )
+        return NarrativeEnding(
+            label=result.label,
+            subtitle=result.subtitle,
+            passage=result.passage,
+        )
+
+    # ------------------------------------------------------------------
+    # Ending / replay / distribution reads
+    # ------------------------------------------------------------------
+
+    def get_session_ending(
+        self, session_id: str, *, player_user_id: str
+    ) -> NarrativeEnding | None:
+        session = self._load_session_for_player(session_id, player_user_id)
+        if session.ending_label is None:
+            return None
+        return NarrativeEnding(
+            label=session.ending_label,
+            subtitle=session.ending_subtitle or "",
+            passage=session.ending_passage or "",
+        )
+
+    def get_ending_distribution(
+        self, template_id: str, *, viewer_user_id: str
+    ) -> EndingDistributionResponse:
+        # Distribution is readable for any viewer who can see the template.
+        self._load_template_for_viewer(template_id, viewer_user_id)
+        rows = self._repo.list_completed_endings_for_template(template_id)
+        total = sum(n for _, n in rows)
+        return EndingDistributionResponse(
+            template_id=template_id,
+            total_completed=total,
+            entries=[EndingDistributionEntry(label=lbl, count=n) for lbl, n in rows],
+        )
+
+    def get_public_replay(self, session_id: str) -> PublicReplayResponse:
+        """Public, auth-free read of a completed (or in-progress) session.
+
+        Anyone with the session_id URL can see the full playthrough — that's
+        the point: shareable replay URLs."""
+        try:
+            session = self._repo.get_session(session_id)
+        except NarrativeNotFoundError as exc:
+            raise NarrativeServiceError(
+                code="session_not_found",
+                message=f"Narrative session not found: {session_id}",
+                status_code=404,
+            ) from exc
+        try:
+            template = self._repo.get_template(session.template_id)
+        except NarrativeNotFoundError as exc:
+            raise NarrativeServiceError(
+                code="template_not_found",
+                message=f"Template not found: {session.template_id}",
+                status_code=404,
+            ) from exc
+        messages = self._repo.list_story_messages(session_id)
+        advisor_messages = self._repo.list_advisor_messages(session_id)
+        ending_payload = (
+            NarrativeEnding(
+                label=session.ending_label,
+                subtitle=session.ending_subtitle or "",
+                passage=session.ending_passage or "",
+            )
+            if session.ending_label is not None
+            else None
+        )
+        return PublicReplayResponse(
+            session_id=session.session_id,
+            template_title=template.title,
+            template_seed=template.seed,
+            cast=template.cast,
+            advisor_persona=template.advisor_persona,
+            turn_budget=session.turn_budget,
+            turn_count=session.turn_count,
+            completed=ending_payload is not None,
+            ending=ending_payload,
+            messages=messages,
+            advisor_messages=advisor_messages,
+            created_at=session.created_at,
         )
 
     # ------------------------------------------------------------------
@@ -372,13 +508,14 @@ class NarrativeService:
     # ------------------------------------------------------------------
 
     def _spawn_session(
-        self, template: NarrativeTemplate, player_user_id: str
+        self, template: NarrativeTemplate, player_user_id: str, turn_budget: int = 12
     ) -> tuple[NarrativeSession, StoryMessage]:
         session_id = _generate_session_id()
         session = self._repo.create_session(
             session_id=session_id,
             template_id=template.template_id,
             player_user_id=player_user_id,
+            turn_budget=turn_budget,
         )
         opening_message = StoryMessage(
             ord=0,
@@ -491,6 +628,9 @@ def _summarize_session(
         template_seed=template.seed,
         player_user_id=session.player_user_id,
         turn_count=session.turn_count,
+        turn_budget=session.turn_budget,
+        ending_label=session.ending_label,
+        ending_subtitle=session.ending_subtitle,
         created_at=session.created_at,
         last_active_at=session.last_active_at,
     )

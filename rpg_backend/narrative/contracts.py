@@ -99,6 +99,10 @@ class NarrativeSession(BaseModel):
     template_id: str = Field(min_length=1, max_length=80)
     player_user_id: str = Field(min_length=1, max_length=80)
     turn_count: int = Field(ge=0)
+    turn_budget: int = Field(default=12, ge=4, le=40)
+    ending_label: str | None = None
+    ending_subtitle: str | None = None
+    ending_passage: str | None = None
     created_at: str
     last_active_at: str
 
@@ -112,8 +116,57 @@ class NarrativeSessionSummary(BaseModel):
     template_seed: str
     player_user_id: str
     turn_count: int
+    turn_budget: int = 12
+    ending_label: str | None = None
+    ending_subtitle: str | None = None
     created_at: str
     last_active_at: str
+
+
+class NarrativeEnding(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    label: str = Field(min_length=1, max_length=40)
+    subtitle: str = Field(min_length=1, max_length=80)
+    passage: str = Field(min_length=1, max_length=4000)
+
+
+class EndingDistributionEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    label: str
+    count: int
+
+
+class EndingDistributionResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    template_id: str
+    total_completed: int
+    entries: list[EndingDistributionEntry]
+
+
+class PublicReplayResponse(BaseModel):
+    """A public, auth-free read of a completed session for sharing.
+
+    Includes story messages, final ending, and the advisor sidechat (which
+    is part of the unique 'how I felt while playing' shareable content).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: str
+    template_title: str
+    template_seed: str
+    cast: list[CastMember]
+    advisor_persona: str
+    turn_budget: int
+    turn_count: int
+    completed: bool
+    ending: NarrativeEnding | None
+    messages: list[StoryMessage]
+    advisor_messages: list[AdvisorMessage]
+    created_at: str
 
 
 # --------------------------------------------------------------------------
@@ -126,6 +179,7 @@ class CreateTemplateRequest(BaseModel):
 
     seed: str = Field(min_length=1, max_length=4000)
     visibility: TemplateVisibility = "private"
+    turn_budget: int = Field(default=12, ge=4, le=40)
 
 
 class CreateTemplateResponse(BaseModel):
@@ -189,6 +243,11 @@ class AdvanceTurnResponse(BaseModel):
 
     player_message: StoryMessage
     narrator_message: StoryMessage
+    # Surfaced when this turn was the last of the budget — the engine has
+    # already generated and persisted the ending. Frontend uses this to
+    # render the ending screen without a follow-up GET.
+    ending: NarrativeEnding | None = None
+    is_complete: bool = False
 
 
 class AdvisorAskRequest(BaseModel):

@@ -55,7 +55,10 @@ from rpg_backend.narrative.contracts import (
     AdvisorHistoryResponse,
     CreateTemplateRequest,
     CreateTemplateResponse,
+    EndingDistributionResponse,
+    NarrativeEnding,
     NarrativeTemplateSummary,
+    PublicReplayResponse,
     SessionListResponse,
     StartSessionResponse,
     StoryHistoryResponse,
@@ -551,3 +554,35 @@ def list_my_narrative_sessions(
 ) -> SessionListResponse:
     """Sessions I'm playing (mine + ones I forked from public templates)."""
     return narrative_service.list_my_sessions(player_user_id=user.user_id)
+
+
+@app.get("/narrative/sessions/{session_id}/ending", response_model=NarrativeEnding | None)
+def get_narrative_session_ending(
+    session_id: str,
+    user=Depends(get_required_request_user),
+) -> NarrativeEnding | None:
+    """Final ending for a completed session (None if not yet finished)."""
+    return narrative_service.get_session_ending(session_id, player_user_id=user.user_id)
+
+
+@app.get(
+    "/narrative/templates/{template_id}/ending-distribution",
+    response_model=EndingDistributionResponse,
+)
+def get_narrative_ending_distribution(
+    template_id: str,
+    user=Depends(get_required_request_user),
+) -> EndingDistributionResponse:
+    """How many of each ending label have been recorded for this template.
+    Used by the template detail page to show '救赎 ×3 · 反噬 ×7 · ...'"""
+    return narrative_service.get_ending_distribution(template_id, viewer_user_id=user.user_id)
+
+
+@app.get(
+    "/narrative/sessions/{session_id}/replay",
+    response_model=PublicReplayResponse,
+)
+def get_narrative_public_replay(session_id: str) -> PublicReplayResponse:
+    """Public, auth-free read of a session for sharing. Anyone with the URL
+    can see the full playthrough including the advisor sidechat."""
+    return narrative_service.get_public_replay(session_id)

@@ -49,7 +49,7 @@ _OPENING_SYSTEM_PROMPT = """\
 _TURN_SYSTEM_PROMPT = """\
 你是一名擅长写关系剧的剧作家。玩家正在玩一个互动故事，你负责续写下一段。
 
-每个回合你会收到：故事种子、cast 名单、最近若干段故事历史、玩家这一回合的动作（选了哪个选项 / 自由输入）。
+每个回合你会收到：故事种子、cast 名单、最近若干段故事历史、玩家这一回合的动作、**当前所处的故事阶段**（关键！）。
 
 你的任务是续写**一段**叙述（200-400 字），并给出**3 个新选项**。
 
@@ -65,10 +65,51 @@ _TURN_SYSTEM_PROMPT = """\
 写作要求：
 - 第二人称
 - 必须**真正承接**玩家的动作，让 TA 看见自己的选择带来了什么
-- 节奏感：可以推进时间、引入新人、抛出新信息，但每段聚焦一个戏剧瞬间
+- 节奏感：每段聚焦一个戏剧瞬间，**根据 stage_phase 调整事件密度**
+
+**故事阶段（stage_phase）会随回合推进，请严格依照阶段调度节奏:**
+- `hook` (开场，第 1-2 段): 让玩家进入情境，让冲突的根源现身。**不要太早把局势推到极端**
+- `pressure` (升压，第 3-N/2 段): 引入新角色、揭露半个秘密、让关系出现裂缝。让玩家选择有代价但可承受
+- `reversal` (转折，N/2 附近): **戏剧拐点**。一个能改变玩家立场的事件——背叛、隐情曝光、新盟友、意外触发
+- `climax` (高潮，倒数第 2-3 段): **最高戏剧密度**。让玩家做最重的选择——撕破脸、说出口、做出无法挽回的事
+- `pre_finale` (倒数第 1-2 段): 局势已无法转向，开始向某个方向坍缩。给玩家最后一次选择落点
+- `pre_finale_open` (这是一段没有阶段约束的回合): 自由发挥，但保留可收尾的开放性
+
+**节奏调度细则**:
+- hook 阶段尽量"轻"——不要每个回合都升级
+- pressure 阶段每 3-4 回合可以引入一个外部事件打破平衡（电话、消息、新人到来）
+- reversal/climax 阶段必须密度高
+- 不要主动写"结局"，结尾由专门的 ending engine 收
+
+**选项要求**:
 - 选项必须**反映当下局势的具体可能性**，不要给"继续观察 / 离开 / 思考"这种空洞选项
-- 当场景需要外部事件涌入时（比如距离上次冲突已经 4-5 回合，气氛太平），可以引入一通电话、一条消息、一个突然到来的人
-- 不要主动写"结局"，让故事保持开放
+- 当 stage 接近 climax 时，选项之间的代价差异必须**显著**——一个"和解"vs"决裂"vs"复仇"那种级别的分叉
+"""
+
+
+_ENDING_SYSTEM_PROMPT_TEMPLATE = """\
+你是剧作家。一段互动短剧已经走到尾声 —— 玩家做了 {turn_count} 次选择，现在该写下结局。
+
+要求：
+- 写一段 400-600 字的 ending passage，第二人称（"你"）
+- 必须**呼应玩家在历史中做的关键选择**——不要写一个跟历史无关的通用结局
+- 必须有戏剧的"完成感"：一个画面、一个情绪定格、一个对未来的暗示
+- 不是"待续"，是**结尾**——这一刻整个故事的形状清晰下来
+- 同时给两个产物：
+  * `ending_label`：从下面这个池子里**只选一个**最贴的标签
+    可选: {labels_list}
+  * `ending_subtitle`：第一人称、25 字以内的结局副标题，可截图发朋友圈
+    （比如 "我撕了那张支票，没回头" 或 "我跪下来，求他原谅"）
+
+输出**严格** JSON，只包含三个字段：
+
+{{
+  "ending_passage": "...",
+  "ending_label": "...",
+  "ending_subtitle": "..."
+}}
+
+不要 markdown，不要解释。
 """
 
 
@@ -117,6 +158,35 @@ class OpeningResult:
 @dataclass(frozen=True)
 class TurnResult:
     narrator_message: StoryMessage
+
+
+@dataclass(frozen=True)
+class EndingResult:
+    passage: str
+    label: str
+    subtitle: str
+
+
+# Closed pool of ending labels. Wide enough to give 12-turn runs distinct
+# typed outcomes, narrow enough that 5-10 plays of the same template will
+# collide on labels (which is the social-comparison hook).
+ENDING_LABELS: tuple[str, ...] = (
+    "孤狼",     # walks away alone, severs all ties
+    "共谋",     # joins forces with the antagonist on twisted terms
+    "复仇",     # destroys the offender (often at personal cost)
+    "和解",     # truth comes out, choosing forgiveness
+    "牺牲",     # gives up something irreplaceable for someone
+    "自由",     # breaks free of the system that held them
+    "沉沦",     # surrenders to the worst version of self
+    "救赎",     # earns redemption through final cost
+    "失控",     # situation collapses past anyone's control
+    "反噬",     # the protagonist's own scheme turns on them
+    "同谋",     # quiet alliance with an unexpected party
+    "决裂",     # public, irreversible severing
+    "回归",     # returns to where they started, but changed
+    "破碎",     # ends with nothing repaired
+    "夺回",     # takes back what was taken from them
+)
 
 
 @dataclass(frozen=True)
@@ -224,7 +294,21 @@ def advance_turn(
     history: list[StoryMessage],
     player_action: str,
     next_ord: int,
+    turn_index: int = 0,
+    turn_budget: int = 12,
 ) -> TurnResult:
+    """Advance one turn.
+
+    `turn_index` is 0-based: this is the index of the new narrator beat
+    we're about to write (so on the very first advance, turn_index = 1
+    because the opening was beat 0).
+
+    `turn_budget` is the planned total story length in narrator beats
+    (default 12 for the short-drama format). The engine derives a
+    stage_phase from (turn_index, turn_budget) and injects it into the
+    prompt so the model paces escalation correctly.
+    """
+    stage_phase = _stage_for(turn_index, turn_budget)
     rendered_history = _render_history(history)
     user_payload: dict[str, Any] = {
         "seed": seed,
@@ -232,6 +316,9 @@ def advance_turn(
         "cast": [c.model_dump() for c in cast],
         "history": rendered_history,
         "player_action": player_action,
+        "turn_index": turn_index,
+        "turn_budget": turn_budget,
+        "stage_phase": stage_phase,
     }
 
     # First attempt
@@ -270,6 +357,126 @@ def advance_turn(
             chosen_option_index=None,
         )
     )
+
+
+def _stage_for(turn_index: int, turn_budget: int) -> str:
+    """Map (turn_index, turn_budget) to a stage_phase label.
+
+    The phases below are the same shape regardless of budget — the engine
+    just stretches/compresses each phase to fit. Budgets <6 collapse most
+    of pressure into hook; budgets >20 just spend longer in pressure.
+
+    turn_index is 0-based on narrator beats. We treat the opening (beat 0)
+    as part of `hook` and use the index of the *upcoming* beat for stage
+    selection from beat 1 onward.
+    """
+    if turn_index <= 1:
+        return "hook"
+    midpoint = turn_budget / 2
+    if turn_index < midpoint - 0.5:
+        return "pressure"
+    if turn_index < midpoint + 0.5:
+        return "reversal"
+    if turn_index < turn_budget - 1:
+        return "climax"
+    if turn_index < turn_budget:
+        return "pre_finale"
+    return "pre_finale_open"
+
+
+def synthesize_ending(
+    *,
+    gateway: NarrativeLLMGateway,
+    seed: str,
+    title: str,
+    cast: list[CastMember],
+    history: list[StoryMessage],
+    turn_count: int,
+) -> EndingResult:
+    """Generate a 400-600 word ending + label + first-person subtitle.
+
+    Called by the service when a session reaches its turn_budget. The
+    ending must reference earlier choices so it doesn't read as a generic
+    template-finale.
+    """
+    user_payload: dict[str, Any] = {
+        "seed": seed,
+        "title": title,
+        "cast": [c.model_dump() for c in cast],
+        # Full history matters here — the ending must call back to early
+        # choices, so we deliberately don't use the sliding-window render.
+        "story_so_far": [{"role": m.role, "content": m.content} for m in history],
+        "instruction": "请基于上面所有历史，写下这一局完整故事的结局。",
+    }
+    system_prompt = _ENDING_SYSTEM_PROMPT_TEMPLATE.format(
+        turn_count=turn_count,
+        labels_list=" / ".join(ENDING_LABELS),
+    )
+    last_error: Exception | None = None
+    feedback: str | None = None
+    for attempt in range(2):
+        try:
+            payload = _invoke_ending(gateway, system_prompt, user_payload, retry_feedback=feedback)
+            passage = _require_str(payload, "ending_passage", limit=4000)
+            label = _require_str(payload, "ending_label", limit=20)
+            subtitle = _require_str(payload, "ending_subtitle", limit=80)
+            # If LLM picked a label outside the closed pool, snap it to the
+            # closest defined label (substring match) or default to 失控.
+            label = _normalize_ending_label(label)
+            if attempt > 0:
+                print(
+                    f"[narrative.retry] operation=ending recovered_on_attempt={attempt + 1}",
+                    flush=True,
+                )
+            return EndingResult(passage=passage, label=label, subtitle=subtitle)
+        except (NarrativeGatewayError, ValueError) as exc:
+            last_error = exc
+            print(
+                f"[narrative.retry] operation=ending attempt={attempt + 1} error={type(exc).__name__}: {str(exc)[:120]}",
+                flush=True,
+            )
+            feedback = (
+                "Your previous output was malformed. "
+                "Output strict JSON with three string fields: ending_passage "
+                "(400-600 chars), ending_label (one of the allowed values), "
+                "and ending_subtitle (≤25 chars, first-person)."
+            )
+            if isinstance(exc, NarrativeGatewayError) and exc.code != "llm_invalid_json":
+                raise
+    assert last_error is not None
+    raise last_error
+
+
+def _invoke_ending(
+    gateway: NarrativeLLMGateway,
+    system_prompt: str,
+    user_payload: dict[str, Any],
+    *,
+    retry_feedback: str | None,
+) -> dict[str, Any]:
+    payload = dict(user_payload)
+    if retry_feedback:
+        payload["retry_feedback"] = retry_feedback
+    response = gateway.invoke_json(
+        system_prompt=system_prompt,
+        user_payload=payload,
+        operation_name="narrative.ending",
+        max_output_tokens=2000,
+    )
+    return _coerce_dict(response.payload)
+
+
+def _normalize_ending_label(raw: str) -> str:
+    """Snap a possibly-off label to the closed pool. Tolerant of LLM drift."""
+    candidate = raw.strip()
+    if candidate in ENDING_LABELS:
+        return candidate
+    # Substring match either direction (e.g. '反噬一' contains '反噬', or
+    # the LLM wrote '走向反噬' — we still want '反噬').
+    for label in ENDING_LABELS:
+        if label in candidate or candidate in label:
+            return label
+    return "失控"
 
 
 def _invoke_turn(

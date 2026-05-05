@@ -65,12 +65,28 @@ class NarrativeRepository:
                 template_id TEXT NOT NULL,
                 player_user_id TEXT NOT NULL,
                 turn_count INTEGER NOT NULL DEFAULT 0,
+                turn_budget INTEGER NOT NULL DEFAULT 12,
+                ending_label TEXT,
+                ending_subtitle TEXT,
+                ending_passage TEXT,
                 created_at TEXT NOT NULL,
                 last_active_at TEXT NOT NULL,
                 FOREIGN KEY (template_id) REFERENCES narrative_templates(template_id) ON DELETE CASCADE
             )
             """
         )
+        # Migrate existing sessions (pre-budget schema) — add columns if missing.
+        # Idempotent: SQLite errors silently if column already exists, so we
+        # check pragma first.
+        existing_cols = {row[1] for row in connection.execute("PRAGMA table_info(narrative_sessions)").fetchall()}
+        for col, ddl in (
+            ("turn_budget", "ALTER TABLE narrative_sessions ADD COLUMN turn_budget INTEGER NOT NULL DEFAULT 12"),
+            ("ending_label", "ALTER TABLE narrative_sessions ADD COLUMN ending_label TEXT"),
+            ("ending_subtitle", "ALTER TABLE narrative_sessions ADD COLUMN ending_subtitle TEXT"),
+            ("ending_passage", "ALTER TABLE narrative_sessions ADD COLUMN ending_passage TEXT"),
+        ):
+            if col not in existing_cols:
+                connection.execute(ddl)
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS narrative_story_messages (
@@ -235,16 +251,17 @@ class NarrativeRepository:
         session_id: str,
         template_id: str,
         player_user_id: str,
+        turn_budget: int = 12,
     ) -> NarrativeSession:
         now = _utc_now()
         with self._connect() as conn:
             conn.execute(
                 """
                 INSERT INTO narrative_sessions
-                (session_id, template_id, player_user_id, turn_count, created_at, last_active_at)
-                VALUES (?, ?, ?, 0, ?, ?)
+                (session_id, template_id, player_user_id, turn_count, turn_budget, created_at, last_active_at)
+                VALUES (?, ?, ?, 0, ?, ?, ?)
                 """,
-                (session_id, template_id, player_user_id, now, now),
+                (session_id, template_id, player_user_id, turn_budget, now, now),
             )
             conn.commit()
         return NarrativeSession(
@@ -252,9 +269,58 @@ class NarrativeRepository:
             template_id=template_id,
             player_user_id=player_user_id,
             turn_count=0,
+            turn_budget=turn_budget,
+            ending_label=None,
+            ending_subtitle=None,
+            ending_passage=None,
             created_at=now,
             last_active_at=now,
         )
+
+    def record_session_ending(
+        self,
+        session_id: str,
+        *,
+        label: str,
+        subtitle: str,
+        passage: str,
+    ) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE narrative_sessions
+                SET ending_label = ?, ending_subtitle = ?, ending_passage = ?, last_active_at = ?
+                WHERE session_id = ?
+                """,
+                (label, subtitle, passage, _utc_now(), session_id),
+            )
+            conn.commit()
+
+    def list_completed_endings_for_template(
+        self, template_id: str
+    ) -> list[tuple[str, int]]:
+        """Return [(label, count)] for all completed sessions on this template,
+        ordered by count desc."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT ending_label, COUNT(*) AS n
+                FROM narrative_sessions
+                WHERE template_id = ? AND ending_label IS NOT NULL
+                GROUP BY ending_label
+                ORDER BY n DESC, ending_label ASC
+                """,
+                (template_id,),
+            ).fetchall()
+        return [(str(row["ending_label"]), int(row["n"])) for row in rows]
+
+    def count_completed_sessions_for_template(self, template_id: str) -> int:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM narrative_sessions WHERE template_id = ? AND ending_label IS NOT NULL",
+                (template_id,),
+            ).fetchone()
+        return int(row["n"])
 
     def get_session(self, session_id: str) -> NarrativeSession:
         with self._connect() as conn:
@@ -426,11 +492,16 @@ def _row_to_template(row: sqlite3.Row) -> NarrativeTemplate:
 
 
 def _row_to_session(row: sqlite3.Row) -> NarrativeSession:
+    keys = row.keys()
     return NarrativeSession(
         session_id=row["session_id"],
         template_id=row["template_id"],
         player_user_id=row["player_user_id"],
         turn_count=int(row["turn_count"]),
+        turn_budget=int(row["turn_budget"]) if "turn_budget" in keys else 12,
+        ending_label=row["ending_label"] if "ending_label" in keys else None,
+        ending_subtitle=row["ending_subtitle"] if "ending_subtitle" in keys else None,
+        ending_passage=row["ending_passage"] if "ending_passage" in keys else None,
         created_at=row["created_at"],
         last_active_at=row["last_active_at"],
     )

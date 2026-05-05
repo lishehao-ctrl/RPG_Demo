@@ -31,7 +31,10 @@ from rpg_backend.narrative.engine import (
     advance_turn,
     ask_advisor,
     generate_opening,
+    judge_failure,
+    synthesize_early_ending,
     synthesize_ending,
+    tier_for_label,
 )
 from rpg_backend.narrative.gateway import (
     NarrativeGatewayError,
@@ -146,11 +149,15 @@ class NarrativeService:
             advisor_persona=opening.advisor_persona,
             opening_passage=opening.opening_message.content,
             opening_options=opening.opening_message.options,
+            player_goals=opening.player_goals,
+            failure_conditions=opening.failure_conditions,
             visibility=request.visibility,
         )
 
-        # Auto-create the creator's session.
-        session, opening_message = self._spawn_session(template, owner_user_id, request.turn_budget)
+        # Auto-create the creator's session with the requested difficulty.
+        session, opening_message = self._spawn_session(
+            template, owner_user_id, request.turn_budget, request.difficulty
+        )
 
         _emit_metric(
             "template_created",
@@ -158,7 +165,10 @@ class NarrativeService:
             owner=owner_user_id,
             visibility=request.visibility,
             turn_budget=request.turn_budget,
+            difficulty=request.difficulty,
             seed_chars=len(seed),
+            num_goals=len(opening.player_goals),
+            num_failure_conds=len(opening.failure_conditions),
         )
         return CreateTemplateResponse(
             template=_summarize_template(template, viewer_user_id=owner_user_id),
@@ -201,10 +211,17 @@ class NarrativeService:
     # ------------------------------------------------------------------
 
     def start_session(
-        self, template_id: str, *, player_user_id: str, turn_budget: int = 12
+        self,
+        template_id: str,
+        *,
+        player_user_id: str,
+        turn_budget: int = 12,
+        difficulty: str = "story",
     ) -> StartSessionResponse:
         template = self._load_template_for_viewer(template_id, player_user_id)
-        session, opening_message = self._spawn_session(template, player_user_id, turn_budget)
+        session, opening_message = self._spawn_session(
+            template, player_user_id, turn_budget, difficulty
+        )
         _emit_metric(
             "session_started",
             template_id=template_id,
@@ -212,6 +229,7 @@ class NarrativeService:
             player=player_user_id,
             is_owner=int(template.owner_user_id == player_user_id),
             turn_budget=turn_budget,
+            difficulty=difficulty,
         )
         return StartSessionResponse(
             template=_summarize_template(template, viewer_user_id=player_user_id),
@@ -311,6 +329,8 @@ class NarrativeService:
                 next_ord=next_ord + 1,
                 turn_index=upcoming_turn_index,
                 turn_budget=session.turn_budget,
+                difficulty=session.difficulty,
+                player_goals=template.player_goals or None,
             )
         except NarrativeGatewayError as exc:
             raise NarrativeServiceError(
@@ -336,7 +356,41 @@ class NarrativeService:
         self._repo.touch_session(session_id, increment_turns=1)
 
         ending_payload: NarrativeEnding | None = None
-        if is_final_turn:
+
+        # Gauntlet mode: judge whether the player just tripped a failure
+        # condition. If so, skip the standard finale and synthesize an
+        # early collapse instead. We only run this BEFORE the natural
+        # final turn — if we're already at the budget, the regular
+        # finalize will handle it (and tier may end up collapsed anyway
+        # via the label-tier table).
+        if (
+            session.difficulty == "gauntlet"
+            and not is_final_turn
+            and template.failure_conditions
+        ):
+            try:
+                full_history = self._repo.list_story_messages(session_id)
+                judgement = judge_failure(
+                    gateway=self.gateway,
+                    failure_conditions=template.failure_conditions,
+                    history=full_history,
+                )
+            except (NarrativeGatewayError, ValueError) as exc:
+                # Failure judge errors are non-fatal — log and proceed.
+                print(
+                    f"[narrative.service] judge_failure errored for session={session_id}: {exc}",
+                    flush=True,
+                )
+                judgement = None
+            if judgement is not None and judgement.triggered:
+                ending_payload = self._finalize_session_early(
+                    session_id,
+                    template,
+                    failure_trigger=judgement.matched_condition_label,
+                    failure_reason=judgement.reason,
+                )
+
+        if ending_payload is None and is_final_turn:
             ending_payload = self._finalize_session(session_id, template)
 
         return AdvanceTurnResponse(
@@ -369,22 +423,88 @@ class NarrativeService:
                 flush=True,
             )
             return None
+        tier = tier_for_label(result.label)
         self._repo.record_session_ending(
             session_id,
             label=result.label,
             subtitle=result.subtitle,
             passage=result.passage,
+            tier=tier,  # type: ignore[arg-type]
+            early_terminated=False,
+            failure_trigger=None,
         )
         _emit_metric(
             "session_completed",
             session_id=session_id,
             template_id=template.template_id,
             ending_label=result.label,
+            tier=tier,
+            early=0,
         )
         return NarrativeEnding(
             label=result.label,
             subtitle=result.subtitle,
             passage=result.passage,
+            tier=tier,  # type: ignore[arg-type]
+            early_terminated=False,
+            failure_trigger=None,
+        )
+
+    def _finalize_session_early(
+        self,
+        session_id: str,
+        template: NarrativeTemplate,
+        *,
+        failure_trigger: str,
+        failure_reason: str,
+    ) -> NarrativeEnding | None:
+        """Gauntlet-mode collapse: judge_failure flagged a trigger this
+        turn. Generate a 'collapsed' ending right now, regardless of
+        turn_budget."""
+        full_history = self._repo.list_story_messages(session_id)
+        try:
+            result = synthesize_early_ending(
+                gateway=self.gateway,
+                seed=template.seed,
+                title=template.title,
+                cast=template.cast,
+                history=full_history,
+                failure_trigger=failure_trigger,
+                failure_reason=failure_reason,
+            )
+        except (NarrativeGatewayError, ValueError) as exc:
+            print(
+                f"[narrative.service] early-ending synthesis failed for session={session_id}: {exc}",
+                flush=True,
+            )
+            return None
+        # Early endings are always tier=collapsed by design.
+        tier = "collapsed"
+        self._repo.record_session_ending(
+            session_id,
+            label=result.label,
+            subtitle=result.subtitle,
+            passage=result.passage,
+            tier=tier,  # type: ignore[arg-type]
+            early_terminated=True,
+            failure_trigger=failure_trigger,
+        )
+        _emit_metric(
+            "session_completed",
+            session_id=session_id,
+            template_id=template.template_id,
+            ending_label=result.label,
+            tier=tier,
+            early=1,
+            trigger=failure_trigger,
+        )
+        return NarrativeEnding(
+            label=result.label,
+            subtitle=result.subtitle,
+            passage=result.passage,
+            tier=tier,  # type: ignore[arg-type]
+            early_terminated=True,
+            failure_trigger=failure_trigger,
         )
 
     # ------------------------------------------------------------------
@@ -397,10 +517,14 @@ class NarrativeService:
         session = self._load_session_for_player(session_id, player_user_id)
         if session.ending_label is None:
             return None
+        tier = session.ending_tier or tier_for_label(session.ending_label)
         return NarrativeEnding(
             label=session.ending_label,
             subtitle=session.ending_subtitle or "",
             passage=session.ending_passage or "",
+            tier=tier,  # type: ignore[arg-type]
+            early_terminated=session.early_terminated,
+            failure_trigger=session.failure_trigger,
         )
 
     def get_ending_distribution(
@@ -442,23 +566,27 @@ class NarrativeService:
             ) from exc
         messages = self._repo.list_story_messages(session_id)
         advisor_messages = self._repo.list_advisor_messages(session_id)
-        ending_payload = (
-            NarrativeEnding(
+        ending_payload: NarrativeEnding | None = None
+        if session.ending_label is not None:
+            tier = session.ending_tier or tier_for_label(session.ending_label)
+            ending_payload = NarrativeEnding(
                 label=session.ending_label,
                 subtitle=session.ending_subtitle or "",
                 passage=session.ending_passage or "",
+                tier=tier,  # type: ignore[arg-type]
+                early_terminated=session.early_terminated,
+                failure_trigger=session.failure_trigger,
             )
-            if session.ending_label is not None
-            else None
-        )
         return PublicReplayResponse(
             session_id=session.session_id,
             template_title=template.title,
             template_seed=template.seed,
             cast=template.cast,
             advisor_persona=template.advisor_persona,
+            player_goals=template.player_goals,
             turn_budget=session.turn_budget,
             turn_count=session.turn_count,
+            difficulty=session.difficulty,
             completed=ending_payload is not None,
             ending=ending_payload,
             messages=messages,
@@ -546,14 +674,22 @@ class NarrativeService:
     # ------------------------------------------------------------------
 
     def _spawn_session(
-        self, template: NarrativeTemplate, player_user_id: str, turn_budget: int = 12
+        self,
+        template: NarrativeTemplate,
+        player_user_id: str,
+        turn_budget: int = 12,
+        difficulty: str = "story",
     ) -> tuple[NarrativeSession, StoryMessage]:
         session_id = _generate_session_id()
+        # Cast difficulty into the typed Literal — defensive; service-layer
+        # callers may pass anything, but only the two values are valid.
+        norm_difficulty: str = "gauntlet" if difficulty == "gauntlet" else "story"
         session = self._repo.create_session(
             session_id=session_id,
             template_id=template.template_id,
             player_user_id=player_user_id,
             turn_budget=turn_budget,
+            difficulty=norm_difficulty,  # type: ignore[arg-type]
         )
         opening_message = StoryMessage(
             ord=0,
@@ -649,6 +785,8 @@ def _summarize_template(
         title=template.title,
         cast=template.cast,
         advisor_persona=template.advisor_persona,
+        player_goals=template.player_goals,
+        failure_conditions=template.failure_conditions,
         visibility=template.visibility,
         play_count=template.play_count,
         created_at=template.created_at,
@@ -667,8 +805,11 @@ def _summarize_session(
         player_user_id=session.player_user_id,
         turn_count=session.turn_count,
         turn_budget=session.turn_budget,
+        difficulty=session.difficulty,
         ending_label=session.ending_label,
         ending_subtitle=session.ending_subtitle,
+        ending_tier=session.ending_tier,
+        early_terminated=session.early_terminated,
         created_at=session.created_at,
         last_active_at=session.last_active_at,
     )

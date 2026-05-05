@@ -6,6 +6,9 @@ from typing import Any
 from rpg_backend.narrative.contracts import (
     AdvisorMessage,
     CastMember,
+    FailureCondition,
+    NPCPulse,
+    PlayerGoal,
     StoryMessage,
     StoryOption,
 )
@@ -27,9 +30,19 @@ _OPENING_SYSTEM_PROMPT = """\
       "character_id": "lowercase_underscore_id",
       "display_name": "角色中文名",
       "role": "TA 在故事里的身份（比如：父亲、未婚夫、表姐、上司）",
-      "relation_to_protagonist": "TA 与主角（玩家）的关系一句话"
+      "relation_to_protagonist": "TA 与主角（玩家）的关系一句话",
+      "hidden_objective": "TA 在这场戏里**真正想要的东西**——可能跟玩家利益冲突。一句话，60 字以内（举例：'借玩家的手当众羞辱苏曼，借机清场' / '逼玩家签下父亲留下的那份股权代持协议'）",
+      "leverage_over_player": "TA 手里**捏着的、可以伤到玩家的东西**——一个秘密、一个把柄、一笔钱、一个人质。一句话，60 字以内（举例：'知道玩家三年前烧掉的那份合同备份在他车里' / '保管着玩家弟弟的医疗账单'）"
     }
-    // 3-5 个角色
+    // 3-5 个角色，每个都必须有 hidden_objective 和 leverage_over_player
+  ],
+  "player_goals": [
+    {"goal": "玩家这场戏里**想达成的目标**，一句话不超过 40 字", "stakes": "失败的话**会损失什么**，一句话不超过 60 字"}
+    // 恰好 2-3 个，必须是玩家**有动力去争取**的事，不是 vague 的"保护自己"
+  ],
+  "failure_conditions": [
+    {"label": "短的触发器名，4-12 字（比如'公开撕脸'、'私生子曝光'）", "description": "**详细的触发条件**——什么样的玩家行为或剧情走向会让玩家提前出局。一句话不超过 80 字（举例：'玩家在前 5 回合主动公开承认伪造账目' / '玩家在公开场合对其他角色出现暴力肢体行为' / '玩家把核心证据交给反派阵营任何一个 NPC'）"}
+    // 恰好 3-4 个。这些是**真正能 game over 的硬条件**，不是软警告。设计时要让一个聪明且谨慎的玩家**绝大多数时候不会碰**，但留有"作死"的可能性
   ],
   "opening_passage": "开场叙述，第二人称（'你'），250-400 字。必须包含：① 玩家所在的具体场景 ② 至少 2 个 NPC 的当下反应 ③ 一个**正在发生**的紧张时刻（不是回忆、不是预告）④ 留给玩家一个明确的抉择窗口",
   "options": [
@@ -49,9 +62,9 @@ _OPENING_SYSTEM_PROMPT = """\
 _TURN_SYSTEM_PROMPT = """\
 你是一名擅长写关系剧的剧作家。玩家正在玩一个互动故事，你负责续写下一段。
 
-每个回合你会收到：故事种子、cast 名单、最近若干段故事历史、玩家这一回合的动作、**当前所处的故事阶段**（关键！）。
+每个回合你会收到：故事种子、cast 名单（每个 NPC 都带有 `hidden_objective` 和 `leverage_over_player`）、最近若干段故事历史、玩家这一回合的动作、**当前所处的故事阶段**（关键！）、`difficulty` 字段（`story` 或 `gauntlet`）。
 
-你的任务是续写**一段**叙述（200-400 字），并给出**3 个新选项**。
+你的任务是续写**一段**叙述（200-400 字），并给出**3 个新选项**，同时输出每个 NPC 的当下反应（`npc_pulse`）。
 
 输出**严格** JSON：
 
@@ -59,6 +72,14 @@ _TURN_SYSTEM_PROMPT = """\
   "passage": "续写的叙述。第二人称。必须呼应玩家刚才的动作，写出 NPC 的反应、关系或局势的变化、一个新的紧张点",
   "options": [
     {"label": "10-20 字的动作", "hint": "（可选）语气/代价提示"}
+  ],
+  "npc_pulse": [
+    {
+      "npc_id": "cast 中某个角色的 character_id（必须存在于 cast 名单）",
+      "state": "TA 此刻的内心状态——一句简短描述，6-14 字（举例：'撕开了温柔面具' / '被惊到说不出话' / '冷笑变成失望'）",
+      "shift": "warmer | colder | steady | wary | broken 中的一个"
+    }
+    // 列出**每个 cast 中的 NPC**，至少 2 个
   ]
 }
 
@@ -81,9 +102,73 @@ _TURN_SYSTEM_PROMPT = """\
 - reversal/climax 阶段必须密度高
 - 不要主动写"结局"，结尾由专门的 ending engine 收
 
+**博弈模式（difficulty == "gauntlet"）特殊要求**:
+当 difficulty 是 "gauntlet" 时，NPC 不再是被动反应，**他们主动朝自己的 hidden_objective 推进**：
+- 让 NPC 在场景里设局、说谎、施压、试探、抢资源——**让玩家感觉到 NPC 在"打"自己的算盘**
+- 偶尔可以让 NPC 之间出现暗中的合作或背刺，玩家未必看得清谁是谁的人
+- 玩家如果不留神，可能被 NPC 把柄反将一军（前面 cast 字段里的 `leverage_over_player`）
+- **但不要让 NPC 直接 game over 玩家**——故事的硬失败由专门的 failure 引擎判定，你不要主动写"故事结束"
+- **难度感来自压力的累积**，不是单点的暴力推进
+
+当 difficulty 是 "story" 时（默认），NPC 反应可以更温和、更顺着玩家的方向流动，让玩家"看个故事"而不是"打仗"。
+
 **选项要求**:
 - 选项必须**反映当下局势的具体可能性**，不要给"继续观察 / 离开 / 思考"这种空洞选项
 - 当 stage 接近 climax 时，选项之间的代价差异必须**显著**——一个"和解"vs"决裂"vs"复仇"那种级别的分叉
+- gauntlet 模式下，**至少有一个选项应该是"高风险高回报"**——能把局面推向玩家想要的方向，但也可能踩到 failure_conditions
+"""
+
+
+_FAILURE_JUDGE_SYSTEM_PROMPT = """\
+你是一名严苛但**克制**的剧情裁判。你的任务是判断：玩家在最近一回合的行为，**是否触发了**这场博弈预先定义的某个 failure_condition。
+
+你**只关心硬触发**：
+- 玩家**做了或说了什么具体行为**直接命中 failure 描述
+- 不要因为"局势变得紧张"就触发——必须是玩家自己的行为越线
+- 不要因为"NPC 表现出敌意"就触发——除非玩家自己越线
+- **存疑的时候不触发**。如果不能 100% 说出哪一句话或哪个动作命中了哪条 condition，就不要触发
+
+你会收到：
+- failure_conditions: 一个数组，每个元素有 label + description
+- recent_history: 最近 4-5 段对话历史（含玩家最新一段和你的最新一段叙述）
+
+输出**严格** JSON：
+
+{
+  "triggered": true/false,
+  "matched_condition_label": "如果 triggered=true，写命中的那条 condition 的 label；否则空字符串",
+  "reason": "如果 triggered=true，一句话说明玩家具体做了什么命中了哪条；否则空字符串"
+}
+
+⚠️ 重要：
+- 你的判定**会立刻让玩家这一局 game over**——别轻易触发
+- 一局 12-20 回合的故事，**预期 80%+ 玩家不会被触发**——只有作死或踩雷的玩家才该被刷下来
+- 如果玩家做了一个有风险但合理的选择，让它过——除非真的硬命中
+"""
+
+
+_EARLY_ENDING_SYSTEM_PROMPT = """\
+你是剧作家。一段博弈式短剧**提前崩盘了**——玩家做出了某个让局势瞬间不可挽回的行为，现在该写一段**早收尾**的结局。
+
+要收的不是"圆满故事"，是"翻车现场"。
+
+要求：
+- 写一段 350-500 字的 ending passage，第二人称（"你"）
+- 必须**呼应 failure_trigger 字段里给出的具体行为**——把玩家自己的越线作为崩盘的引爆点
+- 必须有"翻车感"：失控、被反将一军、众人散去、镜头拉远、灯光熄灭。**不要给救赎或回旋**
+- 这是**坏结局**——玩家应该感觉到"哎我刚才不该那么做"，但**不要训人**，只是把后果展示
+- 闭合标签**只能从这 4 个里选一个**：失控 / 反噬 / 破碎 / 沉沦
+- 副标题 25 字以内，第一人称，**带有挫败但有戏剧感**（举例："我把所有底牌一次摔光，桌上没人接" / "我赢了一场架，输了所有人"）
+
+输出**严格** JSON：
+
+{
+  "ending_passage": "...",
+  "ending_label": "失控|反噬|破碎|沉沦 中的一个",
+  "ending_subtitle": "..."
+}
+
+不要 markdown，不要其他字段。
 """
 
 
@@ -164,11 +249,24 @@ class OpeningResult:
     advisor_persona: str
     cast: list[CastMember]
     opening_message: StoryMessage
+    player_goals: list[PlayerGoal]
+    failure_conditions: list[FailureCondition]
 
 
 @dataclass(frozen=True)
 class TurnResult:
     narrator_message: StoryMessage
+
+
+@dataclass(frozen=True)
+class FailureJudgement:
+    """Verdict from judge_failure on whether the latest turn tripped a
+    failure_condition. When triggered=True, the service should call
+    synthesize_early_ending instead of advancing further."""
+
+    triggered: bool
+    matched_condition_label: str
+    reason: str
 
 
 @dataclass(frozen=True)
@@ -198,6 +296,41 @@ ENDING_LABELS: tuple[str, ...] = (
     "破碎",     # ends with nothing repaired
     "夺回",     # takes back what was taken from them
 )
+
+# Tier classification for endings. Used to pick visual treatment (gold /
+# dark / red-black banner) and to filter ending pools for early-termination
+# (collapsed only) vs full-play (any tier). Mappings are deliberate, not
+# alphabetical — they encode product judgment about what each label means
+# emotionally.
+_LABEL_TIER: dict[str, str] = {
+    # victory: player got what they wanted, even if costly
+    "复仇": "victory",
+    "和解": "victory",
+    "自由": "victory",
+    "救赎": "victory",
+    "回归": "victory",
+    "夺回": "victory",
+    # compromised: player is alive and out, but the deal is bad
+    "孤狼": "compromised",
+    "共谋": "compromised",
+    "牺牲": "compromised",
+    "同谋": "compromised",
+    "决裂": "compromised",
+    # collapsed: hard fall — losing your bearings, reality, or soul
+    "沉沦": "collapsed",
+    "失控": "collapsed",
+    "反噬": "collapsed",
+    "破碎": "collapsed",
+}
+
+# Labels we allow `synthesize_early_ending` to pick from. Always collapsed-
+# tier — early termination is by definition a fall.
+_EARLY_TERMINATION_LABELS = ("失控", "反噬", "破碎", "沉沦")
+
+
+def tier_for_label(label: str) -> str:
+    """Map an ending label to its tier, defaulting to 'compromised' on miss."""
+    return _LABEL_TIER.get(label, "compromised")
 
 
 @dataclass(frozen=True)
@@ -264,6 +397,8 @@ def _generate_opening_once(
     if not opening_passage:
         raise ValueError("missing or non-string field: opening_passage")
     options = _parse_options(payload.get("options"))
+    player_goals = _parse_player_goals(payload.get("player_goals"))
+    failure_conditions = _parse_failure_conditions(payload.get("failure_conditions"))
     opening_message = StoryMessage(
         ord=0,
         role="narrator",
@@ -276,6 +411,8 @@ def _generate_opening_once(
         advisor_persona=advisor_persona,
         cast=cast,
         opening_message=opening_message,
+        player_goals=player_goals,
+        failure_conditions=failure_conditions,
     )
 
 
@@ -307,18 +444,10 @@ def advance_turn(
     next_ord: int,
     turn_index: int = 0,
     turn_budget: int = 12,
+    difficulty: str = "story",
+    player_goals: list[PlayerGoal] | None = None,
 ) -> TurnResult:
-    """Advance one turn.
-
-    `turn_index` is 0-based: this is the index of the new narrator beat
-    we're about to write (so on the very first advance, turn_index = 1
-    because the opening was beat 0).
-
-    `turn_budget` is the planned total story length in narrator beats
-    (default 12 for the short-drama format). The engine derives a
-    stage_phase from (turn_index, turn_budget) and injects it into the
-    prompt so the model paces escalation correctly.
-    """
+    """Advance one turn."""
     stage_phase = _stage_for(turn_index, turn_budget)
     rendered_history = _render_history(history)
     user_payload: dict[str, Any] = {
@@ -330,28 +459,33 @@ def advance_turn(
         "turn_index": turn_index,
         "turn_budget": turn_budget,
         "stage_phase": stage_phase,
+        "difficulty": difficulty,
     }
+    if player_goals:
+        user_payload["player_goals"] = [g.model_dump() for g in player_goals]
+
+    valid_ids = {c.character_id for c in cast}
 
     # First attempt
     payload = _invoke_turn(gateway, user_payload, retry_feedback=None)
     passage = _extract_passage(payload)
     options = _parse_options(payload.get("options") or payload.get("next_options"))
+    npc_pulse = _parse_npc_pulse(payload.get("npc_pulse"), valid_ids)
     if not passage:
         print(
             "[narrative.retry] operation=advance_turn attempt=1 error=empty_passage_field",
             flush=True,
         )
-        # Retry once with explicit feedback. Free-input turns occasionally trip
-        # the model into outputting wrong field names or empty strings; one
-        # corrective retry catches almost all of these.
         feedback = (
             "Your previous output was missing a non-empty `passage` field. "
-            "Output strict JSON with two top-level fields: `passage` (string) "
-            "and `options` (array of {label, hint})."
+            "Output strict JSON with three top-level fields: `passage` (string), "
+            "`options` (array of {label, hint}), and `npc_pulse` (array of "
+            "{npc_id, state, shift})."
         )
         payload = _invoke_turn(gateway, user_payload, retry_feedback=feedback)
         passage = _extract_passage(payload)
         options = _parse_options(payload.get("options") or payload.get("next_options"))
+        npc_pulse = _parse_npc_pulse(payload.get("npc_pulse"), valid_ids)
         if passage:
             print(
                 "[narrative.retry] operation=advance_turn recovered_on_attempt=2",
@@ -366,8 +500,84 @@ def advance_turn(
             content=passage,
             options=options,
             chosen_option_index=None,
+            npc_pulse=npc_pulse,
         )
     )
+
+
+def judge_failure(
+    *,
+    gateway: NarrativeLLMGateway,
+    failure_conditions: list[FailureCondition],
+    history: list[StoryMessage],
+) -> FailureJudgement:
+    """Per-turn (gauntlet only) check whether the player just tripped a
+    failure condition. Cheap LLM call, max 200 tokens output. Designed to
+    be conservative — unsure → don't trigger."""
+    if not failure_conditions:
+        return FailureJudgement(triggered=False, matched_condition_label="", reason="")
+
+    # Use the last 5 messages so the model has both player action and
+    # narrator's reaction context.
+    recent = history[-5:] if len(history) > 5 else history
+    rendered = [{"role": m.role, "content": m.content} for m in recent]
+    user_payload: dict[str, Any] = {
+        "failure_conditions": [c.model_dump() for c in failure_conditions],
+        "recent_history": rendered,
+    }
+    response = gateway.invoke_json(
+        system_prompt=_FAILURE_JUDGE_SYSTEM_PROMPT,
+        user_payload=user_payload,
+        operation_name="narrative.judge_failure",
+        max_output_tokens=400,
+    )
+    payload = _coerce_dict(response.payload)
+    triggered = bool(payload.get("triggered"))
+    matched = str(payload.get("matched_condition_label") or "").strip()[:80]
+    reason = str(payload.get("reason") or "").strip()[:200]
+    if triggered and not matched:
+        # Defensively don't honor a triggered=true without a matched label —
+        # could be a hallucination.
+        triggered = False
+    return FailureJudgement(triggered=triggered, matched_condition_label=matched, reason=reason)
+
+
+def synthesize_early_ending(
+    *,
+    gateway: NarrativeLLMGateway,
+    seed: str,
+    title: str,
+    cast: list[CastMember],
+    history: list[StoryMessage],
+    failure_trigger: str,
+    failure_reason: str,
+) -> EndingResult:
+    """Generate a 'collapsed' ending when judge_failure flagged a trigger.
+    Result label is constrained to {失控, 反噬, 破碎, 沉沦}."""
+    user_payload: dict[str, Any] = {
+        "seed": seed,
+        "title": title,
+        "cast": [c.model_dump() for c in cast],
+        "story_so_far": [{"role": m.role, "content": m.content} for m in history],
+        "failure_trigger": failure_trigger,
+        "failure_reason": failure_reason,
+    }
+    response = gateway.invoke_json(
+        system_prompt=_EARLY_ENDING_SYSTEM_PROMPT,
+        user_payload=user_payload,
+        operation_name="narrative.early_ending",
+        max_output_tokens=1500,
+    )
+    payload = _coerce_dict(response.payload)
+    passage = _require_str(payload, "ending_passage", limit=4000)
+    label = _require_str(payload, "ending_label", limit=20)
+    subtitle = _require_str(payload, "ending_subtitle", limit=80)
+    # Force into the early-termination label pool.
+    if label not in _EARLY_TERMINATION_LABELS:
+        label = _normalize_ending_label(label)
+        if label not in _EARLY_TERMINATION_LABELS:
+            label = "失控"
+    return EndingResult(passage=passage, label=label, subtitle=subtitle)
 
 
 def _stage_for(turn_index: int, turn_budget: int) -> str:
@@ -619,11 +829,15 @@ def _parse_cast(raw: Any) -> list[CastMember]:
             display_name = str(item.get("display_name") or item.get("name") or f"角色{idx + 1}").strip()
             role = str(item.get("role") or "未知身份").strip() or "未知身份"
             relation = str(item.get("relation_to_protagonist") or item.get("relation") or "与你相关").strip() or "与你相关"
+            objective = item.get("hidden_objective")
+            leverage = item.get("leverage_over_player")
             member = CastMember(
                 character_id=cid,
                 display_name=display_name,
                 role=role,
                 relation_to_protagonist=relation,
+                hidden_objective=str(objective).strip()[:200] if isinstance(objective, str) and objective.strip() else None,
+                leverage_over_player=str(leverage).strip()[:200] if isinstance(leverage, str) and leverage.strip() else None,
             )
         if member.character_id in seen_ids:
             continue
@@ -632,6 +846,62 @@ def _parse_cast(raw: Any) -> list[CastMember]:
     if len(members) < 2:
         raise ValueError(f"cast too small after sanitization: {len(members)}")
     return members[:8]
+
+
+def _parse_player_goals(raw: Any) -> list[PlayerGoal]:
+    """Best-effort parse — silently drops malformed entries instead of raising,
+    because in story-mode we don't strictly need goals to play."""
+    goals: list[PlayerGoal] = []
+    if not isinstance(raw, list):
+        return goals
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        goal = str(item.get("goal") or "").strip()
+        stakes = str(item.get("stakes") or "").strip()
+        if not goal or not stakes:
+            continue
+        goals.append(PlayerGoal(goal=goal[:120], stakes=stakes[:160]))
+    return goals[:5]
+
+
+def _parse_failure_conditions(raw: Any) -> list[FailureCondition]:
+    conds: list[FailureCondition] = []
+    if not isinstance(raw, list):
+        return conds
+    for idx, item in enumerate(raw):
+        if not isinstance(item, dict):
+            continue
+        label = str(item.get("label") or f"触发器{idx+1}").strip()
+        desc = str(item.get("description") or "").strip()
+        if not desc:
+            continue
+        conds.append(FailureCondition(label=label[:80], description=desc[:200]))
+    return conds[:6]
+
+
+def _parse_npc_pulse(raw: Any, valid_ids: set[str]) -> list[NPCPulse]:
+    """Parse npc_pulse from a turn payload. Drops entries with unknown
+    npc_id (LLM occasionally hallucinates names not in cast). Coerces the
+    shift literal to one of the allowed values."""
+    pulses: list[NPCPulse] = []
+    if not isinstance(raw, list):
+        return pulses
+    allowed_shifts = {"warmer", "colder", "steady", "wary", "broken"}
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        npc_id = str(item.get("npc_id") or item.get("character_id") or "").strip().lower()
+        state = str(item.get("state") or "").strip()
+        shift = str(item.get("shift") or "steady").strip().lower()
+        if not npc_id or npc_id not in valid_ids:
+            continue
+        if not state:
+            continue
+        if shift not in allowed_shifts:
+            shift = "steady"
+        pulses.append(NPCPulse(npc_id=npc_id, state=state[:80], shift=shift))  # type: ignore[arg-type]
+    return pulses
 
 
 def _parse_options(raw: Any) -> list[StoryOption]:

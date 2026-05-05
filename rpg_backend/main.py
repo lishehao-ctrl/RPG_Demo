@@ -60,6 +60,7 @@ from rpg_backend.narrative.contracts import (
     NarrativeTemplateSummary,
     PublicReplayResponse,
     SessionListResponse,
+    StartSessionRequest,
     StartSessionResponse,
     StoryHistoryResponse,
     TemplateListResponse,
@@ -490,11 +491,20 @@ def update_narrative_template_visibility(
 )
 def start_narrative_session(
     template_id: str,
+    payload: StartSessionRequest | None = None,
     user=Depends(get_required_request_user),
 ) -> StartSessionResponse:
     """Fork a fresh session on an existing template. No LLM call — opening
-    is cloned from the template so two players see the same intro."""
-    return narrative_service.start_session(template_id, player_user_id=user.user_id)
+    is cloned from the template so two players see the same intro.
+
+    Body is optional; default = 12-turn story mode."""
+    body = payload or StartSessionRequest()
+    return narrative_service.start_session(
+        template_id,
+        player_user_id=user.user_id,
+        turn_budget=body.turn_budget,
+        difficulty=body.difficulty,
+    )
 
 
 @app.get("/narrative/sessions/{session_id}/story", response_model=StoryHistoryResponse)

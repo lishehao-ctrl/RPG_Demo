@@ -9,8 +9,13 @@ from typing import Any
 from rpg_backend.narrative.contracts import (
     AdvisorMessage,
     CastMember,
+    Difficulty,
+    EndingTier,
+    FailureCondition,
     NarrativeSession,
     NarrativeTemplate,
+    NPCPulse,
+    PlayerGoal,
     StoryMessage,
     StoryOption,
     TemplateVisibility,
@@ -75,17 +80,28 @@ class NarrativeRepository:
             )
             """
         )
-        # Migrate existing sessions (pre-budget schema) — add columns if missing.
-        # Idempotent: SQLite errors silently if column already exists, so we
-        # check pragma first.
+        # Migrate existing sessions/templates — add gauntlet-mode columns
+        # if missing. Idempotent: ALTER errors are swallowed by the
+        # column-existence check.
         existing_cols = {row[1] for row in connection.execute("PRAGMA table_info(narrative_sessions)").fetchall()}
         for col, ddl in (
             ("turn_budget", "ALTER TABLE narrative_sessions ADD COLUMN turn_budget INTEGER NOT NULL DEFAULT 12"),
             ("ending_label", "ALTER TABLE narrative_sessions ADD COLUMN ending_label TEXT"),
             ("ending_subtitle", "ALTER TABLE narrative_sessions ADD COLUMN ending_subtitle TEXT"),
             ("ending_passage", "ALTER TABLE narrative_sessions ADD COLUMN ending_passage TEXT"),
+            ("difficulty", "ALTER TABLE narrative_sessions ADD COLUMN difficulty TEXT NOT NULL DEFAULT 'story'"),
+            ("ending_tier", "ALTER TABLE narrative_sessions ADD COLUMN ending_tier TEXT"),
+            ("early_terminated", "ALTER TABLE narrative_sessions ADD COLUMN early_terminated INTEGER NOT NULL DEFAULT 0"),
+            ("failure_trigger", "ALTER TABLE narrative_sessions ADD COLUMN failure_trigger TEXT"),
         ):
             if col not in existing_cols:
+                connection.execute(ddl)
+        existing_template_cols = {row[1] for row in connection.execute("PRAGMA table_info(narrative_templates)").fetchall()}
+        for col, ddl in (
+            ("player_goals_json", "ALTER TABLE narrative_templates ADD COLUMN player_goals_json TEXT NOT NULL DEFAULT '[]'"),
+            ("failure_conditions_json", "ALTER TABLE narrative_templates ADD COLUMN failure_conditions_json TEXT NOT NULL DEFAULT '[]'"),
+        ):
+            if col not in existing_template_cols:
                 connection.execute(ddl)
         connection.execute(
             """
@@ -96,11 +112,17 @@ class NarrativeRepository:
                 content TEXT NOT NULL,
                 options_json TEXT NOT NULL DEFAULT '[]',
                 chosen_option_index INTEGER,
+                npc_pulse_json TEXT NOT NULL DEFAULT '[]',
                 PRIMARY KEY (session_id, ord),
                 FOREIGN KEY (session_id) REFERENCES narrative_sessions(session_id) ON DELETE CASCADE
             )
             """
         )
+        existing_msg_cols = {row[1] for row in connection.execute("PRAGMA table_info(narrative_story_messages)").fetchall()}
+        if "npc_pulse_json" not in existing_msg_cols:
+            connection.execute(
+                "ALTER TABLE narrative_story_messages ADD COLUMN npc_pulse_json TEXT NOT NULL DEFAULT '[]'"
+            )
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS narrative_advisor_messages (
@@ -146,6 +168,8 @@ class NarrativeRepository:
         advisor_persona: str,
         opening_passage: str,
         opening_options: list[StoryOption],
+        player_goals: list[PlayerGoal],
+        failure_conditions: list[FailureCondition],
         visibility: TemplateVisibility,
     ) -> NarrativeTemplate:
         created_at = _utc_now()
@@ -155,8 +179,9 @@ class NarrativeRepository:
                 INSERT INTO narrative_templates
                 (template_id, owner_user_id, seed, title, cast_json,
                  advisor_persona, opening_passage, opening_options_json,
+                 player_goals_json, failure_conditions_json,
                  visibility, play_count, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
                 """,
                 (
                     template_id,
@@ -167,6 +192,8 @@ class NarrativeRepository:
                     advisor_persona,
                     opening_passage,
                     json.dumps([o.model_dump() for o in opening_options], ensure_ascii=False),
+                    json.dumps([g.model_dump() for g in player_goals], ensure_ascii=False),
+                    json.dumps([f.model_dump() for f in failure_conditions], ensure_ascii=False),
                     visibility,
                     created_at,
                 ),
@@ -181,6 +208,8 @@ class NarrativeRepository:
             advisor_persona=advisor_persona,
             opening_passage=opening_passage,
             opening_options=opening_options,
+            player_goals=player_goals,
+            failure_conditions=failure_conditions,
             visibility=visibility,
             play_count=0,
             created_at=created_at,
@@ -252,16 +281,17 @@ class NarrativeRepository:
         template_id: str,
         player_user_id: str,
         turn_budget: int = 12,
+        difficulty: Difficulty = "story",
     ) -> NarrativeSession:
         now = _utc_now()
         with self._connect() as conn:
             conn.execute(
                 """
                 INSERT INTO narrative_sessions
-                (session_id, template_id, player_user_id, turn_count, turn_budget, created_at, last_active_at)
-                VALUES (?, ?, ?, 0, ?, ?, ?)
+                (session_id, template_id, player_user_id, turn_count, turn_budget, difficulty, created_at, last_active_at)
+                VALUES (?, ?, ?, 0, ?, ?, ?, ?)
                 """,
-                (session_id, template_id, player_user_id, turn_budget, now, now),
+                (session_id, template_id, player_user_id, turn_budget, difficulty, now, now),
             )
             conn.commit()
         return NarrativeSession(
@@ -270,9 +300,13 @@ class NarrativeRepository:
             player_user_id=player_user_id,
             turn_count=0,
             turn_budget=turn_budget,
+            difficulty=difficulty,
             ending_label=None,
             ending_subtitle=None,
             ending_passage=None,
+            ending_tier=None,
+            early_terminated=False,
+            failure_trigger=None,
             created_at=now,
             last_active_at=now,
         )
@@ -284,15 +318,29 @@ class NarrativeRepository:
         label: str,
         subtitle: str,
         passage: str,
+        tier: EndingTier,
+        early_terminated: bool = False,
+        failure_trigger: str | None = None,
     ) -> None:
         with self._connect() as conn:
             conn.execute(
                 """
                 UPDATE narrative_sessions
-                SET ending_label = ?, ending_subtitle = ?, ending_passage = ?, last_active_at = ?
+                SET ending_label = ?, ending_subtitle = ?, ending_passage = ?,
+                    ending_tier = ?, early_terminated = ?, failure_trigger = ?,
+                    last_active_at = ?
                 WHERE session_id = ?
                 """,
-                (label, subtitle, passage, _utc_now(), session_id),
+                (
+                    label,
+                    subtitle,
+                    passage,
+                    tier,
+                    1 if early_terminated else 0,
+                    failure_trigger,
+                    _utc_now(),
+                    session_id,
+                ),
             )
             conn.commit()
 
@@ -365,8 +413,8 @@ class NarrativeRepository:
             conn.execute(
                 """
                 INSERT INTO narrative_story_messages
-                (session_id, ord, role, content, options_json, chosen_option_index)
-                VALUES (?, ?, ?, ?, ?, ?)
+                (session_id, ord, role, content, options_json, chosen_option_index, npc_pulse_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     session_id,
@@ -375,6 +423,7 @@ class NarrativeRepository:
                     message.content,
                     json.dumps([o.model_dump() for o in message.options], ensure_ascii=False),
                     message.chosen_option_index,
+                    json.dumps([p.model_dump() for p in message.npc_pulse], ensure_ascii=False),
                 ),
             )
             conn.commit()
@@ -383,7 +432,7 @@ class NarrativeRepository:
         with self._connect() as conn:
             rows = conn.execute(
                 """
-                SELECT ord, role, content, options_json, chosen_option_index
+                SELECT ord, role, content, options_json, chosen_option_index, npc_pulse_json
                 FROM narrative_story_messages
                 WHERE session_id = ?
                 ORDER BY ord ASC
@@ -465,8 +514,14 @@ class NarrativeRepository:
 
 
 def _row_to_template(row: sqlite3.Row) -> NarrativeTemplate:
+    keys = row.keys()
     cast_raw = json.loads(row["cast_json"])
-    cast = [CastMember.model_validate(item) for item in cast_raw]
+    cast: list[CastMember] = []
+    for item in cast_raw:
+        try:
+            cast.append(CastMember.model_validate(item))
+        except Exception:  # noqa: BLE001
+            continue
     options_raw: Any = json.loads(row["opening_options_json"]) if row["opening_options_json"] else []
     options: list[StoryOption] = []
     if isinstance(options_raw, list):
@@ -476,6 +531,30 @@ def _row_to_template(row: sqlite3.Row) -> NarrativeTemplate:
                     options.append(StoryOption.model_validate(item))
                 except Exception:  # noqa: BLE001
                     continue
+    goals: list[PlayerGoal] = []
+    if "player_goals_json" in keys and row["player_goals_json"]:
+        try:
+            goals_raw = json.loads(row["player_goals_json"])
+            for item in goals_raw if isinstance(goals_raw, list) else []:
+                if isinstance(item, dict):
+                    try:
+                        goals.append(PlayerGoal.model_validate(item))
+                    except Exception:  # noqa: BLE001
+                        continue
+        except Exception:  # noqa: BLE001
+            pass
+    conds: list[FailureCondition] = []
+    if "failure_conditions_json" in keys and row["failure_conditions_json"]:
+        try:
+            conds_raw = json.loads(row["failure_conditions_json"])
+            for item in conds_raw if isinstance(conds_raw, list) else []:
+                if isinstance(item, dict):
+                    try:
+                        conds.append(FailureCondition.model_validate(item))
+                    except Exception:  # noqa: BLE001
+                        continue
+        except Exception:  # noqa: BLE001
+            pass
     return NarrativeTemplate(
         template_id=row["template_id"],
         owner_user_id=row["owner_user_id"],
@@ -485,6 +564,8 @@ def _row_to_template(row: sqlite3.Row) -> NarrativeTemplate:
         advisor_persona=row["advisor_persona"],
         opening_passage=row["opening_passage"],
         opening_options=options,
+        player_goals=goals,
+        failure_conditions=conds,
         visibility=row["visibility"],
         play_count=int(row["play_count"]),
         created_at=row["created_at"],
@@ -493,21 +574,34 @@ def _row_to_template(row: sqlite3.Row) -> NarrativeTemplate:
 
 def _row_to_session(row: sqlite3.Row) -> NarrativeSession:
     keys = row.keys()
+    raw_difficulty = row["difficulty"] if "difficulty" in keys else "story"
+    difficulty: Difficulty = "gauntlet" if raw_difficulty == "gauntlet" else "story"
+    raw_tier = row["ending_tier"] if "ending_tier" in keys else None
+    ending_tier: EndingTier | None
+    if raw_tier in ("victory", "compromised", "collapsed"):
+        ending_tier = raw_tier  # type: ignore[assignment]
+    else:
+        ending_tier = None
     return NarrativeSession(
         session_id=row["session_id"],
         template_id=row["template_id"],
         player_user_id=row["player_user_id"],
         turn_count=int(row["turn_count"]),
         turn_budget=int(row["turn_budget"]) if "turn_budget" in keys else 12,
+        difficulty=difficulty,
         ending_label=row["ending_label"] if "ending_label" in keys else None,
         ending_subtitle=row["ending_subtitle"] if "ending_subtitle" in keys else None,
         ending_passage=row["ending_passage"] if "ending_passage" in keys else None,
+        ending_tier=ending_tier,
+        early_terminated=bool(row["early_terminated"]) if "early_terminated" in keys else False,
+        failure_trigger=row["failure_trigger"] if "failure_trigger" in keys else None,
         created_at=row["created_at"],
         last_active_at=row["last_active_at"],
     )
 
 
 def _row_to_story_message(row: sqlite3.Row) -> StoryMessage:
+    keys = row.keys()
     options_raw: Any = json.loads(row["options_json"]) if row["options_json"] else []
     options: list[StoryOption] = []
     if isinstance(options_raw, list):
@@ -517,6 +611,18 @@ def _row_to_story_message(row: sqlite3.Row) -> StoryMessage:
                     options.append(StoryOption.model_validate(item))
                 except Exception:  # noqa: BLE001
                     continue
+    pulse: list[NPCPulse] = []
+    if "npc_pulse_json" in keys and row["npc_pulse_json"]:
+        try:
+            pulse_raw = json.loads(row["npc_pulse_json"])
+            for item in pulse_raw if isinstance(pulse_raw, list) else []:
+                if isinstance(item, dict):
+                    try:
+                        pulse.append(NPCPulse.model_validate(item))
+                    except Exception:  # noqa: BLE001
+                        continue
+        except Exception:  # noqa: BLE001
+            pass
     chosen = row["chosen_option_index"]
     return StoryMessage(
         ord=int(row["ord"]),
@@ -524,4 +630,5 @@ def _row_to_story_message(row: sqlite3.Row) -> StoryMessage:
         content=row["content"],
         options=options,
         chosen_option_index=int(chosen) if chosen is not None else None,
+        npc_pulse=pulse,
     )

@@ -17,6 +17,35 @@ class CastMember(BaseModel):
     display_name: str = Field(min_length=1, max_length=40)
     role: str = Field(min_length=1, max_length=80)
     relation_to_protagonist: str = Field(min_length=1, max_length=120)
+    # Gauntlet-mode adversarial fields. None for story-mode templates.
+    hidden_objective: str | None = Field(default=None, max_length=200)
+    leverage_over_player: str | None = Field(default=None, max_length=200)
+
+
+class PlayerGoal(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    goal: str = Field(min_length=1, max_length=120)
+    stakes: str = Field(min_length=1, max_length=160)
+
+
+class FailureCondition(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    label: str = Field(min_length=1, max_length=80)  # short trigger name
+    description: str = Field(min_length=1, max_length=200)  # readable rule
+
+
+class NPCPulse(BaseModel):
+    """Per-turn snapshot of how each NPC is shifting. Generated alongside
+    each narrator beat. Front-end shows these as small chips between turns
+    so the player feels their choices register."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    npc_id: str = Field(min_length=1, max_length=64)
+    state: str = Field(min_length=1, max_length=80)
+    shift: Literal["warmer", "colder", "steady", "wary", "broken"] = "steady"
 
 
 class StoryOption(BaseModel):
@@ -34,6 +63,10 @@ class StoryMessage(BaseModel):
     content: str = Field(min_length=1)
     options: list[StoryOption] = Field(default_factory=list)
     chosen_option_index: int | None = None
+    # Optional per-turn NPC pulse — emitted by gauntlet-mode turns and
+    # rendered as chips between story beats. None for story-mode runs
+    # (or for player messages, which never have a pulse).
+    npc_pulse: list[NPCPulse] = Field(default_factory=list)
 
 
 class AdvisorMessage(BaseModel):
@@ -50,6 +83,8 @@ class AdvisorMessage(BaseModel):
 
 
 TemplateVisibility = Literal["private", "unlisted", "public"]
+Difficulty = Literal["story", "gauntlet"]
+EndingTier = Literal["victory", "compromised", "collapsed"]
 
 
 class NarrativeTemplate(BaseModel):
@@ -65,6 +100,11 @@ class NarrativeTemplate(BaseModel):
     advisor_persona: str = Field(min_length=1, max_length=200)
     opening_passage: str = Field(min_length=1, max_length=4000)
     opening_options: list[StoryOption] = Field(default_factory=list)
+    # Gauntlet-mode shared scaffolding (lives on the template so all sessions
+    # forking the same template fight the same fight). Always populated by
+    # the opening engine; only ENFORCED when session.difficulty == "gauntlet".
+    player_goals: list[PlayerGoal] = Field(default_factory=list)
+    failure_conditions: list[FailureCondition] = Field(default_factory=list)
     visibility: TemplateVisibility = "private"
     play_count: int = Field(default=0, ge=0)
     created_at: str = Field(min_length=1)
@@ -81,6 +121,8 @@ class NarrativeTemplateSummary(BaseModel):
     title: str
     cast: list[CastMember]
     advisor_persona: str
+    player_goals: list[PlayerGoal] = Field(default_factory=list)
+    failure_conditions: list[FailureCondition] = Field(default_factory=list)
     visibility: TemplateVisibility
     play_count: int
     created_at: str
@@ -100,9 +142,13 @@ class NarrativeSession(BaseModel):
     player_user_id: str = Field(min_length=1, max_length=80)
     turn_count: int = Field(ge=0)
     turn_budget: int = Field(default=12, ge=4, le=40)
+    difficulty: Difficulty = "story"
     ending_label: str | None = None
     ending_subtitle: str | None = None
     ending_passage: str | None = None
+    ending_tier: EndingTier | None = None
+    early_terminated: bool = False
+    failure_trigger: str | None = None
     created_at: str
     last_active_at: str
 
@@ -117,8 +163,11 @@ class NarrativeSessionSummary(BaseModel):
     player_user_id: str
     turn_count: int
     turn_budget: int = 12
+    difficulty: Difficulty = "story"
     ending_label: str | None = None
     ending_subtitle: str | None = None
+    ending_tier: EndingTier | None = None
+    early_terminated: bool = False
     created_at: str
     last_active_at: str
 
@@ -129,6 +178,9 @@ class NarrativeEnding(BaseModel):
     label: str = Field(min_length=1, max_length=40)
     subtitle: str = Field(min_length=1, max_length=80)
     passage: str = Field(min_length=1, max_length=4000)
+    tier: EndingTier = "compromised"
+    early_terminated: bool = False
+    failure_trigger: str | None = None
 
 
 class EndingDistributionEntry(BaseModel):
@@ -160,8 +212,10 @@ class PublicReplayResponse(BaseModel):
     template_seed: str
     cast: list[CastMember]
     advisor_persona: str
+    player_goals: list[PlayerGoal] = Field(default_factory=list)
     turn_budget: int
     turn_count: int
+    difficulty: Difficulty = "story"
     completed: bool
     ending: NarrativeEnding | None
     messages: list[StoryMessage]
@@ -180,6 +234,7 @@ class CreateTemplateRequest(BaseModel):
     seed: str = Field(min_length=1, max_length=4000)
     visibility: TemplateVisibility = "private"
     turn_budget: int = Field(default=12, ge=4, le=40)
+    difficulty: Difficulty = "story"
 
 
 class CreateTemplateResponse(BaseModel):
@@ -193,6 +248,13 @@ class CreateTemplateResponse(BaseModel):
     template: NarrativeTemplateSummary
     session: NarrativeSessionSummary
     opening: StoryMessage
+
+
+class StartSessionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    turn_budget: int = Field(default=12, ge=4, le=40)
+    difficulty: Difficulty = "story"
 
 
 class StartSessionResponse(BaseModel):

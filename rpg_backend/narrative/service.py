@@ -41,6 +41,19 @@ from rpg_backend.narrative.gateway import (
 from rpg_backend.narrative.repository import NarrativeNotFoundError, NarrativeRepository
 
 
+def _emit_metric(event: str, **fields: object) -> None:
+    """Tag-only metric emission. Format is grep-friendly and parses as
+    one event per line:
+        [narrative.metric] event=template_created template_id=tmpl_xxx ...
+
+    No external dependency — production deployment can pipe these
+    through stdout to a log shipper (cloudwatch / loki / fluent) and
+    aggregate later. We don't try to maintain a counter in-process
+    (multi-worker would lie); just emit one line per event."""
+    parts = [f"{k}={v}" for k, v in fields.items()]
+    print(f"[narrative.metric] event={event} {' '.join(parts)}", flush=True)
+
+
 class NarrativeServiceError(RuntimeError):
     def __init__(self, *, code: str, message: str, status_code: int) -> None:
         super().__init__(message)
@@ -139,6 +152,14 @@ class NarrativeService:
         # Auto-create the creator's session.
         session, opening_message = self._spawn_session(template, owner_user_id, request.turn_budget)
 
+        _emit_metric(
+            "template_created",
+            template_id=template_id,
+            owner=owner_user_id,
+            visibility=request.visibility,
+            turn_budget=request.turn_budget,
+            seed_chars=len(seed),
+        )
         return CreateTemplateResponse(
             template=_summarize_template(template, viewer_user_id=owner_user_id),
             session=_summarize_session(session, template),
@@ -184,6 +205,14 @@ class NarrativeService:
     ) -> StartSessionResponse:
         template = self._load_template_for_viewer(template_id, player_user_id)
         session, opening_message = self._spawn_session(template, player_user_id, turn_budget)
+        _emit_metric(
+            "session_started",
+            template_id=template_id,
+            session_id=session.session_id,
+            player=player_user_id,
+            is_owner=int(template.owner_user_id == player_user_id),
+            turn_budget=turn_budget,
+        )
         return StartSessionResponse(
             template=_summarize_template(template, viewer_user_id=player_user_id),
             session=_summarize_session(session, template),
@@ -346,6 +375,12 @@ class NarrativeService:
             subtitle=result.subtitle,
             passage=result.passage,
         )
+        _emit_metric(
+            "session_completed",
+            session_id=session_id,
+            template_id=template.template_id,
+            ending_label=result.label,
+        )
         return NarrativeEnding(
             label=result.label,
             subtitle=result.subtitle,
@@ -382,6 +417,9 @@ class NarrativeService:
         )
 
     def get_public_replay(self, session_id: str) -> PublicReplayResponse:
+        # Emit a metric so we can see how often replays are viewed —
+        # proxy for share virality.
+        _emit_metric("replay_viewed", session_id=session_id)
         """Public, auth-free read of a completed (or in-progress) session.
 
         Anyone with the session_id URL can see the full playthrough — that's

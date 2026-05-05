@@ -7,6 +7,7 @@ export type AppRoute =
   | { name: "template"; templateId: string }
   | { name: "play"; sessionId: string }
   | { name: "replay"; sessionId: string }
+  | { name: "about" }
 
 function parseRoute(hash: string): AppRoute {
   const raw = hash.replace(/^#/, "") || "/"
@@ -32,6 +33,9 @@ function parseRoute(hash: string): AppRoute {
   if (segments[0] === "replay" && segments[1]) {
     return { name: "replay", sessionId: segments[1] }
   }
+  if (segments[0] === "about") {
+    return { name: "about" }
+  }
   return { name: "home" }
 }
 
@@ -54,6 +58,8 @@ export function buildHash(route: AppRoute): string {
       return `#/play/${route.sessionId}`
     case "replay":
       return `#/replay/${route.sessionId}`
+    case "about":
+      return "#/about"
   }
 }
 

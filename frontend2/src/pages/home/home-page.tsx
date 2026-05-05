@@ -80,16 +80,21 @@ export function HomePage({
 
       <main style={hpStyles.main}>
         <section style={hpStyles.hero}>
+          <div style={hpStyles.heroTagline}>互动短剧 · 你来决定</div>
           <h1 style={hpStyles.heroTitle}>
             一句话起头，
             <br />
-            AI 给你一整个故事。
+            AI 给你一整集短剧。
           </h1>
           <p style={hpStyles.heroSub}>
-            写下任何一个人物关系的瞬间——
-            豪门家宴、办公室博弈、初恋重逢、深夜电话——
-            AI 立刻为你搭起场景、人物、第一个戏剧时刻，然后你接手往下玩。
+            15 分钟一局 · 朋友们玩同一个开场，看谁玩出什么结局。
           </p>
+          <ul style={hpStyles.heroBullets}>
+            <li><span style={hpStyles.heroBulletDot}>·</span>写一个戏剧瞬间，AI 立刻搭起场景、人物、第一段</li>
+            <li><span style={hpStyles.heroBulletDot}>·</span>每回合 300 字叙述 + 选项 / 自由输入</li>
+            <li><span style={hpStyles.heroBulletDot}>·</span>右下角私聊"局外人朋友"——TA 不替你做决定，会陪你想清楚</li>
+            <li><span style={hpStyles.heroBulletDot}>·</span>结局可分享，可看朋友走出什么版本</li>
+          </ul>
           <div style={hpStyles.heroActions}>
             <button
               className="ts-btn ts-btn--primary ts-btn--lg"
@@ -101,20 +106,10 @@ export function HomePage({
           </div>
         </section>
 
-        {/* Continue playing (my sessions) — only when signed in and has sessions */}
+        {/* My sessions split into in-progress + completed groups. Only
+            shown when signed in and at least one exists. */}
         {!auth.isAnonymous && mySessions && mySessions.length > 0 ? (
-          <section style={hpStyles.section}>
-            <SectionHeader title="继续未完成的故事" />
-            <div style={hpStyles.sessionRow}>
-              {mySessions.slice(0, 6).map((s) => (
-                <SessionCard
-                  key={s.session_id}
-                  session={s}
-                  onClick={() => onOpenPlay(s.session_id)}
-                />
-              ))}
-            </div>
-          </section>
+          <MySessionsSection sessions={mySessions} onOpenPlay={onOpenPlay} />
         ) : null}
 
         <section style={hpStyles.section}>
@@ -156,6 +151,28 @@ export function HomePage({
             />
           )}
         </section>
+
+        <footer style={hpStyles.footer}>
+          <span style={hpStyles.footerBrand}>Tiny Stories</span>
+          <span style={hpStyles.footerSep}>·</span>
+          <a
+            href="#/about"
+            style={hpStyles.footerLink}
+            onClick={(e) => {
+              e.preventDefault()
+              window.location.hash = "#/about"
+            }}
+          >
+            关于 / 隐私
+          </a>
+          <span style={hpStyles.footerSep}>·</span>
+          <a
+            href="mailto:hello@tinystories.app"
+            style={hpStyles.footerLink}
+          >
+            联系我们
+          </a>
+        </footer>
       </main>
     </div>
   )
@@ -169,6 +186,50 @@ function SectionHeader({ title }: { title: string }) {
   )
 }
 
+function MySessionsSection({
+  sessions,
+  onOpenPlay,
+}: {
+  sessions: NarrativeSessionSummary[]
+  onOpenPlay: (sessionId: string) => void
+}) {
+  // Split: in-progress (no ending) above, completed (has ending) below.
+  const inProgress = sessions.filter((s) => !s.ending_label)
+  const completed = sessions.filter((s) => Boolean(s.ending_label))
+  return (
+    <>
+      {inProgress.length > 0 ? (
+        <section style={hpStyles.section}>
+          <SectionHeader title="继续未完成的故事" />
+          <div style={hpStyles.sessionRow}>
+            {inProgress.slice(0, 6).map((s) => (
+              <SessionCard
+                key={s.session_id}
+                session={s}
+                onClick={() => onOpenPlay(s.session_id)}
+              />
+            ))}
+          </div>
+        </section>
+      ) : null}
+      {completed.length > 0 ? (
+        <section style={hpStyles.section}>
+          <SectionHeader title="我玩完的故事" />
+          <div style={hpStyles.sessionRow}>
+            {completed.slice(0, 6).map((s) => (
+              <SessionCard
+                key={s.session_id}
+                session={s}
+                onClick={() => onOpenPlay(s.session_id)}
+              />
+            ))}
+          </div>
+        </section>
+      ) : null}
+    </>
+  )
+}
+
 function SessionCard({
   session,
   onClick,
@@ -176,12 +237,28 @@ function SessionCard({
   session: NarrativeSessionSummary
   onClick: () => void
 }) {
+  const completed = Boolean(session.ending_label)
   return (
     <button style={hpStyles.sessionCard} onClick={onClick} type="button">
       <div style={hpStyles.sessionTitle}>{session.template_title}</div>
-      <div style={hpStyles.sessionMeta}>
-        第 {session.turn_count + 1} 段 · {formatRelative(session.last_active_at)}
-      </div>
+      {completed ? (
+        <>
+          <div style={hpStyles.sessionEndingLine}>
+            <span style={hpStyles.sessionEndingLabel}>{session.ending_label}</span>
+            <span style={hpStyles.sessionEndingSubtitle}>
+              「{session.ending_subtitle}」
+            </span>
+          </div>
+          <div style={hpStyles.sessionMeta}>
+            完结 · {formatRelative(session.last_active_at)}
+          </div>
+        </>
+      ) : (
+        <div style={hpStyles.sessionMeta}>
+          第 {session.turn_count + 1} / {session.turn_budget} 段 ·{" "}
+          {formatRelative(session.last_active_at)}
+        </div>
+      )}
     </button>
   )
 }
@@ -291,21 +368,51 @@ const hpStyles: Record<string, CSSProperties> = {
     color: "white",
     marginBottom: 12,
   },
+  heroTagline: {
+    display: "inline-block",
+    fontSize: 12,
+    letterSpacing: "0.18em",
+    color: "rgba(255,255,255,0.75)",
+    padding: "5px 14px",
+    border: "1px solid rgba(255,255,255,0.22)",
+    borderRadius: 999,
+    marginBottom: 18,
+    backdropFilter: "blur(6px)",
+  },
   heroTitle: {
     fontFamily: "var(--font-narrative)",
     fontSize: 52,
     lineHeight: 1.12,
     fontWeight: 400,
-    margin: "0 0 22px",
+    margin: "0 0 18px",
     color: "white",
     textShadow: "0 2px 24px rgba(0,0,0,0.4)",
   },
   heroSub: {
-    fontSize: 16,
-    lineHeight: 1.7,
-    color: "rgba(255,255,255,0.86)",
+    fontSize: 17,
+    lineHeight: 1.6,
+    color: "rgba(255,255,255,0.92)",
     maxWidth: 600,
-    margin: "0 auto 36px",
+    margin: "0 auto 28px",
+    fontWeight: 500,
+  },
+  heroBullets: {
+    listStyle: "none",
+    padding: 0,
+    margin: "0 auto 32px",
+    maxWidth: 540,
+    textAlign: "left",
+    display: "inline-flex",
+    flexDirection: "column",
+    gap: 8,
+    fontSize: 14,
+    lineHeight: 1.55,
+    color: "rgba(255,255,255,0.78)",
+  },
+  heroBulletDot: {
+    color: "var(--accent)",
+    marginRight: 8,
+    fontWeight: 600,
   },
   heroActions: { display: "flex", justifyContent: "center", gap: 12 },
 
@@ -364,6 +471,33 @@ const hpStyles: Record<string, CSSProperties> = {
     WebkitBoxOrient: "vertical",
   },
   sessionMeta: { fontSize: 12, color: "var(--text-faint)", marginTop: 6 },
+  sessionEndingLine: {
+    display: "flex",
+    alignItems: "baseline",
+    gap: 6,
+    marginTop: 8,
+    flexWrap: "wrap",
+  },
+  sessionEndingLabel: {
+    padding: "2px 8px",
+    background: "var(--accent-soft)",
+    color: "var(--accent)",
+    borderRadius: 999,
+    fontSize: 11,
+    fontWeight: 600,
+    whiteSpace: "nowrap",
+  },
+  sessionEndingSubtitle: {
+    fontSize: 12.5,
+    color: "var(--text-muted)",
+    fontFamily: "var(--font-narrative)",
+    fontStyle: "italic",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    display: "-webkit-box",
+    WebkitLineClamp: 1,
+    WebkitBoxOrient: "vertical",
+  },
 
   grid: {
     display: "grid",
@@ -472,5 +606,25 @@ const hpStyles: Record<string, CSSProperties> = {
     background: "var(--bg-elev)",
     borderRadius: "var(--radius-md)",
     border: "1px dashed var(--line)",
+  },
+
+  footer: {
+    marginTop: 80,
+    paddingTop: 32,
+    borderTop: "1px dashed var(--line)",
+    textAlign: "center",
+    fontSize: 12,
+    color: "var(--text-faint)",
+    display: "flex",
+    justifyContent: "center",
+    gap: 8,
+    alignItems: "center",
+  },
+  footerBrand: { fontFamily: "var(--font-narrative)", color: "var(--text-muted)" },
+  footerSep: { color: "var(--line-strong)" },
+  footerLink: {
+    color: "var(--text-muted)",
+    textDecoration: "none",
+    cursor: "pointer",
   },
 }

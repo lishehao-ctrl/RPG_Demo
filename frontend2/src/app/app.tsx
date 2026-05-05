@@ -5,6 +5,7 @@ import { type AppRoute, useAppRoute } from "./routes"
 import { HomePage } from "../pages/home/home-page"
 import { CreatePage } from "../pages/create/create-page"
 import { PlayPage } from "../pages/play/play-page"
+import { AboutPage } from "../pages/about/about-page"
 import { LoginPage } from "../pages/auth/login-page"
 import { ReplayPage } from "../pages/replay/replay-page"
 import { TemplateDetailPage } from "../pages/world/world-detail-page"
@@ -69,6 +70,13 @@ function Router() {
           sessionId={route.sessionId}
           onBackHome={() => navigate({ name: "home" })}
           onOpenTemplate={(templateId) => navigate({ name: "template", templateId })}
+        />
+      )
+    case "about":
+      return (
+        <AboutPage
+          onBackHome={() => navigate({ name: "home" })}
+          onOpenCreate={() => navigate({ name: "create" })}
         />
       )
   }

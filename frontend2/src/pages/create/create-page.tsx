@@ -5,13 +5,19 @@ import { useAuth } from "../../app/auth-context"
 import { friendlyError } from "../../shared/lib/friendly-error"
 import { PAGE_BG } from "../../shared/lib/webtoon-assets"
 
-const PLACEHOLDER = `比如 —
-公司年会的红毯上，前任的现任搂着前任向我走来...
+const PLACEHOLDER = `写一句故事的开端，越具体越好。
 
-或者 —
-分手那天晚上，他给我妹妹打了一通电话...
+比如：年会前夜，老板把我和实习生关在同一间会议室。
+或者：婚礼当天，伴娘的礼服里塞着一封我妹妹的字条。
 
-写一句故事的开端，越具体越好。AI 会立刻为你搭起人物、关系、第一个戏剧时刻。`
+AI 会立刻为你搭起人物、关系、第一个戏剧时刻。`
+
+const SEED_EXAMPLES = [
+  "公司年会的红毯上，前任的现任搂着前任向我走来。",
+  "分手那天晚上，他给我妹妹打了一通电话。",
+  "我前任在我新公司当 HR，今天发了我的入职合同。",
+  "高中重逢，发现初恋已经成了我妹妹的男朋友。",
+]
 
 const VISIBILITY_OPTIONS: Array<{
   id: NarrativeTemplateVisibility
@@ -133,6 +139,22 @@ export function CreatePage({
             <div style={cpStyles.count}>{seed.length} 字</div>
           </div>
 
+          <div style={cpStyles.examplesRow}>
+            <span style={cpStyles.examplesLabel}>试试这些：</span>
+            {SEED_EXAMPLES.map((example) => (
+              <button
+                key={example}
+                style={cpStyles.exampleChip}
+                onClick={() => setSeed(example)}
+                disabled={busy}
+                type="button"
+                title={example}
+              >
+                {example.length > 26 ? example.slice(0, 24) + "…" : example}
+              </button>
+            ))}
+          </div>
+
           <div style={cpStyles.fieldLabel}>篇幅</div>
           <div style={cpStyles.visibility}>
             {BUDGET_OPTIONS.map((o) => (
@@ -240,7 +262,31 @@ const cpStyles: Record<string, CSSProperties> = {
     margin: "0 0 40px",
   },
 
-  textareaWrap: { position: "relative", marginBottom: 36 },
+  textareaWrap: { position: "relative", marginBottom: 18 },
+  examplesRow: {
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 32,
+  },
+  examplesLabel: {
+    fontSize: 12,
+    color: "rgba(255,255,255,0.62)",
+    letterSpacing: "0.04em",
+    marginRight: 4,
+  },
+  exampleChip: {
+    padding: "5px 12px",
+    background: "rgba(255,255,255,0.08)",
+    border: "1px solid rgba(255,255,255,0.18)",
+    borderRadius: 999,
+    color: "rgba(255,255,255,0.86)",
+    fontSize: 12.5,
+    cursor: "pointer",
+    fontFamily: "var(--font-narrative)",
+    backdropFilter: "blur(4px)",
+  },
   textarea: {
     width: "100%",
     minHeight: 200,

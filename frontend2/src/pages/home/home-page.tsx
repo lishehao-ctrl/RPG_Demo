@@ -6,6 +6,7 @@ import type {
 import { useApi } from "../../app/api-context"
 import { useAuth } from "../../app/auth-context"
 import { Header } from "../../shared/ui/header"
+import { PAGE_BG, getCoverForTemplate } from "../../shared/lib/webtoon-assets"
 
 type Tab = "plaza" | "my-templates"
 
@@ -224,19 +225,31 @@ function TemplateCard({
   template: NarrativeTemplateSummary
   onClick: () => void
 }) {
+  const cover = getCoverForTemplate(template)
   return (
     <button style={hpStyles.card} onClick={onClick} type="button">
-      <div style={hpStyles.cardTitle}>{template.title}</div>
-      <div style={hpStyles.cardSeed}>"{template.seed}"</div>
-      <div style={hpStyles.cardCast}>
-        {template.cast.map((c) => c.display_name).join(" · ")}
+      <div
+        style={{
+          ...hpStyles.cardCover,
+          backgroundImage: `linear-gradient(180deg, rgba(20,16,12,0) 30%, rgba(20,16,12,0.78) 100%), url(${cover})`,
+        }}
+      >
+        <div style={hpStyles.cardCoverFade}>
+          <div style={hpStyles.cardTitle}>{template.title}</div>
+          <div style={hpStyles.cardCast}>
+            {template.cast.map((c) => c.display_name).join(" · ")}
+          </div>
+        </div>
       </div>
-      <div style={hpStyles.cardFooter}>
-        <span style={hpStyles.cardBadge}>{visibilityLabel(template.visibility)}</span>
-        <span style={hpStyles.cardPlays}>· 已玩 {template.play_count} 局</span>
-        {template.is_owner ? (
-          <span style={hpStyles.cardOwnerBadge}>我创建的</span>
-        ) : null}
+      <div style={hpStyles.cardBody}>
+        <div style={hpStyles.cardSeed}>"{template.seed}"</div>
+        <div style={hpStyles.cardFooter}>
+          <span style={hpStyles.cardBadge}>{visibilityLabel(template.visibility)}</span>
+          <span style={hpStyles.cardPlays}>· 已玩 {template.play_count} 局</span>
+          {template.is_owner ? (
+            <span style={hpStyles.cardOwnerBadge}>我创建的</span>
+          ) : null}
+        </div>
       </div>
     </button>
   )
@@ -265,20 +278,33 @@ const hpStyles: Record<string, CSSProperties> = {
   page: { minHeight: "100%", background: "var(--bg)" },
   main: { maxWidth: 1100, margin: "0 auto", padding: "48px 32px 80px" },
 
-  hero: { textAlign: "center", padding: "32px 0 56px" },
+  hero: {
+    position: "relative",
+    textAlign: "center",
+    padding: "92px 32px 96px",
+    borderRadius: "var(--radius-lg)",
+    overflow: "hidden",
+    backgroundImage: `linear-gradient(180deg, rgba(20,16,12,0.18) 0%, rgba(20,16,12,0.65) 70%, rgba(20,16,12,0.85) 100%), url(${PAGE_BG.splash})`,
+    backgroundSize: "cover",
+    backgroundPosition: "center 30%",
+    color: "white",
+    marginBottom: 12,
+  },
   heroTitle: {
     fontFamily: "var(--font-narrative)",
-    fontSize: 48,
-    lineHeight: 1.15,
+    fontSize: 52,
+    lineHeight: 1.12,
     fontWeight: 400,
-    margin: "0 0 20px",
+    margin: "0 0 22px",
+    color: "white",
+    textShadow: "0 2px 24px rgba(0,0,0,0.4)",
   },
   heroSub: {
     fontSize: 16,
-    lineHeight: 1.65,
-    color: "var(--text-muted)",
+    lineHeight: 1.7,
+    color: "rgba(255,255,255,0.86)",
     maxWidth: 600,
-    margin: "0 auto 32px",
+    margin: "0 auto 36px",
   },
   heroActions: { display: "flex", justifyContent: "center", gap: 12 },
 
@@ -345,22 +371,44 @@ const hpStyles: Record<string, CSSProperties> = {
   },
   card: {
     textAlign: "left",
-    padding: "20px 22px",
     background: "var(--bg-elev)",
     border: "1px solid var(--line)",
     borderRadius: "var(--radius-md)",
     cursor: "pointer",
-    transition: "all 180ms",
+    transition: "all 220ms",
+    display: "flex",
+    flexDirection: "column",
+    overflow: "hidden",
+    padding: 0,
+  },
+  cardCover: {
+    height: 168,
+    backgroundSize: "cover",
+    backgroundPosition: "center",
+    display: "flex",
+    alignItems: "flex-end",
+    padding: 16,
+  },
+  cardCoverFade: {
+    width: "100%",
+  },
+  cardBody: {
+    padding: "14px 16px 16px",
     display: "flex",
     flexDirection: "column",
     gap: 10,
-    minHeight: 180,
   },
   cardTitle: {
     fontFamily: "var(--font-narrative)",
     fontSize: 18,
     lineHeight: 1.3,
-    color: "var(--text)",
+    color: "white",
+    textShadow: "0 1px 10px rgba(0,0,0,0.5)",
+    overflow: "hidden",
+    display: "-webkit-box",
+    WebkitLineClamp: 2,
+    WebkitBoxOrient: "vertical",
+    marginBottom: 4,
   },
   cardSeed: {
     fontSize: 13,
@@ -374,11 +422,11 @@ const hpStyles: Record<string, CSSProperties> = {
   },
   cardCast: {
     fontSize: 12,
-    color: "var(--text-faint)",
-    marginTop: "auto",
+    color: "rgba(255,255,255,0.78)",
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
+    textShadow: "0 1px 4px rgba(0,0,0,0.6)",
   },
   cardFooter: {
     display: "flex",

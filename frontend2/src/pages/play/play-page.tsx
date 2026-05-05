@@ -5,6 +5,11 @@ import type {
   NarrativeStoryMessage,
 } from "../../api/contracts"
 import { useApi } from "../../app/api-context"
+import {
+  getAdvisorAvatar,
+  getAvatarForCastMember,
+  getCoverForTemplate,
+} from "../../shared/lib/webtoon-assets"
 
 export function PlayPage({
   sessionId,
@@ -103,6 +108,12 @@ export function PlayPage({
     )
   }
 
+  const cover = getCoverForTemplate(story.template)
+  const advisorAvatar = getAdvisorAvatar(
+    story.template.template_id,
+    story.template.advisor_persona,
+  )
+
   return (
     <div style={ppStyles.page}>
       <Header
@@ -110,10 +121,29 @@ export function PlayPage({
         title={story.template.title}
         cast={story.template.cast.map((c) => c.display_name)}
         turnCount={story.session.turn_count}
+        coverUrl={cover}
       />
 
       <main style={ppStyles.main}>
         <div style={ppStyles.storyColumn} ref={scrollerRef}>
+          {/* Cast strip — small portraits to anchor the reader visually */}
+          <div style={ppStyles.castStrip}>
+            {story.template.cast.map((c) => (
+              <div key={c.character_id} style={ppStyles.castChip}>
+                <img
+                  src={getAvatarForCastMember(story.template.template_id, c)}
+                  alt={c.display_name}
+                  style={ppStyles.castChipAvatar}
+                  loading="lazy"
+                />
+                <div style={ppStyles.castChipText}>
+                  <div style={ppStyles.castChipName}>{c.display_name}</div>
+                  <div style={ppStyles.castChipRole}>{c.role}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
           {story.messages.map((m) => (
             <StoryBeat key={`${m.role}-${m.ord}`} message={m} />
           ))}
@@ -142,11 +172,16 @@ export function PlayPage({
       </main>
 
       {/* Floating advisor button + sidechat */}
-      <AdvisorFab onOpen={() => setAdvisorOpen(true)} persona={story.template.advisor_persona} />
+      <AdvisorFab
+        onOpen={() => setAdvisorOpen(true)}
+        avatarUrl={advisorAvatar}
+        persona={story.template.advisor_persona}
+      />
       {advisorOpen ? (
         <AdvisorSidechat
           sessionId={sessionId}
           persona={story.template.advisor_persona}
+          avatarUrl={advisorAvatar}
           onClose={() => setAdvisorOpen(false)}
         />
       ) : null}
@@ -163,21 +198,42 @@ function Header({
   title,
   cast,
   turnCount,
+  coverUrl,
 }: {
   onBackHome: () => void
   title: string
   cast?: string[]
   turnCount?: number
+  coverUrl?: string
 }) {
+  const headerStyle: CSSProperties = coverUrl
+    ? {
+        ...ppStyles.header,
+        ...ppStyles.headerWithCover,
+        backgroundImage: `linear-gradient(180deg, rgba(20,16,12,0.55) 0%, rgba(20,16,12,0.92) 100%), url(${coverUrl})`,
+      }
+    : ppStyles.header
   return (
-    <header style={ppStyles.header}>
-      <button style={ppStyles.backBtn} onClick={onBackHome} type="button">
+    <header style={headerStyle}>
+      <button
+        style={coverUrl ? { ...ppStyles.backBtn, ...ppStyles.backBtnOnCover } : ppStyles.backBtn}
+        onClick={onBackHome}
+        type="button"
+      >
         ← 回到首页
       </button>
       <div style={ppStyles.headerTitle}>
-        <div style={ppStyles.headerTitleLine}>{title}</div>
+        <div style={coverUrl ? { ...ppStyles.headerTitleLine, color: "white" } : ppStyles.headerTitleLine}>
+          {title}
+        </div>
         {cast && cast.length ? (
-          <div style={ppStyles.headerCast}>
+          <div
+            style={
+              coverUrl
+                ? { ...ppStyles.headerCast, color: "rgba(255,255,255,0.78)" }
+                : ppStyles.headerCast
+            }
+          >
             {cast.join(" · ")}
             {typeof turnCount === "number" ? (
               <span style={ppStyles.headerTurns}>· 第 {turnCount + 1} 段</span>
@@ -327,15 +383,16 @@ function ActionArea({
 
 function AdvisorFab({
   onOpen,
+  avatarUrl,
   persona,
 }: {
   onOpen: () => void
+  avatarUrl: string
   persona: string
 }) {
-  const initials = (persona.match(/^[^，。、]{1,4}/)?.[0] ?? "顾问").slice(0, 2)
   return (
-    <button style={ppStyles.fab} onClick={onOpen} title={`找 ${initials} 聊聊`} type="button">
-      <span style={ppStyles.fabAvatar}>{initials.slice(0, 1)}</span>
+    <button style={ppStyles.fab} onClick={onOpen} title={persona} type="button">
+      <img src={avatarUrl} alt="" style={ppStyles.fabAvatarImg} loading="lazy" />
       <span style={ppStyles.fabLabel}>聊聊</span>
     </button>
   )
@@ -348,10 +405,12 @@ function AdvisorFab({
 function AdvisorSidechat({
   sessionId,
   persona,
+  avatarUrl,
   onClose,
 }: {
   sessionId: string
   persona: string
+  avatarUrl: string
   onClose: () => void
 }) {
   const api = useApi()
@@ -405,7 +464,8 @@ function AdvisorSidechat({
       <div style={ppStyles.advisorBackdrop} onClick={onClose} />
       <aside style={ppStyles.advisorPanel}>
         <header style={ppStyles.advisorHeader}>
-          <div>
+          <img src={avatarUrl} alt="" style={ppStyles.advisorHeaderAvatar} loading="lazy" />
+          <div style={{ flex: 1, minWidth: 0 }}>
             <div style={ppStyles.advisorTitle}>跟你的局外人朋友聊</div>
             <div style={ppStyles.advisorPersona}>{persona}</div>
           </div>
@@ -499,6 +559,21 @@ const ppStyles: Record<string, CSSProperties> = {
     top: 0,
     zIndex: 5,
   },
+  headerWithCover: {
+    backgroundSize: "cover",
+    backgroundPosition: "center 35%",
+    borderBottom: "1px solid rgba(255,255,255,0.1)",
+    padding: "20px 32px 22px",
+  },
+  backBtnOnCover: {
+    color: "white",
+    background: "rgba(255,255,255,0.14)",
+    border: "1px solid rgba(255,255,255,0.18)",
+    borderRadius: 999,
+    padding: "5px 12px",
+    backdropFilter: "blur(6px)",
+    width: "auto",
+  },
   backBtn: {
     fontSize: 13,
     color: "var(--text-muted)",
@@ -529,7 +604,35 @@ const ppStyles: Record<string, CSSProperties> = {
   headerTurns: { marginLeft: 8 },
 
   main: { flex: 1, display: "flex", justifyContent: "center", overflow: "hidden" },
-  storyColumn: { width: "100%", maxWidth: 720, padding: "40px 32px 120px", overflowY: "auto" },
+  storyColumn: { width: "100%", maxWidth: 720, padding: "32px 32px 120px", overflowY: "auto" },
+
+  castStrip: {
+    display: "flex",
+    gap: 8,
+    overflowX: "auto",
+    paddingBottom: 18,
+    marginBottom: 20,
+    borderBottom: "1px dashed var(--line)",
+  },
+  castChip: {
+    flex: "0 0 auto",
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "6px 12px 6px 6px",
+    background: "var(--bg-elev)",
+    border: "1px solid var(--line)",
+    borderRadius: 999,
+  },
+  castChipAvatar: {
+    width: 30,
+    height: 30,
+    borderRadius: "50%",
+    objectFit: "cover",
+  },
+  castChipText: { display: "flex", flexDirection: "column", lineHeight: 1.2 },
+  castChipName: { fontSize: 12.5, fontWeight: 500, color: "var(--text)" },
+  castChipRole: { fontSize: 10.5, color: "var(--text-faint)", marginTop: 2 },
 
   narratorBeat: { marginBottom: 32 },
   narratorText: {
@@ -644,18 +747,12 @@ const ppStyles: Record<string, CSSProperties> = {
     boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
     zIndex: 20,
   },
-  fabAvatar: {
+  fabAvatarImg: {
     width: 32,
     height: 32,
     borderRadius: "50%",
-    background: "rgba(255,255,255,0.2)",
-    color: "white",
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: 14,
-    fontWeight: 600,
-    fontFamily: "var(--font-narrative)",
+    objectFit: "cover",
+    border: "2px solid rgba(255,255,255,0.45)",
   },
   fabLabel: { fontSize: 14, fontWeight: 500 },
 
@@ -675,10 +772,18 @@ const ppStyles: Record<string, CSSProperties> = {
   },
   advisorHeader: {
     display: "flex",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    padding: "18px 20px",
+    alignItems: "center",
+    gap: 12,
+    padding: "16px 20px",
     borderBottom: "1px solid var(--line)",
+  },
+  advisorHeaderAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: "50%",
+    objectFit: "cover",
+    border: "1px solid var(--line)",
+    flexShrink: 0,
   },
   advisorTitle: { fontFamily: "var(--font-narrative)", fontSize: 16, color: "var(--text)" },
   advisorPersona: {

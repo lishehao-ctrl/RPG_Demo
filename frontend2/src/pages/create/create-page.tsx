@@ -2,6 +2,7 @@ import { type CSSProperties, useEffect, useState } from "react"
 import type { NarrativeTemplateVisibility } from "../../api/contracts"
 import { useApi } from "../../app/api-context"
 import { useAuth } from "../../app/auth-context"
+import { PAGE_BG } from "../../shared/lib/webtoon-assets"
 
 const PLACEHOLDER = `比如 —
 公司年会的红毯上，前任的现任搂着前任向我走来...
@@ -155,8 +156,18 @@ export function CreatePage({
 }
 
 const cpStyles: Record<string, CSSProperties> = {
-  page: { minHeight: "100%", background: "var(--bg)" },
-  header: { padding: "18px 40px", borderBottom: "1px solid var(--line)" },
+  page: {
+    minHeight: "100%",
+    background: `linear-gradient(180deg, rgba(20,16,12,0.55) 0%, rgba(20,16,12,0.92) 60%, var(--bg) 100%), url(${PAGE_BG.create})`,
+    backgroundSize: "cover",
+    backgroundPosition: "center top",
+    backgroundAttachment: "fixed",
+  },
+  header: {
+    padding: "18px 40px",
+    borderBottom: "1px solid rgba(255,255,255,0.1)",
+    color: "white",
+  },
   brandLink: { display: "inline-flex", alignItems: "center", gap: 8 },
   brandName: { fontFamily: "var(--font-narrative)", fontSize: 17 },
 
@@ -170,11 +181,13 @@ const cpStyles: Record<string, CSSProperties> = {
     letterSpacing: "-0.005em",
     fontWeight: 400,
     margin: "0 0 16px",
+    color: "white",
+    textShadow: "0 2px 18px rgba(0,0,0,0.5)",
   },
   sub: {
     fontSize: 16,
     lineHeight: 1.55,
-    color: "var(--text-muted)",
+    color: "rgba(255,255,255,0.78)",
     margin: "0 0 40px",
   },
 

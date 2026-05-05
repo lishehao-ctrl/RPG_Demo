@@ -6,6 +6,11 @@ import type {
 import { useApi } from "../../app/api-context"
 import { useAuth } from "../../app/auth-context"
 import { Header } from "../../shared/ui/header"
+import {
+  getAdvisorAvatar,
+  getAvatarForCastMember,
+  getCoverForTemplate,
+} from "../../shared/lib/webtoon-assets"
 
 export function TemplateDetailPage({
   templateId,
@@ -84,12 +89,21 @@ export function TemplateDetailPage({
     )
   }
 
+  const cover = getCoverForTemplate(template)
+  const advisorAvatar = getAdvisorAvatar(template.template_id, template.advisor_persona)
+
   return (
     <div style={tdStyles.page}>
       <Header onHome={onBackHome} onCreate={onOpenCreate} />
 
-      <main style={tdStyles.main}>
-        <div style={tdStyles.titleBlock}>
+      {/* Hero: shell cover with title overlay */}
+      <div
+        style={{
+          ...tdStyles.hero,
+          backgroundImage: `linear-gradient(180deg, rgba(20,16,12,0.18) 0%, rgba(20,16,12,0.6) 60%, var(--bg) 100%), url(${cover})`,
+        }}
+      >
+        <div style={tdStyles.heroInner}>
           <button style={tdStyles.crumb} onClick={onBackHome} type="button">
             ← 回到首页
           </button>
@@ -102,7 +116,9 @@ export function TemplateDetailPage({
             ) : null}
           </div>
         </div>
+      </div>
 
+      <main style={tdStyles.main}>
         <section style={tdStyles.section}>
           <div style={tdStyles.sectionLabel}>原始种子</div>
           <div style={tdStyles.seedQuote}>"{template.seed}"</div>
@@ -113,9 +129,17 @@ export function TemplateDetailPage({
           <div style={tdStyles.castList}>
             {template.cast.map((c) => (
               <div key={c.character_id} style={tdStyles.castRow}>
-                <div style={tdStyles.castName}>{c.display_name}</div>
-                <div style={tdStyles.castRole}>{c.role}</div>
-                <div style={tdStyles.castRelation}>{c.relation_to_protagonist}</div>
+                <img
+                  src={getAvatarForCastMember(template.template_id, c)}
+                  alt={c.display_name}
+                  style={tdStyles.castAvatar}
+                  loading="lazy"
+                />
+                <div style={tdStyles.castInfo}>
+                  <div style={tdStyles.castName}>{c.display_name}</div>
+                  <div style={tdStyles.castRole}>{c.role}</div>
+                  <div style={tdStyles.castRelation}>{c.relation_to_protagonist}</div>
+                </div>
               </div>
             ))}
           </div>
@@ -123,7 +147,10 @@ export function TemplateDetailPage({
 
         <section style={tdStyles.section}>
           <div style={tdStyles.sectionLabel}>你的局外人朋友</div>
-          <div style={tdStyles.advisorBlock}>{template.advisor_persona}</div>
+          <div style={tdStyles.advisorBlock}>
+            <img src={advisorAvatar} alt="" style={tdStyles.advisorAvatar} loading="lazy" />
+            <div style={tdStyles.advisorText}>{template.advisor_persona}</div>
+          </div>
         </section>
 
         {error ? <div style={tdStyles.errorBox}>{error}</div> : null}
@@ -183,40 +210,59 @@ function visibilityLabel(v: NarrativeTemplateVisibility): string {
 const tdStyles: Record<string, CSSProperties> = {
   page: { minHeight: "100%", background: "var(--bg)" },
   center: { padding: 80, textAlign: "center", color: "var(--text-muted)" },
-  main: { maxWidth: 720, margin: "0 auto", padding: "48px 32px 80px" },
+  main: { maxWidth: 720, margin: "-48px auto 0", padding: "0 32px 80px", position: "relative", zIndex: 2 },
 
-  titleBlock: { marginBottom: 32 },
+  hero: {
+    width: "100%",
+    minHeight: 280,
+    backgroundSize: "cover",
+    backgroundPosition: "center",
+    color: "white",
+    display: "flex",
+    alignItems: "flex-end",
+  },
+  heroInner: {
+    width: "100%",
+    maxWidth: 720,
+    margin: "0 auto",
+    padding: "32px 32px 56px",
+  },
   crumb: {
-    background: "none",
-    border: "none",
-    color: "var(--text-muted)",
-    fontSize: 13,
+    background: "rgba(255,255,255,0.12)",
+    border: "1px solid rgba(255,255,255,0.18)",
+    color: "white",
+    fontSize: 12.5,
     cursor: "pointer",
-    padding: 0,
-    marginBottom: 16,
+    padding: "5px 12px",
+    borderRadius: 999,
+    marginBottom: 18,
+    backdropFilter: "blur(6px)",
   },
   title: {
     fontFamily: "var(--font-narrative)",
-    fontSize: 36,
-    lineHeight: 1.2,
+    fontSize: 38,
+    lineHeight: 1.18,
     fontWeight: 400,
-    margin: "0 0 14px",
+    margin: "0 0 16px",
+    color: "white",
+    textShadow: "0 2px 18px rgba(0,0,0,0.5)",
   },
   metaRow: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" },
   badge: {
     padding: "4px 10px",
-    background: "var(--bg-elev)",
-    border: "1px solid var(--line)",
+    background: "rgba(255,255,255,0.16)",
+    border: "1px solid rgba(255,255,255,0.22)",
     borderRadius: 999,
     fontSize: 12,
-    color: "var(--text-muted)",
+    color: "white",
+    backdropFilter: "blur(6px)",
   },
   ownerBadge: {
-    background: "var(--accent-soft)",
-    color: "var(--accent)",
+    background: "var(--accent)",
+    color: "white",
     borderColor: "transparent",
   },
-  metaItem: { fontSize: 12, color: "var(--text-faint)" },
+  metaItem: { fontSize: 12, color: "rgba(255,255,255,0.78)" },
 
   section: { marginBottom: 28 },
   sectionLabel: {
@@ -238,26 +284,47 @@ const tdStyles: Record<string, CSSProperties> = {
     borderRadius: "0 var(--radius-sm) var(--radius-sm) 0",
   },
 
-  castList: { display: "flex", flexDirection: "column", gap: 8 },
+  castList: { display: "flex", flexDirection: "column", gap: 10 },
   castRow: {
-    display: "grid",
-    gridTemplateColumns: "120px 140px 1fr",
-    alignItems: "baseline",
-    gap: 12,
+    display: "flex",
+    alignItems: "center",
+    gap: 14,
     padding: "12px 14px",
     background: "var(--bg-elev)",
     border: "1px solid var(--line)",
     borderRadius: "var(--radius-sm)",
   },
+  castAvatar: {
+    width: 56,
+    height: 56,
+    borderRadius: "50%",
+    objectFit: "cover",
+    border: "1px solid var(--line)",
+    flexShrink: 0,
+  },
+  castInfo: { flex: 1, minWidth: 0 },
   castName: { fontSize: 15, fontWeight: 500 },
-  castRole: { fontSize: 12, color: "var(--accent)" },
-  castRelation: { fontSize: 13, color: "var(--text-muted)", lineHeight: 1.5 },
+  castRole: { fontSize: 12, color: "var(--accent)", marginTop: 3 },
+  castRelation: { fontSize: 13, color: "var(--text-muted)", lineHeight: 1.5, marginTop: 4 },
 
   advisorBlock: {
     padding: "14px 18px",
     background: "var(--bg-elev)",
     border: "1px solid var(--line)",
     borderRadius: "var(--radius-sm)",
+    display: "flex",
+    alignItems: "center",
+    gap: 14,
+  },
+  advisorAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: "50%",
+    objectFit: "cover",
+    border: "1px solid var(--line)",
+    flexShrink: 0,
+  },
+  advisorText: {
     fontSize: 14,
     lineHeight: 1.6,
     color: "var(--text)",

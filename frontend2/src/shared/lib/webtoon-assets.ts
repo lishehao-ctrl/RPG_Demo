@@ -11,6 +11,11 @@ const SHELLS = [
 ] as const
 type Shell = (typeof SHELLS)[number]
 
+// Each shell has 2 variants now; pick is deterministic by template_id hash so
+// the same template always shows the same cover, but two templates of the
+// same shell get different visuals.
+const SHELL_VARIANTS_PER_SHELL = 2
+
 const AVATAR_FEMALE = [
   "female-01",
   "female-02",
@@ -18,6 +23,10 @@ const AVATAR_FEMALE = [
   "female-04",
   "female-05",
   "female-06",
+  "female-07",
+  "female-08",
+  "female-09",
+  "female-10",
 ] as const
 const AVATAR_MALE = [
   "male-01",
@@ -26,6 +35,10 @@ const AVATAR_MALE = [
   "male-04",
   "male-05",
   "male-06",
+  "male-07",
+  "male-08",
+  "male-09",
+  "male-10",
 ] as const
 
 // Dedicated advisor portrait pool — visually distinct from the cast pool so
@@ -37,6 +50,10 @@ const ADVISOR_AVATARS = [
   "advisor-04",
   "advisor-05",
   "advisor-06",
+  "advisor-07",
+  "advisor-08",
+  "advisor-09",
+  "advisor-10",
 ] as const
 
 const SEGMENT_PHASES = ["opening", "pressure", "reversal", "reveal", "terminal"] as const
@@ -81,10 +98,22 @@ function pick<T>(pool: readonly T[], key: string): T {
 
 // ───────── covers ─────────
 
+function shellVariantSlug(shell: Shell, key: string): string {
+  // Stable per-key variant pick: -01 (original) or -02 (alt). Adding more
+  // variants later requires only bumping SHELL_VARIANTS_PER_SHELL and
+  // dropping the new file at /shells/{shell}-NN.jpg.
+  if (SHELL_VARIANTS_PER_SHELL <= 1) return shell
+  const idx = stableHash(`shell-variant|${key}|${shell}`) % SHELL_VARIANTS_PER_SHELL
+  // -01 maps to the legacy filename without suffix to avoid breaking
+  // existing assets; -02 onward gets the suffix.
+  return idx === 0 ? shell : `${shell}-0${idx + 1}`
+}
+
 /** Cover image for a world card / story drawer / world detail hero. */
 export function getCoverByStoryId(storyId: string, theme?: string | null): string {
-  const shell = (theme && THEME_TO_SHELL[theme]) ?? pick(SHELLS, storyId)
-  return `/webtoons/shells/${shell}.jpg`
+  const themed = theme ? THEME_TO_SHELL[theme] : undefined
+  const shell = themed ?? pick(SHELLS, storyId)
+  return `/webtoons/shells/${shellVariantSlug(shell, storyId)}.jpg`
 }
 
 // ───────── portraits ─────────
@@ -230,9 +259,11 @@ function inferGender(role: string, relation: string): "female" | "male" {
   return stableHash(`${role}|${relation}`) % 2 === 0 ? "female" : "male"
 }
 
-/** Cover for a template card / hero. */
+/** Cover for a template card / hero. Uses variant -01/-02 deterministically
+ *  per template so two templates of the same shell get different visuals. */
 export function getCoverForTemplate(template: LooseTemplate): string {
-  return `/webtoons/shells/${inferShell(template)}.jpg`
+  const shell = inferShell(template)
+  return `/webtoons/shells/${shellVariantSlug(shell, template.template_id)}.jpg`
 }
 
 /** Stable per-character avatar within a template. */
@@ -285,4 +316,23 @@ export function getEndingIllustration(label: string | null | undefined): string 
   if (!label) return "/webtoons/endings/v2/unraveling.jpg"
   const slug = ENDING_LABEL_TO_SLUG[label] ?? "unraveling"
   return `/webtoons/endings/v2/${slug}.jpg`
+}
+
+// ───────── tier splash banners ─────────
+// Victory / game-over splashes layer over the ending illustration to amplify
+// the emotional beat of the closing screen. Compromised endings get no
+// splash — the neutral illustration carries the ambivalence.
+
+export function getTierSplash(
+  tier: "victory" | "compromised" | "collapsed" | null | undefined,
+): string | null {
+  if (tier === "victory") return "/webtoons/splashes/victory.jpg"
+  if (tier === "collapsed") return "/webtoons/splashes/game_over.jpg"
+  return null
+}
+
+// ───────── empty state ─────────
+
+export function getEmptyPlazaImage(): string {
+  return "/webtoons/empty/plaza.jpg"
 }

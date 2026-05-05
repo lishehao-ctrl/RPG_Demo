@@ -26,6 +26,7 @@ import {
   getAvatarForCastMember,
   getCoverForTemplate,
   getEndingIllustration,
+  getTierSplash,
 } from "../../shared/lib/webtoon-assets"
 
 export function PlayPage({
@@ -390,6 +391,7 @@ function EndingScreen({
   void sessionId
   const illustration = getEndingIllustration(ending.label)
   const tier = ending.tier ?? "compromised"
+  const tierSplash = getTierSplash(tier)
   const tierVisuals: Record<string, { ribbon: string; chipBg: string; chipColor: string; gradient: string; badgeText: string }> = {
     victory: {
       ribbon: "胜利结局",
@@ -444,6 +446,17 @@ function EndingScreen({
             backgroundImage: `${tv.gradient}, url(${illustration})`,
           }}
         >
+          {tierSplash ? (
+            <motion.div
+              initial={{ opacity: 0, scale: 1.12 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ delay: 0.25, duration: 0.95, ease: [0.16, 1, 0.3, 1] }}
+              style={{
+                ...ppStyles.endingSplashOverlay,
+                backgroundImage: `url(${tierSplash})`,
+              }}
+            />
+          ) : null}
           <div style={ppStyles.endingTierBadge}>
             <span style={ppStyles.endingTierBadgeText}>{tv.badgeText}</span>
             {ending.early_terminated && ending.failure_trigger ? (
@@ -1284,6 +1297,15 @@ const ppStyles: Record<string, CSSProperties> = {
     backgroundPosition: "center",
     marginBottom: -1,
     position: "relative",
+    overflow: "hidden",
+  },
+  endingSplashOverlay: {
+    position: "absolute",
+    inset: 0,
+    backgroundSize: "cover",
+    backgroundPosition: "center",
+    mixBlendMode: "screen",
+    pointerEvents: "none",
   },
   endingCardInner: { padding: "24px 28px 28px" },
   endingLabelChip: {

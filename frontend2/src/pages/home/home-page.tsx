@@ -7,7 +7,11 @@ import type {
 import { useApi } from "../../app/api-context"
 import { useAuth } from "../../app/auth-context"
 import { Header } from "../../shared/ui/header"
-import { PAGE_BG, getCoverForTemplate } from "../../shared/lib/webtoon-assets"
+import {
+  PAGE_BG,
+  getCoverForTemplate,
+  getEmptyPlazaImage,
+} from "../../shared/lib/webtoon-assets"
 import { friendlyError } from "../../shared/lib/friendly-error"
 import { hoverLift, itemTransition, itemVariants, tapPress } from "../../shared/lib/motion-presets"
 
@@ -321,7 +325,22 @@ function TemplateGrid({
     return <div style={hpStyles.loading}>加载中…</div>
   }
   if (templates.length === 0) {
-    return <div style={hpStyles.empty}>{emptyText}</div>
+    return (
+      <motion.div
+        style={hpStyles.emptyCard}
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={itemTransition}
+      >
+        <div
+          style={{
+            ...hpStyles.emptyHero,
+            backgroundImage: `linear-gradient(180deg, rgba(20,16,12,0.05) 0%, rgba(20,16,12,0.55) 75%, var(--bg-elev) 100%), url(${getEmptyPlazaImage()})`,
+          }}
+        />
+        <div style={hpStyles.emptyBody}>{emptyText}</div>
+      </motion.div>
+    )
   }
   return (
     <div style={hpStyles.grid}>
@@ -658,6 +677,26 @@ const hpStyles: Record<string, CSSProperties> = {
     background: "var(--bg-elev)",
     borderRadius: "var(--radius-md)",
     border: "1px dashed var(--line)",
+  },
+  emptyCard: {
+    background: "var(--bg-elev)",
+    borderRadius: "var(--radius-md)",
+    border: "1px solid var(--line)",
+    overflow: "hidden",
+  },
+  emptyHero: {
+    width: "100%",
+    height: 180,
+    backgroundSize: "cover",
+    backgroundPosition: "center",
+  },
+  emptyBody: {
+    padding: "20px 24px 28px",
+    textAlign: "center",
+    color: "var(--text-muted)",
+    fontSize: 14,
+    fontStyle: "italic",
+    fontFamily: "var(--font-narrative)",
   },
 
   footer: {

@@ -29,14 +29,14 @@ const AVATAR_MALE = [
 ] as const
 
 // Dedicated advisor portrait pool — visually distinct from the cast pool so
-// the player's outsider-friend never collides with an NPC face. Pool will
-// expand to 6 once advisor-05/06 are generated; clamped to 4 in the meantime
-// to avoid broken images.
+// the player's outsider-friend never collides with an NPC face.
 const ADVISOR_AVATARS = [
   "advisor-01",
   "advisor-02",
   "advisor-03",
   "advisor-04",
+  "advisor-05",
+  "advisor-06",
 ] as const
 
 const SEGMENT_PHASES = ["opening", "pressure", "reversal", "reveal", "terminal"] as const

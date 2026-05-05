@@ -37,6 +37,24 @@ class NarrativeServiceError(RuntimeError):
         self.status_code = status_code
 
 
+_CONTENT_MODERATION_FALLBACK = (
+    "唉，刚才那段我没法接——咱俩说的事好像踩到红线了。换个角度问我？"
+    "或者你想跟我聊点别的，我都在。"
+)
+_CONTENT_MODERATION_MARKERS = (
+    "DataInspectionFailed",
+    "inappropriate content",
+    "data inspection failed",
+)
+
+
+def _is_content_moderation_failure(exc: NarrativeGatewayError) -> bool:
+    if exc.status_code != 400:
+        return False
+    msg_lower = (exc.message or "").lower()
+    return any(marker.lower() in msg_lower for marker in _CONTENT_MODERATION_MARKERS)
+
+
 def _generate_world_id() -> str:
     return f"world_{secrets.token_hex(6)}"
 
@@ -150,7 +168,11 @@ class NarrativeService:
             request, last_narrator
         )
 
-        # Persist the player message first so history order is consistent.
+        # Build the player message in memory, but DO NOT persist it yet.
+        # If the narrator generation fails (LLM JSON corrupt, retries
+        # exhausted, etc.) we don't want the user's choice sitting in the
+        # database as an orphan with no narrator response — they should be
+        # able to retry the same turn cleanly.
         next_ord = self._repo.next_story_ord(world_id)
         player_message = StoryMessage(
             ord=next_ord,
@@ -159,14 +181,6 @@ class NarrativeService:
             options=[],
             chosen_option_index=chosen_index,
         )
-        self._repo.append_story_message(world_id, player_message)
-
-        # Mark which option the previous narrator beat resolved to.
-        if chosen_index is not None and last_narrator.chosen_option_index is None:
-            updated = last_narrator.model_copy(
-                update={"chosen_option_index": chosen_index}
-            )
-            self._update_story_message(world_id, updated)
 
         try:
             turn = advance_turn(
@@ -185,11 +199,22 @@ class NarrativeService:
         except ValueError as exc:
             raise NarrativeServiceError(
                 code="turn_invalid",
-                message=f"LLM returned an unusable turn: {exc}",
+                message=(
+                    "故事一时接不上你那一步。请稍等片刻再试一次，"
+                    "或者换一个稍微贴近当前情境的动作。"
+                ),
                 status_code=502,
             ) from exc
 
+        # Narrator succeeded — now persist both messages atomically.
+        self._repo.append_story_message(world_id, player_message)
+        if chosen_index is not None and last_narrator.chosen_option_index is None:
+            updated = last_narrator.model_copy(
+                update={"chosen_option_index": chosen_index}
+            )
+            self._update_story_message(world_id, updated)
         self._repo.append_story_message(world_id, turn.narrator_message)
+
         return AdvanceTurnResponse(
             player_message=player_message,
             narrator_message=turn.narrator_message,
@@ -217,6 +242,7 @@ class NarrativeService:
         story_history = self._repo.list_story_messages(world_id)
         advisor_history = self._repo.list_advisor_messages(world_id)
 
+        reply_text: str | None = None
         try:
             reply = ask_advisor(
                 gateway=self.gateway,
@@ -228,10 +254,21 @@ class NarrativeService:
                 advisor_history=advisor_history,
                 question=question,
             )
+            reply_text = reply.reply_text
         except NarrativeGatewayError as exc:
-            raise NarrativeServiceError(
-                code=exc.code, message=exc.message, status_code=exc.status_code
-            ) from exc
+            # Provider-side content moderation (Aliyun's
+            # InternalError.Algo.DataInspectionFailed) trips when the
+            # accumulated story context contains terms the moderator
+            # flags as sensitive — even though the question itself is
+            # innocuous. Rather than 500 the chat, fall back to an
+            # in-character "I can't go there" message and persist it so
+            # the conversation flow stays intact.
+            if _is_content_moderation_failure(exc):
+                reply_text = _CONTENT_MODERATION_FALLBACK
+            else:
+                raise NarrativeServiceError(
+                    code=exc.code, message=exc.message, status_code=exc.status_code
+                ) from exc
         except ValueError as exc:
             raise NarrativeServiceError(
                 code="advisor_invalid",
@@ -239,10 +276,11 @@ class NarrativeService:
                 status_code=502,
             ) from exc
 
+        assert reply_text is not None
         next_ord = self._repo.next_advisor_ord(world_id)
         player_message = AdvisorMessage(ord=next_ord, role="player", content=question)
         advisor_message = AdvisorMessage(
-            ord=next_ord + 1, role="advisor", content=reply.reply_text
+            ord=next_ord + 1, role="advisor", content=reply_text
         )
         self._repo.append_advisor_message(world_id, player_message)
         self._repo.append_advisor_message(world_id, advisor_message)

@@ -134,9 +134,16 @@ def generate_opening(
     feedback: str | None = None
     for attempt in range(2):
         try:
-            return _generate_opening_once(gateway, seed, retry_feedback=feedback)
+            result = _generate_opening_once(gateway, seed, retry_feedback=feedback)
+            if attempt > 0:
+                print(f"[narrative.retry] operation=opening recovered_on_attempt={attempt + 1}", flush=True)
+            return result
         except (NarrativeGatewayError, ValueError) as exc:
             last_error = exc
+            print(
+                f"[narrative.retry] operation=opening attempt={attempt + 1} error={type(exc).__name__}: {str(exc)[:120]}",
+                flush=True,
+            )
             feedback = (
                 "Your previous output failed to parse. "
                 "Output strict JSON with fields: title, advisor_persona, "
@@ -232,6 +239,10 @@ def advance_turn(
     passage = _extract_passage(payload)
     options = _parse_options(payload.get("options") or payload.get("next_options"))
     if not passage:
+        print(
+            "[narrative.retry] operation=advance_turn attempt=1 error=empty_passage_field",
+            flush=True,
+        )
         # Retry once with explicit feedback. Free-input turns occasionally trip
         # the model into outputting wrong field names or empty strings; one
         # corrective retry catches almost all of these.
@@ -243,6 +254,11 @@ def advance_turn(
         payload = _invoke_turn(gateway, user_payload, retry_feedback=feedback)
         passage = _extract_passage(payload)
         options = _parse_options(payload.get("options") or payload.get("next_options"))
+        if passage:
+            print(
+                "[narrative.retry] operation=advance_turn recovered_on_attempt=2",
+                flush=True,
+            )
     if not passage:
         raise ValueError("missing or non-string field: passage")
     return TurnResult(

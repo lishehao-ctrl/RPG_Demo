@@ -1,6 +1,8 @@
 import { type CSSProperties, type FormEvent, useState } from "react"
+import { motion } from "motion/react"
 import { useAuth } from "../../app/auth-context"
 import { friendlyError } from "../../shared/lib/friendly-error"
+import { itemTransition } from "../../shared/lib/motion-presets"
 
 const USERNAME_PATTERN = /^[A-Za-z0-9_]{2,20}$/
 
@@ -60,7 +62,13 @@ export function LoginPage({
       </header>
 
       <main style={lpStyles.main}>
-        <form style={lpStyles.card} onSubmit={submit}>
+        <motion.form
+          style={lpStyles.card}
+          onSubmit={submit}
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={itemTransition}
+        >
           <span className="ts-tag" style={{ marginBottom: 24 }}>
             登录
           </span>
@@ -97,7 +105,7 @@ export function LoginPage({
           </button>
 
           <p style={lpStyles.note}>这是测试期,没有密码、没有邮箱。下个月会改成正式登录。</p>
-        </form>
+        </motion.form>
       </main>
     </div>
   )

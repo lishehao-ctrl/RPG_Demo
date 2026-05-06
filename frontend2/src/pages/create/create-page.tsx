@@ -1,8 +1,10 @@
 import { type CSSProperties, useEffect, useRef, useState } from "react"
+import { AnimatePresence, motion } from "motion/react"
 import type { NarrativeDifficulty, NarrativeTemplateVisibility } from "../../api/contracts"
 import { useApi } from "../../app/api-context"
 import { useAuth } from "../../app/auth-context"
 import { friendlyError } from "../../shared/lib/friendly-error"
+import { itemTransition } from "../../shared/lib/motion-presets"
 import { PAGE_BG } from "../../shared/lib/webtoon-assets"
 
 const PLACEHOLDER = `写一句故事的开端，越具体越好。
@@ -137,7 +139,12 @@ export function CreatePage({
       </header>
 
       <main style={cpStyles.main}>
-        <div style={cpStyles.inner}>
+        <motion.div
+          style={cpStyles.inner}
+          initial={{ opacity: 0, y: 14 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={itemTransition}
+        >
           <span className="ts-tag" style={{ marginBottom: 28 }}>新故事</span>
           <h1 style={cpStyles.title}>
             写下开头，
@@ -260,15 +267,86 @@ export function CreatePage({
             </button>
           </div>
 
-          {busy ? (
-            <div style={cpStyles.busyHint}>
-              第一次需要 5–10 秒：AI 正在为你的种子搭建场景、人物和顾问。
-            </div>
-          ) : null}
-        </div>
+          <AnimatePresence>
+            {busy ? (
+              <motion.div
+                key="busy"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                transition={itemTransition}
+                style={cpStyles.busyCard}
+              >
+                <div style={cpStyles.busyDots}>
+                  {[0, 1, 2, 3].map((i) => (
+                    <motion.span
+                      key={i}
+                      style={cpStyles.busyDot}
+                      animate={{
+                        opacity: [0.25, 1, 0.25],
+                        scale: [0.85, 1.1, 0.85],
+                      }}
+                      transition={{
+                        duration: 1.4,
+                        repeat: Infinity,
+                        ease: "easeInOut",
+                        delay: i * 0.16,
+                      }}
+                    />
+                  ))}
+                </div>
+                <BusyTip />
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
+        </motion.div>
       </main>
     </div>
   )
+}
+
+// Rotating creative tips while user waits 5-10s for opening to generate.
+// Reads as "the AI is doing real work, here's what" instead of static
+// "loading..." which feels frozen at second 6.
+const BUSY_TIPS: string[] = [
+  "在为你的种子挑选 3-5 个角色，每人都有秘密…",
+  "在搭建 NPC 之间相互捏着的把柄网络…",
+  "在为你准备 3 张玩家身份卡——每张走向不同的故事…",
+  "在写下开场的第一个戏剧瞬间…",
+  "在校对人物动机和关系合理性…",
+]
+
+function BusyTip() {
+  const [idx, setIdx] = useState(0)
+  useEffect(() => {
+    const t = setInterval(() => setIdx((v) => (v + 1) % BUSY_TIPS.length), 2200)
+    return () => clearInterval(t)
+  }, [])
+  return (
+    <AnimatePresence mode="wait">
+      <motion.div
+        key={idx}
+        style={busyTipStyles.tip}
+        initial={{ opacity: 0, y: 4 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -4 }}
+        transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
+      >
+        {BUSY_TIPS[idx]}
+      </motion.div>
+    </AnimatePresence>
+  )
+}
+
+const busyTipStyles: Record<string, CSSProperties> = {
+  tip: {
+    fontSize: 13,
+    color: "rgba(245,210,140,0.92)",
+    lineHeight: 1.7,
+    fontStyle: "italic" as const,
+    textAlign: "center" as const,
+    fontFamily: "var(--font-narrative)",
+  },
 }
 
 const cpStyles: Record<string, CSSProperties> = {
@@ -434,5 +512,29 @@ const cpStyles: Record<string, CSSProperties> = {
     fontSize: 13,
     color: "var(--text-faint)",
     lineHeight: 1.5,
+  },
+  busyCard: {
+    marginTop: 24,
+    padding: "20px 24px",
+    background: "linear-gradient(180deg, rgba(245,200,120,0.08), rgba(245,200,120,0.02))",
+    border: "1px solid rgba(245,200,120,0.30)",
+    borderRadius: "var(--radius-md)",
+    display: "flex",
+    flexDirection: "column" as const,
+    alignItems: "center",
+    gap: 14,
+    minHeight: 80,
+  },
+  busyDots: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+  },
+  busyDot: {
+    width: 7,
+    height: 7,
+    borderRadius: "50%",
+    background: "rgba(245,210,140,0.92)",
+    display: "inline-block",
   },
 }

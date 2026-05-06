@@ -319,15 +319,16 @@ export function getEndingIllustration(label: string | null | undefined): string 
 }
 
 // ───────── tier splash banners ─────────
-// Victory / game-over splashes layer over the ending illustration to amplify
-// the emotional beat of the closing screen. Compromised endings get no
-// splash — the neutral illustration carries the ambivalence.
+// Victory / compromised / collapsed splashes layer over the ending
+// illustration to amplify the emotional beat of the closing screen.
+// All three tiers now have their own splash so the trio feels intentional.
 
 export function getTierSplash(
   tier: "victory" | "compromised" | "collapsed" | null | undefined,
 ): string | null {
   if (tier === "victory") return "/webtoons/splashes/victory.jpg"
   if (tier === "collapsed") return "/webtoons/splashes/game_over.jpg"
+  if (tier === "compromised") return "/webtoons/splashes/compromised.jpg"
   return null
 }
 
@@ -336,3 +337,29 @@ export function getTierSplash(
 export function getEmptyPlazaImage(): string {
   return "/webtoons/empty/plaza.jpg"
 }
+
+// ───────── peak narration close-ups ─────────
+// 5 cinematic close-up images used as full-bleed banners on "peak"
+// narrator beats (broken pulse / inventory delta fired / late-game
+// cold shifts). Each peak beat picks one deterministically by hashing
+// the message ord, so the same beat always shows the same image but
+// adjacent peaks get different visuals — no repeat fatigue.
+
+const PEAK_CLOSEUPS = [
+  "peak_face",
+  "peak_hand",
+  "peak_screen",
+  "peak_torn",
+  "peak_silence",
+] as const
+
+export function getPeakCloseUp(messageOrd: number): string {
+  const slug = pick(PEAK_CLOSEUPS, `peak|${messageOrd}`)
+  return `/webtoons/peaks/${slug}.jpg`
+}
+
+// ───────── advisor oracle vignette ─────────
+// Single atmospheric texture layered behind oracle reply bubbles to
+// make the "I paid a turn for this" moment feel ritualistic.
+
+export const ORACLE_VIGNETTE = "/webtoons/oracle/vignette.jpg"

@@ -26,8 +26,9 @@ import {
   getAvatarForCastMember,
   getCoverForTemplate,
   getEndingIllustration,
-  getSceneByPhase,
+  getPeakCloseUp,
   getTierSplash,
+  ORACLE_VIGNETTE,
 } from "../../shared/lib/webtoon-assets"
 
 export function PlayPage({
@@ -298,13 +299,7 @@ export function PlayPage({
                   ? computeBeatIntensity(m, turnBudget)
                   : "calm"
               }
-              sceneUrl={
-                m.role === "narrator"
-                  ? `/webtoons/segments/${sceneSlugForStage(
-                      stageForLocal(Math.floor(m.ord / 2), turnBudget),
-                    )}.jpg`
-                  : undefined
-              }
+              sceneUrl={m.role === "narrator" ? getPeakCloseUp(m.ord) : undefined}
             />
           ))}
 
@@ -807,15 +802,6 @@ function stageForLocal(turnIndex: number, turnBudget: number): string {
   return "pre_finale_open"
 }
 
-// stage_phase → segment asset slug. Backend stage names don't match
-// asset filenames 1:1 (climax/pre_finale don't exist as scene art).
-function sceneSlugForStage(stage: string): string {
-  if (stage === "climax") return "reveal"
-  if (stage === "pre_finale" || stage === "pre_finale_open") return "terminal"
-  if (stage === "hook") return "opening"
-  return stage // pressure / reversal pass through
-}
-
 // Visual intensity heuristic — purely client-side from data we already
 // have. Peak: any pulse broken, OR inventory delta fired, OR (climax/
 // pre_finale stage AND any colder/wary). Rising: reversal/climax stages
@@ -1150,17 +1136,32 @@ function AdvisorSidechat({
                   {isOracle ? (
                     <div style={ppStyles.oracleBadge}>🔮 情报 · 消耗了 1 回合</div>
                   ) : null}
-                  <div
-                    style={
-                      m.role === "player"
-                        ? ppStyles.advisorBubblePlayer
-                        : isOracle
-                          ? ppStyles.advisorBubbleOracle
+                  {isOracle ? (
+                    <div style={ppStyles.oracleBubbleWrap}>
+                      <div
+                        style={{
+                          ...ppStyles.oracleVignette,
+                          backgroundImage: `url(${ORACLE_VIGNETTE})`,
+                        }}
+                        aria-hidden
+                      />
+                      <div
+                        style={{ ...ppStyles.advisorBubbleOracle, position: "relative", zIndex: 1 }}
+                      >
+                        {m.content}
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      style={
+                        m.role === "player"
+                          ? ppStyles.advisorBubblePlayer
                           : ppStyles.advisorBubbleAdvisor
-                    }
-                  >
-                    {m.content}
-                  </div>
+                      }
+                    >
+                      {m.content}
+                    </div>
+                  )}
                 </motion.div>
               )
             })
@@ -1928,6 +1929,22 @@ const ppStyles: Record<string, CSSProperties> = {
     maxWidth: "82%",
     border: "1px solid rgba(245,200,120,0.4)",
     boxShadow: "0 0 0 1px rgba(245,200,120,0.08), 0 4px 16px rgba(245,200,120,0.06)",
+  },
+  oracleBubbleWrap: {
+    position: "relative" as const,
+    maxWidth: "82%",
+    borderRadius: "16px 16px 16px 4px",
+    overflow: "hidden",
+  },
+  oracleVignette: {
+    position: "absolute" as const,
+    inset: 0,
+    backgroundSize: "cover",
+    backgroundPosition: "center",
+    opacity: 0.32,
+    pointerEvents: "none" as const,
+    borderRadius: "16px 16px 16px 4px",
+    mixBlendMode: "overlay" as const,
   },
   oracleBadge: {
     fontSize: 10.5,

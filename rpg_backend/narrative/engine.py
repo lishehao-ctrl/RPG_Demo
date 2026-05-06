@@ -35,9 +35,13 @@ _OPENING_SYSTEM_PROMPT = """\
       "role": "TA 在故事里的身份（比如：父亲、未婚夫、表姐、上司）",
       "relation_to_protagonist": "TA 与主角（玩家）的关系一句话",
       "hidden_objective": "TA 在这场戏里**真正想要的东西**——可能跟玩家利益冲突。一句话，60 字以内（举例：'借玩家的手当众羞辱苏曼，借机清场' / '逼玩家签下父亲留下的那份股权代持协议'）",
-      "leverage_over_player": "TA 手里**捏着的、可以伤到玩家的东西**——一个秘密、一个把柄、一笔钱、一个人质。一句话，60 字以内（举例：'知道玩家三年前烧掉的那份合同备份在他车里' / '保管着玩家弟弟的医疗账单'）"
+      "leverage_over_player": "TA 手里**捏着的、可以伤到玩家的东西**——一个秘密、一个把柄、一笔钱、一个人质。一句话，60 字以内（举例：'知道玩家三年前烧掉的那份合同备份在他车里' / '保管着玩家弟弟的医疗账单'）",
+      "leverages_over_other_npcs": [
+        {"target_npc_id": "**另一个 cast 成员的 character_id**（必须是 cast 数组里其他角色，不能是自己）", "leverage": "TA 手里捏着 target_npc 的把柄/秘密/筹码——一句话 60 字内（举例：'知道苏曼三年前在新加坡转移了 800 万海外账户' / '保管着大伯私生子的出生证明' / '握着张浩去年签的那份代孕合同'）"}
+        // **0-3 条**。不是每个 NPC 都需要有，但**整个 cast 网络里至少应该有 3-5 条这种 inter-NPC leverage**，让 NPC 之间形成相互制衡的政治网络。设计要点：① 让某些 NPC 看似强势但其实被另一个 NPC 捏着把柄 ② 偶尔形成"环"（A 捏着 B，B 捏着 C，C 捏着 A）让局势可以被任意一点撬动 ③ 玩家如果学会某个 inter-leverage，可以"挑拨"两个 NPC 互撕
+      ]
     }
-    // 3-5 个角色，每个都必须有 hidden_objective 和 leverage_over_player
+    // 3-5 个角色，每个都必须有 hidden_objective 和 leverage_over_player；leverages_over_other_npcs 整个 cast 加起来 3-5 条
   ],
   "player_goals": [
     {"goal": "玩家这场戏里**想达成的目标**，一句话不超过 40 字", "stakes": "失败的话**会损失什么**，一句话不超过 60 字"}
@@ -83,7 +87,7 @@ _OPENING_SYSTEM_PROMPT = """\
 _TURN_SYSTEM_PROMPT = """\
 你是一名擅长写关系剧的剧作家。玩家正在玩一个互动故事，你负责续写下一段。
 
-每个回合你会收到：故事种子、cast 名单（每个 NPC 都带有 `hidden_objective` 和 `leverage_over_player`）、最近若干段故事历史、玩家这一回合的动作、**当前所处的故事阶段**（关键！）、`difficulty` 字段（`story` 或 `gauntlet`）、**玩家的角色卡 `player_role`**（玩家这局选了谁来扮演）、**`current_inventory`**（玩家当前手里的所有物件/情报，包括 starting_assets 和过去几回合获得的）、可选的 `npc_agenda_this_turn`（gauntlet 主动调度）和 `recent_consequences`（上一回合结构化回响）。
+每个回合你会收到：故事种子、cast 名单（每个 NPC 都带有 `hidden_objective`、`leverage_over_player`、以及 `leverages_over_other_npcs` —— **这是 NPC 之间的相互把柄网络**）、最近若干段故事历史、玩家这一回合的动作、**当前所处的故事阶段**（关键！）、`difficulty` 字段（`story` 或 `gauntlet`）、**玩家的角色卡 `player_role`**（玩家这局选了谁来扮演）、**`current_inventory`**（玩家当前手里的所有物件/情报，包括 starting_assets 和过去几回合获得的）、可选的 `npc_agenda_this_turn`（gauntlet 主动调度）和 `recent_consequences`（上一回合结构化回响）。
 
 你的任务是续写**一段**叙述（200-400 字），并给出**3 个新选项**，同时输出每个 NPC 的当下反应（`npc_pulse`）。
 
@@ -179,6 +183,16 @@ _TURN_SYSTEM_PROMPT = """\
 - **玩家的 leverages_over_npcs 是真正的双向博弈** —— 当 NPC 出 `leverage_over_player` 牌时，你应该让玩家**有机会反打**：在 narration 里暗示玩家手里也有牌（"你想起苏曼三个月前那张转账截图"），并在选项中给出"亮出 XXX 反将"的选择
 - **starting_assets 是真实存在的物件**——玩家在剧情中可以拿出来、亮出来、被别人发现。每条 asset 在 12 回合中至少应该有 1 次被引用或使用的机会（不一定都用上，但叙事要让它们"在场"）
 - 玩家的 `hidden_objective` 是**整局戏的隐藏主轴** —— passage 里偶尔可以闪现玩家朝着这个目标推进的内心动作（"你心里默数着今晚还剩多少机会"），但**不要明说**，除非玩家自己选择揭开
+
+**NPC 之间的把柄网络（leverages_over_other_npcs）—— 整局戏的政治骨架**:
+cast 里每个 NPC 都可能在 `leverages_over_other_npcs` 字段里**捏着另一个 NPC 的把柄**。这是 NPC 之间的相互制衡，不是玩家 vs NPC 的轴。这张网决定了"为什么 X 不敢公开撕 Y" / "为什么 Z 突然倒戈"。
+
+⚠️ 处理规则：
+- **narration 必须让 inter-NPC leverage 在剧情里发挥作用** —— 不要让 NPC 群像死板。比如"苏曼端起酒杯走向陆大伯，大伯眼神瞬间紧张" —— 这种细节背后通常是因为苏曼手里有大伯的把柄
+- **NPC 倒戈、临时联盟、突然反水** 都该有 leverage 网络作为合理性支撑。LLM 不要凭空让 NPC 翻面，而是让 narration 暗示"为什么 TA 这一刻这么做"
+- **玩家可以挑拨**：如果 player_role 的 `leverages_over_npcs` 里有针对 X 的把柄，玩家可以选择"告诉 Y 关于 X 的事" → 触发 X vs Y 的紧张甚至撕脸。这种选项在 selection 里出现时，passage 应该让玩家知道"自己手里的这张牌可以这样打"
+- **climax 阶段优先让 inter-NPC leverage 引爆** —— 让两个 NPC 互撕给玩家创造空间，比让玩家硬冲更戏剧化
+- 不要把整张网络一次性 dump 在 narration 里 —— 一回合最多让 1-2 条 inter-leverage 浮出水面，留悬念
 
 **玩家随身物件 / 情报（current_inventory）**:
 `current_inventory` 字段告诉你**玩家此刻手里到底有什么东西** —— 这是 starting_assets 加上过去若干回合积累来的所有物件/情报。是一个字符串数组，每条 30 字内描述。
@@ -1302,7 +1316,22 @@ def _parse_cast(raw: Any) -> list[CastMember]:
         members.append(member)
     if len(members) < 2:
         raise ValueError(f"cast too small after sanitization: {len(members)}")
-    return members[:8]
+
+    # Post-pass: filter inter-NPC leverages so target_npc_id is always a
+    # real cast member (and never self-referential). LLMs occasionally
+    # invent new ids or point a leverage at the holder themselves.
+    valid_ids = {m.character_id for m in members}
+    cleaned: list[CastMember] = []
+    for member in members[:8]:
+        cleaned_levs = [
+            lev for lev in member.leverages_over_other_npcs
+            if lev.target_npc_id in valid_ids and lev.target_npc_id != member.character_id
+        ]
+        if len(cleaned_levs) != len(member.leverages_over_other_npcs):
+            cleaned.append(member.model_copy(update={"leverages_over_other_npcs": cleaned_levs}))
+        else:
+            cleaned.append(member)
+    return cleaned
 
 
 def _parse_player_goals(raw: Any) -> list[PlayerGoal]:

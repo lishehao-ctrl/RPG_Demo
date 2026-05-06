@@ -10,6 +10,21 @@ from pydantic import BaseModel, ConfigDict, Field
 # --------------------------------------------------------------------------
 
 
+class NPCLeverageOverNPC(BaseModel):
+    """A leverage card one NPC holds over another NPC.
+
+    Enables N×N political dynamics: NPC A may know something damaging
+    about NPC B, which lets the LLM write scenes where A threatens B,
+    and lets the player deliberately leak knowledge between NPCs to
+    trigger inter-NPC conflict ("挑拨").
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    target_npc_id: str = Field(min_length=1, max_length=64)
+    leverage: str = Field(min_length=1, max_length=200)
+
+
 class CastMember(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -20,6 +35,13 @@ class CastMember(BaseModel):
     # Gauntlet-mode adversarial fields. None for story-mode templates.
     hidden_objective: str | None = Field(default=None, max_length=200)
     leverage_over_player: str | None = Field(default=None, max_length=200)
+    # Inter-NPC leverage network. Each NPC may hold 0-3 leverages over
+    # *other* NPCs, mirroring the existing leverage_over_player field
+    # but pointed at the cast instead of the player. Backwards-compatible
+    # default to empty list so legacy templates still parse cleanly.
+    leverages_over_other_npcs: list[NPCLeverageOverNPC] = Field(
+        default_factory=list, max_length=4,
+    )
 
 
 class PlayerGoal(BaseModel):

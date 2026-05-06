@@ -38,10 +38,10 @@ _OPENING_SYSTEM_PROMPT = """\
       "leverage_over_player": "TA 手里**捏着的、可以伤到玩家的东西**——一个秘密、一个把柄、一笔钱、一个人质。一句话，60 字以内（举例：'知道玩家三年前烧掉的那份合同备份在他车里' / '保管着玩家弟弟的医疗账单'）",
       "leverages_over_other_npcs": [
         {"target_npc_id": "**另一个 cast 成员的 character_id**（必须是 cast 数组里其他角色，不能是自己）", "leverage": "TA 手里捏着 target_npc 的把柄/秘密/筹码——一句话 60 字内（举例：'知道苏曼三年前在新加坡转移了 800 万海外账户' / '保管着大伯私生子的出生证明' / '握着张浩去年签的那份代孕合同'）"}
-        // **0-3 条**。不是每个 NPC 都需要有，但**整个 cast 网络里至少应该有 3-5 条这种 inter-NPC leverage**，让 NPC 之间形成相互制衡的政治网络。设计要点：① 让某些 NPC 看似强势但其实被另一个 NPC 捏着把柄 ② 偶尔形成"环"（A 捏着 B，B 捏着 C，C 捏着 A）让局势可以被任意一点撬动 ③ 玩家如果学会某个 inter-leverage，可以"挑拨"两个 NPC 互撕
+        // **每个 NPC 1-2 条**。**这个字段是核心机制**——3 个 NPC 的 cast 整张网络应该有 **4-6 条** edge，4 个 NPC 应该有 **6-9 条**。一个 NPC 没有任何 inter-NPC leverage 是允许的（比如管家、外人），但**主要参与博弈的 NPC（hidden_objective 和 leverage_over_player 都强的）必须至少握着一条别人的把柄**——这是政治网络存在的前提。设计要点：① 让某些 NPC 看似强势但其实被另一个 NPC 捏着把柄 ② **优先形成"环"**（A 捏着 B，B 捏着 C，C 捏着 A）或"三角"（两人都捏第三人）让局势可以被任意一点撬动 ③ 不是抽象描述，**每条 leverage 都是具体的物件/秘密/账目**，写出来读者能直接想象到"这是一份/一段/一张什么"
       ]
     }
-    // 3-5 个角色，每个都必须有 hidden_objective 和 leverage_over_player；leverages_over_other_npcs 整个 cast 加起来 3-5 条
+    // 3-5 个角色。hard rule：① 每个角色都有 hidden_objective 和 leverage_over_player ② **整个 cast 的 leverages_over_other_npcs 加起来必须 ≥ 4 条**（3-NPC cast 至少 4 条，4-NPC cast 至少 6 条，5-NPC cast 至少 8 条）—— 政治网络密度不够整局戏会扁
   ],
   "player_goals": [
     {"goal": "玩家这场戏里**想达成的目标**，一句话不超过 40 字", "stakes": "失败的话**会损失什么**，一句话不超过 60 字"}

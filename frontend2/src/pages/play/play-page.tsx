@@ -364,7 +364,22 @@ export function PlayPage({
             sessionId={sessionId}
             persona={story.template.advisor_persona}
             avatarUrl={advisorAvatar}
+            turnsRemaining={turnsRemaining}
+            isComplete={isComplete}
             onClose={() => setAdvisorOpen(false)}
+            onOracleConsumed={(newBudget) => {
+              // Update local session budget so the header chip updates
+              // immediately and the oracle button respects the new
+              // remaining count.
+              setStory((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      session: { ...prev.session, turn_budget: newBudget },
+                    }
+                  : prev,
+              )
+            }}
           />
         ) : null}
       </AnimatePresence>
@@ -887,15 +902,22 @@ function AdvisorSidechat({
   sessionId,
   persona,
   avatarUrl,
+  turnsRemaining,
+  isComplete,
   onClose,
+  onOracleConsumed,
 }: {
   sessionId: string
   persona: string
   avatarUrl: string
+  turnsRemaining: number
+  isComplete: boolean
   onClose: () => void
+  onOracleConsumed: (newBudget: number) => void
 }) {
   const api = useApi()
   const [messages, setMessages] = useState<NarrativeAdvisorMessage[]>([])
+  const [oracleOrds, setOracleOrds] = useState<Set<number>>(new Set())
   const [draft, setDraft] = useState("")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -924,15 +946,38 @@ function AdvisorSidechat({
     el.scrollTo({ top: el.scrollHeight, behavior: "smooth" })
   }, [messages.length])
 
-  const handleAsk = async () => {
+  const handleAsk = async (oracle: boolean) => {
     const question = draft.trim()
     if (!question || busy) return
+    if (oracle && isComplete) {
+      setError("这一局已经走完了，不能再消耗回合换情报。")
+      return
+    }
+    if (oracle) {
+      const ok = window.confirm(
+        `用 1 回合换 advisor 的"看穿"提示？\n\n• 这会让你少 1 回合时间（剩余 ${turnsRemaining} → ${Math.max(1, turnsRemaining - 1)}）\n• advisor 会拿到只有 TA 才能看到的局势线索\n• 但 advisor 还是不会替你做决定\n\n继续？`,
+      )
+      if (!ok) return
+    }
     setBusy(true)
     setError(null)
     setDraft("")
     try {
-      const res = await api.askNarrativeAdvisor(sessionId, { question })
+      const res = await api.askNarrativeAdvisor(sessionId, {
+        question,
+        ...(oracle ? { oracle_mode: true } : {}),
+      })
       setMessages((prev) => [...prev, res.player_message, res.advisor_message])
+      if (res.oracle_used) {
+        setOracleOrds((prev) => {
+          const next = new Set(prev)
+          next.add(res.advisor_message.ord)
+          return next
+        })
+        if (typeof res.turn_budget_after === "number") {
+          onOracleConsumed(res.turn_budget_after)
+        }
+      }
     } catch (err) {
       setError(friendlyError(err, "顾问没回上你这一句，再试一次？"))
     } finally {
@@ -982,26 +1027,34 @@ function AdvisorSidechat({
               TA 不会替你做决定，但会陪你想清楚。
             </motion.div>
           ) : (
-            messages.map((m) => (
-              <motion.div
-                key={`${m.role}-${m.ord}`}
-                layout
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={itemTransition}
-                style={m.role === "player" ? ppStyles.advisorRowPlayer : ppStyles.advisorRowAdvisor}
-              >
-                <div
-                  style={
-                    m.role === "player"
-                      ? ppStyles.advisorBubblePlayer
-                      : ppStyles.advisorBubbleAdvisor
-                  }
+            messages.map((m) => {
+              const isOracle = m.role === "advisor" && oracleOrds.has(m.ord)
+              return (
+                <motion.div
+                  key={`${m.role}-${m.ord}`}
+                  layout
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={itemTransition}
+                  style={m.role === "player" ? ppStyles.advisorRowPlayer : ppStyles.advisorRowAdvisor}
                 >
-                  {m.content}
-                </div>
-              </motion.div>
-            ))
+                  {isOracle ? (
+                    <div style={ppStyles.oracleBadge}>🔮 情报 · 消耗了 1 回合</div>
+                  ) : null}
+                  <div
+                    style={
+                      m.role === "player"
+                        ? ppStyles.advisorBubblePlayer
+                        : isOracle
+                          ? ppStyles.advisorBubbleOracle
+                          : ppStyles.advisorBubbleAdvisor
+                    }
+                  >
+                    {m.content}
+                  </div>
+                </motion.div>
+              )
+            })
           )}
           {busy ? <TypingDots /> : null}
         </div>
@@ -1017,20 +1070,37 @@ function AdvisorSidechat({
             onKeyDown={(e) => {
               if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
                 e.preventDefault()
-                void handleAsk()
+                void handleAsk(false)
               }
             }}
             disabled={busy}
             rows={2}
           />
-          <button
-            className="ts-btn ts-btn--primary"
-            onClick={() => void handleAsk()}
-            disabled={busy || !draft.trim()}
-            type="button"
-          >
-            发送
-          </button>
+          <div style={ppStyles.advisorBtnRow}>
+            <button
+              className="ts-btn ts-btn--primary"
+              onClick={() => void handleAsk(false)}
+              disabled={busy || !draft.trim()}
+              type="button"
+            >
+              发送
+            </button>
+            <button
+              style={ppStyles.oracleBtn}
+              onClick={() => void handleAsk(true)}
+              disabled={busy || !draft.trim() || isComplete || turnsRemaining <= 1}
+              type="button"
+              title={
+                isComplete
+                  ? "故事已结束"
+                  : turnsRemaining <= 1
+                    ? "回合不足，无法换情报"
+                    : `用 1 回合换 advisor 的看穿（剩 ${turnsRemaining} 回合）`
+              }
+            >
+              🔮 用 1 回合换情报
+            </button>
+          </div>
         </div>
       </motion.aside>
     </>
@@ -1661,7 +1731,13 @@ const ppStyles: Record<string, CSSProperties> = {
     border: "1px solid var(--line)",
   },
   advisorRowPlayer: { display: "flex", justifyContent: "flex-end", marginBottom: 12 },
-  advisorRowAdvisor: { display: "flex", justifyContent: "flex-start", marginBottom: 12 },
+  advisorRowAdvisor: {
+    display: "flex",
+    flexDirection: "column" as const,
+    alignItems: "flex-start",
+    marginBottom: 12,
+    gap: 4,
+  },
   advisorBubblePlayer: {
     background: "var(--accent)",
     color: "white",
@@ -1680,6 +1756,29 @@ const ppStyles: Record<string, CSSProperties> = {
     lineHeight: 1.6,
     maxWidth: "82%",
     border: "1px solid var(--line)",
+  },
+  advisorBubbleOracle: {
+    background: "linear-gradient(180deg, rgba(245,200,120,0.15), rgba(245,200,120,0.05))",
+    color: "rgba(255,235,200,0.96)",
+    padding: "10px 14px",
+    borderRadius: "16px 16px 16px 4px",
+    fontSize: 14,
+    lineHeight: 1.6,
+    maxWidth: "82%",
+    border: "1px solid rgba(245,200,120,0.4)",
+    boxShadow: "0 0 0 1px rgba(245,200,120,0.08), 0 4px 16px rgba(245,200,120,0.06)",
+  },
+  oracleBadge: {
+    fontSize: 10.5,
+    color: "rgba(245,210,140,0.92)",
+    letterSpacing: "0.06em",
+    fontWeight: 600,
+    marginBottom: 4,
+    background: "rgba(245,200,120,0.10)",
+    border: "1px solid rgba(245,200,120,0.30)",
+    padding: "2px 8px",
+    borderRadius: 4,
+    alignSelf: "flex-start" as const,
   },
   advisorTyping: { fontSize: 12, color: "var(--text-faint)", fontStyle: "italic", padding: "6px 14px" },
   typingRow: { display: "flex", justifyContent: "flex-start", marginBottom: 12 },
@@ -1727,5 +1826,24 @@ const ppStyles: Record<string, CSSProperties> = {
     resize: "none",
     outline: "none",
     fontFamily: "inherit",
+  },
+  advisorBtnRow: {
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: 6,
+    alignItems: "stretch",
+  },
+  oracleBtn: {
+    fontSize: 12,
+    padding: "8px 12px",
+    background: "linear-gradient(180deg, rgba(245,200,120,0.18), rgba(245,200,120,0.08))",
+    color: "rgba(255,235,200,0.95)",
+    border: "1px solid rgba(245,200,120,0.45)",
+    borderRadius: "var(--radius-sm)",
+    cursor: "pointer",
+    fontFamily: "inherit",
+    fontWeight: 500,
+    whiteSpace: "nowrap" as const,
+    transition: "filter 0.15s",
   },
 }

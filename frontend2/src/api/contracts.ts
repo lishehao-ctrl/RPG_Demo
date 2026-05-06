@@ -736,11 +736,14 @@ export type NarrativeAdvanceTurnResponse = {
 
 export type NarrativeAdvisorAskRequest = {
   question: string
+  oracle_mode?: boolean
 }
 
 export type NarrativeAdvisorAskResponse = {
   player_message: NarrativeAdvisorMessage
   advisor_message: NarrativeAdvisorMessage
+  turn_budget_after?: number | null
+  oracle_used?: boolean
 }
 
 export type NarrativeAdvisorHistoryResponse = {

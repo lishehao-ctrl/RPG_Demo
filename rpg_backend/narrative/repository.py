@@ -12,6 +12,7 @@ from rpg_backend.narrative.contracts import (
     Difficulty,
     EndingTier,
     FailureCondition,
+    Highlight,
     InventoryDelta,
     NarrativeSession,
     NarrativeTemplate,
@@ -96,6 +97,7 @@ class NarrativeRepository:
             ("early_terminated", "ALTER TABLE narrative_sessions ADD COLUMN early_terminated INTEGER NOT NULL DEFAULT 0"),
             ("failure_trigger", "ALTER TABLE narrative_sessions ADD COLUMN failure_trigger TEXT"),
             ("selected_player_role_id", "ALTER TABLE narrative_sessions ADD COLUMN selected_player_role_id TEXT"),
+            ("ending_highlights_json", "ALTER TABLE narrative_sessions ADD COLUMN ending_highlights_json TEXT"),
         ):
             if col not in existing_cols:
                 connection.execute(ddl)
@@ -341,14 +343,20 @@ class NarrativeRepository:
         tier: EndingTier,
         early_terminated: bool = False,
         failure_trigger: str | None = None,
+        highlights: list[Highlight] | None = None,
     ) -> None:
+        highlights_json: str | None = None
+        if highlights:
+            highlights_json = json.dumps(
+                [h.model_dump() for h in highlights], ensure_ascii=False,
+            )
         with self._connect() as conn:
             conn.execute(
                 """
                 UPDATE narrative_sessions
                 SET ending_label = ?, ending_subtitle = ?, ending_passage = ?,
                     ending_tier = ?, early_terminated = ?, failure_trigger = ?,
-                    last_active_at = ?
+                    ending_highlights_json = ?, last_active_at = ?
                 WHERE session_id = ?
                 """,
                 (
@@ -358,11 +366,38 @@ class NarrativeRepository:
                     tier,
                     1 if early_terminated else 0,
                     failure_trigger,
+                    highlights_json,
                     _utc_now(),
                     session_id,
                 ),
             )
             conn.commit()
+
+    def get_session_highlights(self, session_id: str) -> list[Highlight]:
+        """Read persisted highlights for a finished session. Empty list
+        if the session isn't done or highlights weren't generated."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT ending_highlights_json FROM narrative_sessions WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+        if row is None or not row["ending_highlights_json"]:
+            return []
+        try:
+            raw = json.loads(row["ending_highlights_json"])
+        except Exception:  # noqa: BLE001
+            return []
+        if not isinstance(raw, list):
+            return []
+        out: list[Highlight] = []
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            try:
+                out.append(Highlight.model_validate(item))
+            except Exception:  # noqa: BLE001
+                continue
+        return out
 
     def list_completed_endings_for_template(
         self, template_id: str

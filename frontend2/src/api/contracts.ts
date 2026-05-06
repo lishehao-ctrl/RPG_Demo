@@ -648,6 +648,13 @@ export type NarrativeSessionSummary = {
   last_active_at: string
 }
 
+export type NarrativeHighlight = {
+  beat_ord: number
+  headline: string
+  body_excerpt: string
+  why_pivotal: string
+}
+
 export type NarrativeEnding = {
   label: string
   subtitle: string
@@ -655,6 +662,7 @@ export type NarrativeEnding = {
   tier?: NarrativeEndingTier
   early_terminated?: boolean
   failure_trigger?: string | null
+  highlights?: NarrativeHighlight[]
 }
 
 export type NarrativeEndingDistributionEntry = {

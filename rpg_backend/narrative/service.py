@@ -37,6 +37,7 @@ from rpg_backend.narrative.engine import (
     judge_failure,
     synthesize_early_ending,
     synthesize_ending,
+    synthesize_highlights,
     tier_for_label,
 )
 from rpg_backend.narrative.gateway import (
@@ -471,6 +472,18 @@ class NarrativeService:
             )
             return None
         tier = tier_for_label(result.label)
+        # Synthesize highlights AFTER ending exists. Non-fatal —
+        # synthesize_highlights returns [] on any failure.
+        highlights = synthesize_highlights(
+            gateway=self.gateway,
+            seed=template.seed,
+            title=template.title,
+            cast=template.cast,
+            history=full_history,
+            ending_label=result.label,
+            ending_subtitle=result.subtitle,
+            player_role=player_role,
+        )
         self._repo.record_session_ending(
             session_id,
             label=result.label,
@@ -479,6 +492,7 @@ class NarrativeService:
             tier=tier,  # type: ignore[arg-type]
             early_terminated=False,
             failure_trigger=None,
+            highlights=highlights or None,
         )
         _emit_metric(
             "session_completed",
@@ -487,6 +501,7 @@ class NarrativeService:
             ending_label=result.label,
             tier=tier,
             early=0,
+            num_highlights=len(highlights),
         )
         return NarrativeEnding(
             label=result.label,
@@ -495,6 +510,7 @@ class NarrativeService:
             tier=tier,  # type: ignore[arg-type]
             early_terminated=False,
             failure_trigger=None,
+            highlights=highlights,
         )
 
     def _finalize_session_early(
@@ -529,6 +545,18 @@ class NarrativeService:
             return None
         # Early endings are always tier=collapsed by design.
         tier = "collapsed"
+        # Highlights for the early collapse — same fn, just shorter
+        # input history. Non-fatal.
+        highlights = synthesize_highlights(
+            gateway=self.gateway,
+            seed=template.seed,
+            title=template.title,
+            cast=template.cast,
+            history=full_history,
+            ending_label=result.label,
+            ending_subtitle=result.subtitle,
+            player_role=player_role,
+        )
         self._repo.record_session_ending(
             session_id,
             label=result.label,
@@ -537,6 +565,7 @@ class NarrativeService:
             tier=tier,  # type: ignore[arg-type]
             early_terminated=True,
             failure_trigger=failure_trigger,
+            highlights=highlights or None,
         )
         _emit_metric(
             "session_completed",
@@ -546,6 +575,7 @@ class NarrativeService:
             tier=tier,
             early=1,
             trigger=failure_trigger,
+            num_highlights=len(highlights),
         )
         return NarrativeEnding(
             label=result.label,
@@ -554,6 +584,7 @@ class NarrativeService:
             tier=tier,  # type: ignore[arg-type]
             early_terminated=True,
             failure_trigger=failure_trigger,
+            highlights=highlights,
         )
 
     # ------------------------------------------------------------------
@@ -567,6 +598,7 @@ class NarrativeService:
         if session.ending_label is None:
             return None
         tier = session.ending_tier or tier_for_label(session.ending_label)
+        highlights = self._repo.get_session_highlights(session_id)
         return NarrativeEnding(
             label=session.ending_label,
             subtitle=session.ending_subtitle or "",
@@ -574,6 +606,7 @@ class NarrativeService:
             tier=tier,  # type: ignore[arg-type]
             early_terminated=session.early_terminated,
             failure_trigger=session.failure_trigger,
+            highlights=highlights,
         )
 
     def get_ending_distribution(
@@ -618,6 +651,7 @@ class NarrativeService:
         ending_payload: NarrativeEnding | None = None
         if session.ending_label is not None:
             tier = session.ending_tier or tier_for_label(session.ending_label)
+            highlights = self._repo.get_session_highlights(session_id)
             ending_payload = NarrativeEnding(
                 label=session.ending_label,
                 subtitle=session.ending_subtitle or "",
@@ -625,6 +659,7 @@ class NarrativeService:
                 tier=tier,  # type: ignore[arg-type]
                 early_terminated=session.early_terminated,
                 failure_trigger=session.failure_trigger,
+                highlights=highlights,
             )
         return PublicReplayResponse(
             session_id=session.session_id,

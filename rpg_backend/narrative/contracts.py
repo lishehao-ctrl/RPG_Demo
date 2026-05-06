@@ -263,6 +263,29 @@ class NarrativeSessionSummary(BaseModel):
     last_active_at: str
 
 
+class Highlight(BaseModel):
+    """One pivotal moment in a finished session, surfaced as a card on
+    the post-game replay reel. The five highlights together form the
+    'shareable summary' of how this run played out — what mattered, why
+    it mattered, and where the LLM thinks the player decided their tier.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Which narrator beat this highlight points at (ord of that message).
+    # Always references a narrator beat the player actually saw.
+    beat_ord: int = Field(ge=0)
+    # Short title of the moment, shown as the card header. ≤30 chars.
+    headline: str = Field(min_length=1, max_length=30)
+    # The most dramatic 1-3 sentence chunk lifted from that beat's
+    # narration, verbatim or near-verbatim. ≤400 chars after truncation.
+    body_excerpt: str = Field(min_length=1, max_length=400)
+    # The LLM's read on why this moment was pivotal — references the
+    # player's choices, hidden_objective, leverage, or inventory in a
+    # one-line analysis. ≤200 chars.
+    why_pivotal: str = Field(min_length=1, max_length=200)
+
+
 class NarrativeEnding(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -272,6 +295,10 @@ class NarrativeEnding(BaseModel):
     tier: EndingTier = "compromised"
     early_terminated: bool = False
     failure_trigger: str | None = None
+    # Up to 5 pivotal moments from the run, surfaced as a post-game
+    # highlight reel. Empty list on legacy sessions or if the
+    # synthesize_highlights call failed (non-fatal).
+    highlights: list[Highlight] = Field(default_factory=list, max_length=6)
 
 
 class EndingDistributionEntry(BaseModel):

@@ -610,10 +610,43 @@ function EndingScreen({
         >
           {ending.passage}
         </motion.div>
+
+        {/* Highlight reel — 5 pivotal moments LLM picked from the run. */}
+        {ending.highlights && ending.highlights.length > 0 ? (
+          <motion.section
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 1.0, ...itemTransition }}
+            style={ppStyles.highlightReel}
+          >
+            <div style={ppStyles.highlightReelLabel}>
+              这一局的关键 {ending.highlights.length} 个时刻
+            </div>
+            <div style={ppStyles.highlightList}>
+              {ending.highlights.map((h, i) => (
+                <motion.div
+                  key={`${h.beat_ord}-${i}`}
+                  initial={{ opacity: 0, x: -8 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 1.05 + i * 0.08, ...itemTransition }}
+                  style={ppStyles.highlightCard}
+                >
+                  <div style={ppStyles.highlightHeader}>
+                    <span style={ppStyles.highlightIndex}>{i + 1}</span>
+                    <span style={ppStyles.highlightHeadline}>{h.headline}</span>
+                  </div>
+                  <div style={ppStyles.highlightBody}>{h.body_excerpt}</div>
+                  <div style={ppStyles.highlightWhy}>{h.why_pivotal}</div>
+                </motion.div>
+              ))}
+            </div>
+          </motion.section>
+        ) : null}
+
         <motion.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 1.1, ...itemTransition }}
+          transition={{ delay: 1.4, ...itemTransition }}
           style={ppStyles.endingActions}
         >
           <motion.button
@@ -1958,6 +1991,68 @@ const ppStyles: Record<string, CSSProperties> = {
     borderBottom: "1px dashed var(--line)",
     marginBottom: 24,
   },
+  // Highlight reel below ending passage — chronological pivotal moments
+  highlightReel: {
+    marginBottom: 28,
+    paddingBottom: 28,
+    borderBottom: "1px dashed var(--line)",
+  },
+  highlightReelLabel: {
+    fontSize: 11,
+    color: "rgba(245,200,120,0.92)",
+    letterSpacing: "0.12em",
+    textTransform: "uppercase" as const,
+    fontWeight: 600,
+    marginBottom: 16,
+  },
+  highlightList: {
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: 12,
+  },
+  highlightCard: {
+    padding: "14px 16px",
+    background: "linear-gradient(180deg, rgba(245,200,120,0.06), rgba(245,200,120,0.02))",
+    border: "1px solid rgba(245,200,120,0.22)",
+    borderRadius: "var(--radius-sm)",
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: 8,
+  },
+  highlightHeader: {
+    display: "flex",
+    alignItems: "baseline",
+    gap: 10,
+  },
+  highlightIndex: {
+    fontSize: 12,
+    color: "rgba(245,200,120,0.85)",
+    fontWeight: 700,
+    minWidth: 18,
+    fontFamily: "var(--font-narrative)",
+  },
+  highlightHeadline: {
+    fontFamily: "var(--font-narrative)",
+    fontSize: 16,
+    fontWeight: 500,
+    color: "rgba(255,235,210,0.96)",
+    lineHeight: 1.35,
+  },
+  highlightBody: {
+    fontSize: 13.5,
+    lineHeight: 1.7,
+    color: "var(--text)",
+    paddingLeft: 28,
+    fontFamily: "var(--font-narrative)",
+  },
+  highlightWhy: {
+    fontSize: 12,
+    color: "var(--text-muted)",
+    lineHeight: 1.55,
+    paddingLeft: 28,
+    fontStyle: "italic" as const,
+  },
+
   endingActions: { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 10 },
   endingShareHint: {
     fontSize: 12.5,

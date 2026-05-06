@@ -7,6 +7,7 @@ from rpg_backend.narrative.contracts import (
     AdvisorMessage,
     CastMember,
     FailureCondition,
+    Highlight,
     InventoryDelta,
     NPCPulse,
     PlayerGoal,
@@ -329,6 +330,42 @@ _ENDING_SYSTEM_PROMPT_TEMPLATE = """\
 }}
 
 不要 markdown，不要解释。
+"""
+
+
+_HIGHLIGHTS_SYSTEM_PROMPT = """\
+你是一名剧评人。一段 12 回合的互动短剧刚结束，整局所有 narrator beats（每个带 ord）+ player actions + ending 都给你了。你的任务是**从这局戏里挑出 5 个真正改变了走向的关键时刻**，按时间顺序输出，组成可分享的 highlight reel。
+
+每个 highlight 包含三个字段：
+- `beat_ord`: 你引用的那个 narrator 段的 ord（必须是 narrator 角色的某段，不能引用 player 段）
+- `headline`: 这一刻发生了什么，**≤30 字**，标题感强、能截图发朋友圈（举例："苏曼当众甩出账户截图" / "你在车库里捡起那把钥匙" / "陆大伯撕碎放弃书"）
+- `body_excerpt`: 从该 beat 的 narration 里截取**最戏剧的 1-3 句**，原句或近似原句，**≤180 字**。不是改写，是真的从原文里挑出来的精华
+- `why_pivotal`: 用一句话说出**为什么这一刻是关键** —— 跟玩家的 hidden_objective / leverage / inventory / role 关联起来。**≤80 字**（举例："这一刻是玩家从被动转主动的拐点" / "玩家亮出了藏了 8 回合的车库合同" / "苏曼倒戈让你失去最后一个盟友"）
+
+⚠️ 选择规则（关键）：
+- **必须 5 个**，不能多不能少
+- **按 beat_ord 升序排列**（时间顺序）
+- 优先选这些类型的时刻：
+  * `inventory_delta` 触发的回合（玩家拿到/失去关键物件）
+  * `npc_pulse.shift == "broken"` 出现的回合（NPC 第一次崩塌）
+  * twist 发生的 reversal 回合
+  * 玩家亮 leverage / asset 的回合
+  * 玩家做了重大让步或反击的回合
+- **不要选纯 setup 回合**（hook 阶段、压力渐进 pressure）—— 选有"事件"发生的回合
+- 5 个时刻应该**横跨 12 回合**，不要全挤在 climax —— 每个 stage 至少有一个代表
+- ending 这段已经独立呈现，**不要把它当 highlight**
+
+输出**严格** JSON，只一个字段 `highlights`，是一个数组：
+
+{
+  "highlights": [
+    {"beat_ord": 2, "headline": "...", "body_excerpt": "...", "why_pivotal": "..."},
+    {"beat_ord": 5, "headline": "...", "body_excerpt": "...", "why_pivotal": "..."},
+    ...
+  ]
+}
+
+不要 markdown，不要其他字段。
 """
 
 
@@ -1231,6 +1268,120 @@ def _normalize_ending_label(raw: str) -> str:
         if label in candidate or candidate in label:
             return label
     return "失控"
+
+
+def synthesize_highlights(
+    *,
+    gateway: NarrativeLLMGateway,
+    seed: str,
+    title: str,
+    cast: list[CastMember],
+    history: list[StoryMessage],
+    ending_label: str,
+    ending_subtitle: str,
+    player_role: PlayerRole | None = None,
+) -> list[Highlight]:
+    """Pick up to 5 pivotal narrator beats from a finished session and
+    return them as a chronological highlight reel.
+
+    Non-fatal: returns [] on LLM failure or unparseable output. Caller
+    can choose to retry or just persist what we have.
+    """
+    # Build narrator-only history with ords so the LLM can reference
+    # specific beats by ord. Include inventory_delta + npc_pulse signals
+    # so the LLM has the same metadata as the turn engine to identify
+    # pivotal moments.
+    narrator_beats: list[dict[str, Any]] = []
+    for msg in history:
+        if msg.role != "narrator":
+            continue
+        beat: dict[str, Any] = {
+            "ord": msg.ord,
+            "content": msg.content,
+        }
+        if msg.npc_pulse:
+            beat["pulse_shifts"] = [
+                {"npc_id": p.npc_id, "shift": p.shift} for p in msg.npc_pulse
+            ]
+        if msg.inventory_delta is not None:
+            beat["inventory_delta"] = {
+                "added": list(msg.inventory_delta.added),
+                "removed": list(msg.inventory_delta.removed),
+            }
+        narrator_beats.append(beat)
+
+    valid_ords = {b["ord"] for b in narrator_beats}
+
+    user_payload: dict[str, Any] = {
+        "seed": seed,
+        "title": title,
+        "cast_brief": [
+            {"id": c.character_id, "name": c.display_name, "role": c.role}
+            for c in cast
+        ],
+        "narrator_beats": narrator_beats,
+        "ending_label": ending_label,
+        "ending_subtitle": ending_subtitle,
+    }
+    if player_role is not None:
+        user_payload["player_role"] = {
+            "label": player_role.label,
+            "public_persona": player_role.public_persona,
+            "hidden_objective": player_role.hidden_objective,
+        }
+
+    try:
+        response = gateway.invoke_json(
+            system_prompt=_HIGHLIGHTS_SYSTEM_PROMPT,
+            user_payload=user_payload,
+            operation_name="narrative.highlights",
+            max_output_tokens=1800,
+        )
+    except NarrativeGatewayError as exc:
+        print(
+            f"[narrative.highlights] gateway error, returning []: {exc}",
+            flush=True,
+        )
+        return []
+
+    payload = _coerce_dict(response.payload)
+    return _parse_highlights(payload.get("highlights"), valid_ords=valid_ords)
+
+
+def _parse_highlights(raw: Any, *, valid_ords: set[int]) -> list[Highlight]:
+    """Tolerant parse: drop entries with unknown beat_ord, missing
+    required fields, or duplicate ords. Cap at 6."""
+    if not isinstance(raw, list):
+        return []
+    seen_ords: set[int] = set()
+    out: list[Highlight] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        try:
+            ord_val = int(item.get("beat_ord", -1))
+        except (TypeError, ValueError):
+            continue
+        if ord_val < 0 or ord_val not in valid_ords or ord_val in seen_ords:
+            continue
+        headline = str(item.get("headline") or "").strip()[:30]
+        body = str(item.get("body_excerpt") or "").strip()[:400]
+        why = str(item.get("why_pivotal") or "").strip()[:200]
+        if not headline or not body or not why:
+            continue
+        seen_ords.add(ord_val)
+        try:
+            out.append(Highlight(
+                beat_ord=ord_val,
+                headline=headline,
+                body_excerpt=body,
+                why_pivotal=why,
+            ))
+        except Exception:  # noqa: BLE001
+            continue
+    # Sort chronologically (LLM should already; defensive)
+    out.sort(key=lambda h: h.beat_ord)
+    return out[:6]
 
 
 def _invoke_turn(

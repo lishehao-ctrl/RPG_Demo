@@ -1337,26 +1337,36 @@ def _parse_failure_conditions(raw: Any) -> list[FailureCondition]:
     return conds[:6]
 
 
+_NOOP_DELTA_TOKENS = {
+    "", "无", "无变化", "none", "n/a", "n.a.", "—", "-", "null",
+    "无新增", "无获得", "无失去", "暂无", "未变",
+}
+
+
 def _parse_inventory_delta(raw: Any) -> InventoryDelta | None:
     """Tolerant parser for an optional inventory_delta field. Returns None
-    when missing, malformed, or empty (no added/removed entries) so we
-    don't pollute the message with empty-list deltas."""
+    when missing, malformed, or contains only noop placeholders.
+
+    LLMs sometimes emit {added: ['无'], removed: ['无']} as a "nothing
+    happened" signal even when the prompt says to omit the field; we
+    filter those tokens so they don't pollute the inventory."""
     if not isinstance(raw, dict):
         return None
-    added: list[str] = []
-    raw_added = raw.get("added")
-    if isinstance(raw_added, list):
-        for item in raw_added[:4]:
+
+    def _clean(items: Any) -> list[str]:
+        out: list[str] = []
+        if not isinstance(items, list):
+            return out
+        for item in items[:4]:
             s = str(item or "").strip()
+            if s.lower() in _NOOP_DELTA_TOKENS:
+                continue
             if s:
-                added.append(s[:120])
-    removed: list[str] = []
-    raw_removed = raw.get("removed")
-    if isinstance(raw_removed, list):
-        for item in raw_removed[:4]:
-            s = str(item or "").strip()
-            if s:
-                removed.append(s[:120])
+                out.append(s[:120])
+        return out
+
+    added = _clean(raw.get("added"))
+    removed = _clean(raw.get("removed"))
     if not added and not removed:
         return None
     reason = str(raw.get("reason") or "").strip()[:120]

@@ -7,6 +7,7 @@ import type {
 import { useApi } from "../../app/api-context"
 import { useAuth } from "../../app/auth-context"
 import { Header } from "../../shared/ui/header"
+import { LoadingShim } from "../../shared/ui/loading-shim"
 import {
   PAGE_BG,
   getCoverForTemplate,
@@ -237,10 +238,11 @@ function MySessionsSection({
         <section style={hpStyles.section}>
           <SectionHeader title="继续未完成的故事" />
           <div style={hpStyles.sessionRow}>
-            {inProgress.slice(0, 6).map((s) => (
+            {inProgress.slice(0, 6).map((s, idx) => (
               <SessionCard
                 key={s.session_id}
                 session={s}
+                index={idx}
                 onClick={() => onOpenPlay(s.session_id)}
               />
             ))}
@@ -251,10 +253,11 @@ function MySessionsSection({
         <section style={hpStyles.section}>
           <SectionHeader title="我玩完的故事" />
           <div style={hpStyles.sessionRow}>
-            {completed.slice(0, 6).map((s) => (
+            {completed.slice(0, 6).map((s, idx) => (
               <SessionCard
                 key={s.session_id}
                 session={s}
+                index={idx}
                 onClick={() => onOpenPlay(s.session_id)}
               />
             ))}
@@ -268,9 +271,11 @@ function MySessionsSection({
 function SessionCard({
   session,
   onClick,
+  index = 0,
 }: {
   session: NarrativeSessionSummary
   onClick: () => void
+  index?: number
 }) {
   const completed = Boolean(session.ending_label)
   return (
@@ -280,7 +285,7 @@ function SessionCard({
       type="button"
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={itemTransition}
+      transition={{ delay: index * 0.04, ...itemTransition }}
       whileHover={hoverLift}
       whileTap={tapPress}
     >
@@ -322,7 +327,7 @@ function TemplateGrid({
     return <div style={hpStyles.errorBox}>{error}</div>
   }
   if (!templates) {
-    return <div style={hpStyles.loading}>加载中…</div>
+    return <LoadingShim variant="inline" />
   }
   if (templates.length === 0) {
     return (

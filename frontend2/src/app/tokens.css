@@ -1,4 +1,22 @@
-/* Tiny Stories — Design Tokens */
+/* Tiny Stories — Design Tokens
+ *
+ * COLOR SEMANTICS (mental model the player should pick up):
+ *   --accent (gold #d4a853): "the stakes / the prize / what matters"
+ *     CTAs, ending gold splash, oracle hints, inventory acquired,
+ *     leverage chips, highlight reel cards, peak narration banner
+ *   --warn (warm red #e07a5f): "danger / collapse / failure"
+ *     gauntlet badge, error boxes, GAME OVER, collapsed tier,
+ *     destructive actions
+ *   purple #7e58c8 / rgba(140,100,200): "private / interior / role"
+ *     player role banner, inventory hidden info, diary panel,
+ *     oracle vignette, NPC inter-leverage network panel
+ *   --text / --text-muted / --text-faint: neutral hierarchy
+ *     text → headlines, muted → secondary, faint → meta/timestamps
+ *
+ * Components should pick from these meanings, not invent new colors.
+ * The 3-tier ending splash (victory gold / compromised slate /
+ * collapsed red-black) reinforces this same mental model.
+ */
 :root {
   --bg: #0c0c10;
   --bg-elev: #15161c;

@@ -11,6 +11,7 @@ import { useApi } from "../../app/api-context"
 import { useAuth } from "../../app/auth-context"
 import { Header } from "../../shared/ui/header"
 import { friendlyError } from "../../shared/lib/friendly-error"
+import { LoadingShim } from "../../shared/ui/loading-shim"
 import { hoverLift, itemTransition, tapPress } from "../../shared/lib/motion-presets"
 import {
   getAdvisorAvatar,
@@ -106,7 +107,11 @@ export function TemplateDetailPage({
     return (
       <div style={tdStyles.page}>
         <Header onHome={onBackHome} onCreate={onOpenCreate} />
-        <div style={tdStyles.center}>{error ? `加载失败：${error}` : "加载中…"}</div>
+        {error ? (
+          <div style={tdStyles.center}>加载失败：{error}</div>
+        ) : (
+          <LoadingShim label="正在拉取这个故事…" />
+        )}
       </div>
     )
   }
@@ -271,6 +276,7 @@ export function TemplateDetailPage({
                   role={role}
                   cast={template.cast}
                   busy={busy}
+                  index={idx}
                   onSelect={() => void handleStart(idx)}
                 />
               ))}
@@ -337,11 +343,13 @@ function PlayerRoleCard({
   cast,
   busy,
   onSelect,
+  index = 0,
 }: {
   role: NarrativePlayerRole
   cast: NarrativeCastMember[]
   busy: boolean
   onSelect: () => void
+  index?: number
 }) {
   const npcNameById = new Map(cast.map((c) => [c.character_id, c.display_name]))
   return (
@@ -354,9 +362,11 @@ function PlayerRoleCard({
       }}
       onClick={onSelect}
       disabled={busy}
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
       whileHover={busy ? undefined : { borderColor: "var(--accent)", y: -2 }}
       whileTap={busy ? undefined : tapPress}
-      transition={itemTransition}
+      transition={{ delay: index * 0.06, ...itemTransition }}
     >
       <div style={tdStyles.roleCardHeader}>
         <span style={tdStyles.roleCardLabel}>{role.label}</span>

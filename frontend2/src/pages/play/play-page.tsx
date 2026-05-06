@@ -8,6 +8,7 @@ import type {
   NarrativeStoryMessage,
 } from "../../api/contracts"
 import { useApi } from "../../app/api-context"
+import { LoadingShim } from "../../shared/ui/loading-shim"
 import { friendlyError } from "../../shared/lib/friendly-error"
 import {
   fadeTransition,
@@ -149,9 +150,11 @@ export function PlayPage({
     return (
       <div style={ppStyles.page}>
         <Header onBackHome={onBackHome} title="" />
-        <div style={ppStyles.centerNote}>
-          {error ? `加载失败：${error}` : "故事加载中…"}
-        </div>
+        {error ? (
+          <div style={ppStyles.centerNote}>加载失败：{error}</div>
+        ) : (
+          <LoadingShim label="故事正在加载…" />
+        )}
       </div>
     )
   }
@@ -1788,7 +1791,22 @@ const ppStyles: Record<string, CSSProperties> = {
     fontFamily: "var(--font-narrative)",
   },
 
-  actionArea: { marginTop: 28, paddingTop: 24, borderTop: "1px dashed var(--line)" },
+  actionArea: {
+    marginTop: 28,
+    paddingTop: 24,
+    paddingBottom: 16,
+    borderTop: "1px dashed var(--line)",
+    // Sticky to bottom of the scrolling story column so when the player
+    // scrolls up to re-read past beats the action area stays reachable.
+    // Backdrop blur + a slight bg fade so the prose underneath dims
+    // gracefully without blocking text outright.
+    position: "sticky" as const,
+    bottom: 0,
+    background:
+      "linear-gradient(180deg, rgba(12,12,16,0) 0%, rgba(12,12,16,0.92) 18%, var(--bg) 40%)",
+    backdropFilter: "blur(2px)",
+    zIndex: 2,
+  },
   optionsList: { display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 },
   optionBtn: {
     textAlign: "left",

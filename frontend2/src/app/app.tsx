@@ -97,10 +97,19 @@ function routeKey(route: AppRoute): string {
 
 function Router() {
   const { route, navigate } = useAppRoute()
+  const key = routeKey(route)
+  // Reset scroll on every navigation. AnimatePresence handles the
+  // mount/unmount choreography but doesn't touch window scroll, so
+  // routes can land on a non-zero scroll position from the previous
+  // page and feel jarring. Keying on routeKey runs once per real
+  // route change, not on every render of the same page.
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" })
+  }, [key])
   return (
     <AnimatePresence mode="wait">
       <motion.div
-        key={routeKey(route)}
+        key={key}
         variants={pageVariants}
         initial="initial"
         animate="animate"

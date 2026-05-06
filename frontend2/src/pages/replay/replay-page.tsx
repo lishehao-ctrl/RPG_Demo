@@ -2,6 +2,7 @@ import { type CSSProperties, useEffect, useState } from "react"
 import type { NarrativePublicReplayResponse } from "../../api/contracts"
 import { useApi } from "../../app/api-context"
 import { friendlyError } from "../../shared/lib/friendly-error"
+import { LoadingShim } from "../../shared/ui/loading-shim"
 import {
   getAdvisorAvatar,
   getAvatarForCastMember,
@@ -51,9 +52,11 @@ export function ReplayPage({
   if (!replay) {
     return (
       <div style={rpStyles.page}>
-        <div style={rpStyles.center}>
-          {error ? `加载失败：${error}` : "回放加载中…"}
-        </div>
+        {error ? (
+          <div style={rpStyles.center}>加载失败：{error}</div>
+        ) : (
+          <LoadingShim label="正在还原这一局…" />
+        )}
       </div>
     )
   }

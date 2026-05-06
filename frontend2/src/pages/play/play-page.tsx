@@ -193,6 +193,55 @@ export function PlayPage({
             ))}
           </div>
 
+          {/* Player role banner — who YOU are this run. Private POV
+              card; persona is what NPCs see, hidden_objective + leverages
+              are your secrets. */}
+          {story.session.player_role ? (
+            <motion.div
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={itemTransition}
+              style={ppStyles.roleBanner}
+            >
+              <div style={ppStyles.roleBannerHeader}>
+                <span style={ppStyles.roleBannerYou}>这一局的你</span>
+                <span style={ppStyles.roleBannerLabel}>{story.session.player_role.label}</span>
+              </div>
+              <p style={ppStyles.roleBannerPersona}>
+                {story.session.player_role.public_persona}
+              </p>
+              <div style={ppStyles.roleBannerSecret}>
+                <span style={ppStyles.roleBannerSecretTag}>心里真正想要的</span>
+                {story.session.player_role.hidden_objective}
+              </div>
+              {story.session.player_role.leverages_over_npcs.length > 0 ? (
+                <div style={ppStyles.roleBannerLevSection}>
+                  <span style={ppStyles.roleBannerSecretTag}>你手里的反将牌</span>
+                  <ul style={ppStyles.roleBannerLevList}>
+                    {story.session.player_role.leverages_over_npcs.map((lev, i) => (
+                      <li key={i}>
+                        <span style={ppStyles.roleBannerLevNpc}>
+                          {castNameById[lev.npc_id] ?? lev.npc_id}
+                        </span>
+                        {lev.leverage}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {story.session.player_role.starting_assets.length > 0 ? (
+                <div style={ppStyles.roleBannerLevSection}>
+                  <span style={ppStyles.roleBannerSecretTag}>开局握着</span>
+                  <ul style={ppStyles.roleBannerLevList}>
+                    {story.session.player_role.starting_assets.map((a, i) => (
+                      <li key={i}>· {a}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </motion.div>
+          ) : null}
+
           {/* Gauntlet-mode goals card — visible reminder of what you're
               fighting for and what you stand to lose. */}
           {isGauntlet && story.template.player_goals && story.template.player_goals.length > 0 ? (
@@ -1055,6 +1104,78 @@ const ppStyles: Record<string, CSSProperties> = {
   castChipText: { display: "flex", flexDirection: "column", lineHeight: 1.2 },
   castChipName: { fontSize: 12.5, fontWeight: 500, color: "var(--text)" },
   castChipRole: { fontSize: 10.5, color: "var(--text-faint)", marginTop: 2 },
+
+  // Player-role banner — who YOU are this run, including your private cards
+  roleBanner: {
+    margin: "0 0 16px",
+    padding: "16px 18px",
+    background: "linear-gradient(180deg, rgba(120,80,180,0.10), rgba(120,80,180,0.03))",
+    border: "1px solid rgba(140,100,200,0.34)",
+    borderRadius: "var(--radius-md)",
+  },
+  roleBannerHeader: {
+    display: "flex",
+    alignItems: "baseline",
+    gap: 10,
+    marginBottom: 8,
+    flexWrap: "wrap" as const,
+  },
+  roleBannerYou: {
+    padding: "2px 8px",
+    background: "#7e58c8",
+    color: "white",
+    borderRadius: 4,
+    fontSize: 10.5,
+    fontWeight: 700,
+    letterSpacing: "0.12em",
+  },
+  roleBannerLabel: {
+    fontFamily: "var(--font-narrative)",
+    fontSize: 17,
+    color: "var(--text)",
+    fontWeight: 500,
+  },
+  roleBannerPersona: {
+    fontSize: 13,
+    color: "var(--text-muted)",
+    lineHeight: 1.6,
+    margin: "0 0 12px",
+  },
+  roleBannerSecret: {
+    fontSize: 13,
+    color: "var(--text)",
+    lineHeight: 1.6,
+    background: "rgba(0,0,0,0.22)",
+    border: "1px dashed rgba(140,100,200,0.32)",
+    borderRadius: 6,
+    padding: "8px 12px",
+    marginBottom: 8,
+  },
+  roleBannerSecretTag: {
+    display: "inline-block",
+    fontSize: 10,
+    letterSpacing: "0.08em",
+    textTransform: "uppercase" as const,
+    color: "rgba(180,150,230,0.85)",
+    fontWeight: 600,
+    marginRight: 8,
+  },
+  roleBannerLevSection: {
+    marginTop: 6,
+    fontSize: 12.5,
+    color: "var(--text-muted)",
+    lineHeight: 1.6,
+  },
+  roleBannerLevList: {
+    margin: "4px 0 0",
+    padding: 0,
+    listStyle: "none",
+  },
+  roleBannerLevNpc: {
+    color: "rgba(180,150,230,0.95)",
+    fontWeight: 600,
+    marginRight: 6,
+  },
 
   // Gauntlet-mode goals card
   goalsCard: {

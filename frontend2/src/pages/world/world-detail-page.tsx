@@ -1,7 +1,9 @@
 import { type CSSProperties, useEffect, useRef, useState } from "react"
 import { motion } from "motion/react"
 import type {
+  NarrativeCastMember,
   NarrativeEndingDistributionResponse,
+  NarrativePlayerRole,
   NarrativeTemplateSummary,
   NarrativeTemplateVisibility,
 } from "../../api/contracts"
@@ -63,7 +65,7 @@ export function TemplateDetailPage({
     }
   }, [api, templateId])
 
-  const handleStart = async () => {
+  const handleStart = async (roleIndex?: number) => {
     if (startInflightRef.current || !template) return
     if (auth.isAnonymous) {
       window.location.hash = `#/login?next=template/${templateId}`
@@ -73,7 +75,10 @@ export function TemplateDetailPage({
     setBusy(true)
     setError(null)
     try {
-      const res = await api.startNarrativeSession(templateId)
+      const res = await api.startNarrativeSession(
+        templateId,
+        roleIndex !== undefined ? { player_role_index: roleIndex } : undefined,
+      )
       onSessionStarted(res.session.session_id)
     } catch (err) {
       setError(friendlyError(err, "开始游戏失败，请重试。"))
@@ -208,26 +213,46 @@ export function TemplateDetailPage({
 
         {error ? <div style={tdStyles.errorBox}>{error}</div> : null}
 
-        <div style={tdStyles.actions}>
-          <motion.button
-            className="ts-btn ts-btn--primary ts-btn--lg"
-            onClick={() => void handleStart()}
-            disabled={busy}
-            style={{
-              minWidth: 240,
-              opacity: busy ? 0.5 : 1,
-              pointerEvents: busy ? "none" : "auto",
-            }}
-            type="button"
-            whileHover={busy ? undefined : hoverLift}
-            whileTap={busy ? undefined : tapPress}
-          >
-            {busy ? "开始中…" : "开始一局新故事 →"}
-          </motion.button>
-          <p style={tdStyles.actionHint}>
-            每个人的玩法都不同，开局相同，剧情走向取决于你。
-          </p>
-        </div>
+        {template.player_role_options && template.player_role_options.length > 0 ? (
+          <section style={tdStyles.roleSection}>
+            <div style={tdStyles.sectionLabel}>选你的身份</div>
+            <p style={tdStyles.roleHint}>
+              同一个故事，不同的"你"。处境、目的、手里的牌都不同——选哪张走哪条路。
+            </p>
+            <div style={tdStyles.roleGrid}>
+              {template.player_role_options.map((role, idx) => (
+                <PlayerRoleCard
+                  key={role.role_id}
+                  role={role}
+                  cast={template.cast}
+                  busy={busy}
+                  onSelect={() => void handleStart(idx)}
+                />
+              ))}
+            </div>
+          </section>
+        ) : (
+          <div style={tdStyles.actions}>
+            <motion.button
+              className="ts-btn ts-btn--primary ts-btn--lg"
+              onClick={() => void handleStart()}
+              disabled={busy}
+              style={{
+                minWidth: 240,
+                opacity: busy ? 0.5 : 1,
+                pointerEvents: busy ? "none" : "auto",
+              }}
+              type="button"
+              whileHover={busy ? undefined : hoverLift}
+              whileTap={busy ? undefined : tapPress}
+            >
+              {busy ? "开始中…" : "开始一局新故事 →"}
+            </motion.button>
+            <p style={tdStyles.actionHint}>
+              每个人的玩法都不同，开局相同，剧情走向取决于你。
+            </p>
+          </div>
+        )}
 
         {/* Owner-only: visibility controls */}
         {template.is_owner ? (
@@ -260,6 +285,80 @@ function visibilityLabel(v: NarrativeTemplateVisibility): string {
   if (v === "public") return "广场公开"
   if (v === "unlisted") return "凭链接"
   return "只有我"
+}
+
+function PlayerRoleCard({
+  role,
+  cast,
+  busy,
+  onSelect,
+}: {
+  role: NarrativePlayerRole
+  cast: NarrativeCastMember[]
+  busy: boolean
+  onSelect: () => void
+}) {
+  const npcNameById = new Map(cast.map((c) => [c.character_id, c.display_name]))
+  return (
+    <motion.button
+      type="button"
+      style={{
+        ...tdStyles.roleCard,
+        opacity: busy ? 0.5 : 1,
+        pointerEvents: busy ? "none" : "auto",
+      }}
+      onClick={onSelect}
+      disabled={busy}
+      whileHover={busy ? undefined : { borderColor: "var(--accent)", y: -2 }}
+      whileTap={busy ? undefined : tapPress}
+      transition={itemTransition}
+    >
+      <div style={tdStyles.roleCardHeader}>
+        <span style={tdStyles.roleCardLabel}>{role.label}</span>
+        <span style={tdStyles.roleCardTagPersona}>外人眼中的你</span>
+      </div>
+
+      <p style={tdStyles.rolePersona}>{role.public_persona}</p>
+
+      <div style={tdStyles.roleObjectiveBlock}>
+        <span style={tdStyles.roleObjectiveLabel}>你心里真正想要的</span>
+        {role.hidden_objective}
+      </div>
+
+      {role.leverages_over_npcs.length > 0 ? (
+        <div>
+          <div style={tdStyles.roleSubLabel}>你手里的反将牌</div>
+          <ul style={tdStyles.roleLeverageList}>
+            {role.leverages_over_npcs.map((lev, i) => (
+              <li key={i} style={tdStyles.roleLeverageItem}>
+                <span style={tdStyles.roleLeverageNpc}>
+                  {npcNameById.get(lev.npc_id) ?? lev.npc_id}
+                </span>
+                {lev.leverage}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {role.starting_assets.length > 0 ? (
+        <div>
+          <div style={tdStyles.roleSubLabel}>开局握着</div>
+          <ul style={tdStyles.roleAssetList}>
+            {role.starting_assets.map((asset, i) => (
+              <li key={i} style={tdStyles.roleAssetItem}>
+                · {asset}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      <div style={tdStyles.roleCardCta}>
+        <span style={tdStyles.roleCtaText}>{busy ? "开始中…" : "选这个身份开始 →"}</span>
+      </div>
+    </motion.button>
+  )
 }
 
 const tdStyles: Record<string, CSSProperties> = {
@@ -446,5 +545,135 @@ const tdStyles: Record<string, CSSProperties> = {
     background: "var(--accent-soft)",
     color: "var(--accent)",
     borderColor: "var(--accent)",
+  },
+
+  roleSection: { marginTop: 24, marginBottom: 28 },
+  roleHint: {
+    fontSize: 13.5,
+    color: "var(--text-muted)",
+    margin: "0 0 18px",
+    lineHeight: 1.6,
+  },
+  roleGrid: {
+    display: "grid",
+    gridTemplateColumns: "1fr",
+    gap: 14,
+  },
+  roleCard: {
+    background: "var(--bg-elev)",
+    border: "1px solid var(--line)",
+    borderRadius: "var(--radius-md)",
+    padding: "18px 20px 16px",
+    cursor: "pointer",
+    transition: "border-color 0.15s, transform 0.15s",
+    textAlign: "left" as const,
+    width: "100%",
+    fontFamily: "inherit",
+    color: "inherit",
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: 12,
+  },
+  roleCardHeader: {
+    display: "flex",
+    alignItems: "baseline",
+    gap: 10,
+    flexWrap: "wrap" as const,
+  },
+  roleCardLabel: {
+    fontFamily: "var(--font-narrative)",
+    fontSize: 19,
+    fontWeight: 500,
+    color: "var(--text)",
+    lineHeight: 1.25,
+  },
+  roleCardTagPersona: {
+    fontSize: 10.5,
+    letterSpacing: "0.08em",
+    textTransform: "uppercase" as const,
+    color: "var(--text-faint)",
+    background: "rgba(255,255,255,0.04)",
+    padding: "3px 8px",
+    borderRadius: 4,
+    border: "1px solid var(--line)",
+  },
+  rolePersona: {
+    fontSize: 13.5,
+    color: "var(--text)",
+    lineHeight: 1.65,
+    margin: 0,
+  },
+  roleObjectiveBlock: {
+    fontSize: 13,
+    color: "var(--text-muted)",
+    lineHeight: 1.6,
+    background: "rgba(0,0,0,0.18)",
+    border: "1px dashed var(--line)",
+    borderRadius: 6,
+    padding: "10px 12px",
+    margin: 0,
+  },
+  roleObjectiveLabel: {
+    display: "inline-block",
+    fontSize: 10,
+    letterSpacing: "0.08em",
+    textTransform: "uppercase" as const,
+    color: "var(--text-faint)",
+    marginRight: 8,
+    fontWeight: 600,
+  },
+  roleAssetList: {
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: 4,
+    margin: 0,
+    padding: 0,
+    listStyle: "none",
+  },
+  roleAssetItem: {
+    fontSize: 12.5,
+    color: "var(--text-muted)",
+    lineHeight: 1.55,
+    paddingLeft: 14,
+    position: "relative" as const,
+  },
+  roleLeverageList: {
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: 4,
+    margin: 0,
+    padding: 0,
+    listStyle: "none",
+  },
+  roleLeverageItem: {
+    fontSize: 12.5,
+    color: "var(--text-muted)",
+    lineHeight: 1.55,
+  },
+  roleLeverageNpc: {
+    color: "var(--accent)",
+    fontWeight: 600,
+    marginRight: 6,
+  },
+  roleSubLabel: {
+    fontSize: 10,
+    letterSpacing: "0.08em",
+    textTransform: "uppercase" as const,
+    color: "var(--text-faint)",
+    fontWeight: 600,
+    marginBottom: 4,
+  },
+  roleCardCta: {
+    marginTop: 4,
+    display: "flex",
+    justifyContent: "flex-end",
+    alignItems: "center",
+    gap: 8,
+  },
+  roleCtaText: {
+    fontSize: 13,
+    color: "var(--accent)",
+    fontWeight: 600,
+    letterSpacing: "0.04em",
   },
 }

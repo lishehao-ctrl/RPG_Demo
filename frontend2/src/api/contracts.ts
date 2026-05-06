@@ -549,6 +549,20 @@ export type NarrativeFailureCondition = {
   description: string
 }
 
+export type NarrativePlayerLeverageOverNPC = {
+  npc_id: string
+  leverage: string
+}
+
+export type NarrativePlayerRole = {
+  role_id: string
+  label: string
+  public_persona: string
+  hidden_objective: string
+  leverages_over_npcs: NarrativePlayerLeverageOverNPC[]
+  starting_assets: string[]
+}
+
 export type NarrativeNPCShift = "warmer" | "colder" | "steady" | "wary" | "broken"
 
 export type NarrativeNPCPulse = {
@@ -595,6 +609,7 @@ export type NarrativeTemplateSummary = {
   advisor_persona: string
   player_goals?: NarrativePlayerGoal[]
   failure_conditions?: NarrativeFailureCondition[]
+  player_role_options?: NarrativePlayerRole[]
   visibility: NarrativeTemplateVisibility
   play_count: number
   created_at: string
@@ -610,6 +625,7 @@ export type NarrativeSessionSummary = {
   turn_count: number
   turn_budget: number
   difficulty?: NarrativeDifficulty
+  player_role?: NarrativePlayerRole | null
   ending_label: string | null
   ending_subtitle: string | null
   ending_tier?: NarrativeEndingTier | null
@@ -645,6 +661,7 @@ export type NarrativePublicReplayResponse = {
   cast: NarrativeCastMember[]
   advisor_persona: string
   player_goals?: NarrativePlayerGoal[]
+  player_role?: NarrativePlayerRole | null
   turn_budget: number
   turn_count: number
   difficulty?: NarrativeDifficulty
@@ -665,6 +682,7 @@ export type NarrativeCreateTemplateRequest = {
 export type NarrativeStartSessionRequest = {
   turn_budget?: number
   difficulty?: NarrativeDifficulty
+  player_role_index?: number | null
 }
 
 export type NarrativeCreateTemplateResponse = {

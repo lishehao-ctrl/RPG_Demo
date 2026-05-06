@@ -504,6 +504,7 @@ def start_narrative_session(
         player_user_id=user.user_id,
         turn_budget=body.turn_budget,
         difficulty=body.difficulty,
+        player_role_index=body.player_role_index,
     )
 
 

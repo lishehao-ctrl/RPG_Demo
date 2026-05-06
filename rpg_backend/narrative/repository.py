@@ -16,6 +16,7 @@ from rpg_backend.narrative.contracts import (
     NarrativeTemplate,
     NPCPulse,
     PlayerGoal,
+    PlayerRole,
     StoryMessage,
     StoryOption,
     TemplateVisibility,
@@ -93,6 +94,7 @@ class NarrativeRepository:
             ("ending_tier", "ALTER TABLE narrative_sessions ADD COLUMN ending_tier TEXT"),
             ("early_terminated", "ALTER TABLE narrative_sessions ADD COLUMN early_terminated INTEGER NOT NULL DEFAULT 0"),
             ("failure_trigger", "ALTER TABLE narrative_sessions ADD COLUMN failure_trigger TEXT"),
+            ("selected_player_role_id", "ALTER TABLE narrative_sessions ADD COLUMN selected_player_role_id TEXT"),
         ):
             if col not in existing_cols:
                 connection.execute(ddl)
@@ -100,6 +102,7 @@ class NarrativeRepository:
         for col, ddl in (
             ("player_goals_json", "ALTER TABLE narrative_templates ADD COLUMN player_goals_json TEXT NOT NULL DEFAULT '[]'"),
             ("failure_conditions_json", "ALTER TABLE narrative_templates ADD COLUMN failure_conditions_json TEXT NOT NULL DEFAULT '[]'"),
+            ("player_role_options_json", "ALTER TABLE narrative_templates ADD COLUMN player_role_options_json TEXT NOT NULL DEFAULT '[]'"),
         ):
             if col not in existing_template_cols:
                 connection.execute(ddl)
@@ -170,6 +173,7 @@ class NarrativeRepository:
         opening_options: list[StoryOption],
         player_goals: list[PlayerGoal],
         failure_conditions: list[FailureCondition],
+        player_role_options: list[PlayerRole],
         visibility: TemplateVisibility,
     ) -> NarrativeTemplate:
         created_at = _utc_now()
@@ -180,8 +184,9 @@ class NarrativeRepository:
                 (template_id, owner_user_id, seed, title, cast_json,
                  advisor_persona, opening_passage, opening_options_json,
                  player_goals_json, failure_conditions_json,
+                 player_role_options_json,
                  visibility, play_count, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
                 """,
                 (
                     template_id,
@@ -194,6 +199,7 @@ class NarrativeRepository:
                     json.dumps([o.model_dump() for o in opening_options], ensure_ascii=False),
                     json.dumps([g.model_dump() for g in player_goals], ensure_ascii=False),
                     json.dumps([f.model_dump() for f in failure_conditions], ensure_ascii=False),
+                    json.dumps([r.model_dump() for r in player_role_options], ensure_ascii=False),
                     visibility,
                     created_at,
                 ),
@@ -210,6 +216,7 @@ class NarrativeRepository:
             opening_options=opening_options,
             player_goals=player_goals,
             failure_conditions=failure_conditions,
+            player_role_options=player_role_options,
             visibility=visibility,
             play_count=0,
             created_at=created_at,
@@ -282,16 +289,19 @@ class NarrativeRepository:
         player_user_id: str,
         turn_budget: int = 12,
         difficulty: Difficulty = "story",
+        selected_player_role_id: str | None = None,
     ) -> NarrativeSession:
         now = _utc_now()
         with self._connect() as conn:
             conn.execute(
                 """
                 INSERT INTO narrative_sessions
-                (session_id, template_id, player_user_id, turn_count, turn_budget, difficulty, created_at, last_active_at)
-                VALUES (?, ?, ?, 0, ?, ?, ?, ?)
+                (session_id, template_id, player_user_id, turn_count, turn_budget, difficulty,
+                 selected_player_role_id, created_at, last_active_at)
+                VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?)
                 """,
-                (session_id, template_id, player_user_id, turn_budget, difficulty, now, now),
+                (session_id, template_id, player_user_id, turn_budget, difficulty,
+                 selected_player_role_id, now, now),
             )
             conn.commit()
         return NarrativeSession(
@@ -301,6 +311,7 @@ class NarrativeRepository:
             turn_count=0,
             turn_budget=turn_budget,
             difficulty=difficulty,
+            selected_player_role_id=selected_player_role_id,
             ending_label=None,
             ending_subtitle=None,
             ending_passage=None,
@@ -555,6 +566,18 @@ def _row_to_template(row: sqlite3.Row) -> NarrativeTemplate:
                         continue
         except Exception:  # noqa: BLE001
             pass
+    roles: list[PlayerRole] = []
+    if "player_role_options_json" in keys and row["player_role_options_json"]:
+        try:
+            roles_raw = json.loads(row["player_role_options_json"])
+            for item in roles_raw if isinstance(roles_raw, list) else []:
+                if isinstance(item, dict):
+                    try:
+                        roles.append(PlayerRole.model_validate(item))
+                    except Exception:  # noqa: BLE001
+                        continue
+        except Exception:  # noqa: BLE001
+            pass
     return NarrativeTemplate(
         template_id=row["template_id"],
         owner_user_id=row["owner_user_id"],
@@ -566,6 +589,7 @@ def _row_to_template(row: sqlite3.Row) -> NarrativeTemplate:
         opening_options=options,
         player_goals=goals,
         failure_conditions=conds,
+        player_role_options=roles,
         visibility=row["visibility"],
         play_count=int(row["play_count"]),
         created_at=row["created_at"],
@@ -589,6 +613,8 @@ def _row_to_session(row: sqlite3.Row) -> NarrativeSession:
         turn_count=int(row["turn_count"]),
         turn_budget=int(row["turn_budget"]) if "turn_budget" in keys else 12,
         difficulty=difficulty,
+        selected_player_role_id=row["selected_player_role_id"]
+            if "selected_player_role_id" in keys else None,
         ending_label=row["ending_label"] if "ending_label" in keys else None,
         ending_subtitle=row["ending_subtitle"] if "ending_subtitle" in keys else None,
         ending_passage=row["ending_passage"] if "ending_passage" in keys else None,

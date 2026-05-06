@@ -19,6 +19,7 @@ from rpg_backend.narrative.contracts import (
     NarrativeSessionSummary,
     NarrativeTemplate,
     NarrativeTemplateSummary,
+    PlayerRole,
     PublicReplayResponse,
     SessionListResponse,
     StartSessionResponse,
@@ -151,12 +152,15 @@ class NarrativeService:
             opening_options=opening.opening_message.options,
             player_goals=opening.player_goals,
             failure_conditions=opening.failure_conditions,
+            player_role_options=opening.player_role_options,
             visibility=request.visibility,
         )
 
         # Auto-create the creator's session with the requested difficulty.
+        # First role becomes the default — the create page doesn't pick yet.
         session, opening_message = self._spawn_session(
-            template, owner_user_id, request.turn_budget, request.difficulty
+            template, owner_user_id, request.turn_budget, request.difficulty,
+            player_role_index=0 if template.player_role_options else None,
         )
 
         _emit_metric(
@@ -169,6 +173,7 @@ class NarrativeService:
             seed_chars=len(seed),
             num_goals=len(opening.player_goals),
             num_failure_conds=len(opening.failure_conditions),
+            num_player_roles=len(opening.player_role_options),
         )
         return CreateTemplateResponse(
             template=_summarize_template(template, viewer_user_id=owner_user_id),
@@ -217,10 +222,26 @@ class NarrativeService:
         player_user_id: str,
         turn_budget: int = 12,
         difficulty: str = "story",
+        player_role_index: int | None = None,
     ) -> StartSessionResponse:
         template = self._load_template_for_viewer(template_id, player_user_id)
+        # Resolve the picked role index against template options. If the
+        # template has roles but the caller didn't pick, default to 0
+        # (preserves the legacy "everyone is the same default" behavior
+        # while letting clients opt in per call).
+        resolved_index: int | None
+        if template.player_role_options:
+            resolved_index = (
+                player_role_index
+                if player_role_index is not None
+                and 0 <= player_role_index < len(template.player_role_options)
+                else 0
+            )
+        else:
+            resolved_index = None
         session, opening_message = self._spawn_session(
-            template, player_user_id, turn_budget, difficulty
+            template, player_user_id, turn_budget, difficulty,
+            player_role_index=resolved_index,
         )
         _emit_metric(
             "session_started",
@@ -230,6 +251,7 @@ class NarrativeService:
             is_owner=int(template.owner_user_id == player_user_id),
             turn_budget=turn_budget,
             difficulty=difficulty,
+            player_role_index=resolved_index if resolved_index is not None else -1,
         )
         return StartSessionResponse(
             template=_summarize_template(template, viewer_user_id=player_user_id),
@@ -318,6 +340,8 @@ class NarrativeService:
         upcoming_turn_index = session.turn_count + 1
         is_final_turn = upcoming_turn_index >= session.turn_budget
 
+        active_role = _resolve_player_role(template, session.selected_player_role_id)
+
         try:
             turn = advance_turn(
                 gateway=self.gateway,
@@ -331,6 +355,7 @@ class NarrativeService:
                 turn_budget=session.turn_budget,
                 difficulty=session.difficulty,
                 player_goals=template.player_goals or None,
+                player_role=active_role,
             )
         except NarrativeGatewayError as exc:
             raise NarrativeServiceError(
@@ -388,10 +413,11 @@ class NarrativeService:
                     template,
                     failure_trigger=judgement.matched_condition_label,
                     failure_reason=judgement.reason,
+                    player_role=active_role,
                 )
 
         if ending_payload is None and is_final_turn:
-            ending_payload = self._finalize_session(session_id, template)
+            ending_payload = self._finalize_session(session_id, template, player_role=active_role)
 
         return AdvanceTurnResponse(
             player_message=player_message,
@@ -401,7 +427,11 @@ class NarrativeService:
         )
 
     def _finalize_session(
-        self, session_id: str, template: NarrativeTemplate
+        self,
+        session_id: str,
+        template: NarrativeTemplate,
+        *,
+        player_role: PlayerRole | None = None,
     ) -> NarrativeEnding | None:
         """Synthesize the ending and persist it. Logs and silently no-ops on
         LLM failure — the player can still read the final narrator beat;
@@ -416,6 +446,7 @@ class NarrativeService:
                 cast=template.cast,
                 history=full_history,
                 turn_count=len([m for m in full_history if m.role == "narrator"]) - 1,
+                player_role=player_role,
             )
         except (NarrativeGatewayError, ValueError) as exc:
             print(
@@ -457,6 +488,7 @@ class NarrativeService:
         *,
         failure_trigger: str,
         failure_reason: str,
+        player_role: PlayerRole | None = None,
     ) -> NarrativeEnding | None:
         """Gauntlet-mode collapse: judge_failure flagged a trigger this
         turn. Generate a 'collapsed' ending right now, regardless of
@@ -471,6 +503,7 @@ class NarrativeService:
                 history=full_history,
                 failure_trigger=failure_trigger,
                 failure_reason=failure_reason,
+                player_role=player_role,
             )
         except (NarrativeGatewayError, ValueError) as exc:
             print(
@@ -584,6 +617,7 @@ class NarrativeService:
             cast=template.cast,
             advisor_persona=template.advisor_persona,
             player_goals=template.player_goals,
+            player_role=_resolve_player_role(template, session.selected_player_role_id),
             turn_budget=session.turn_budget,
             turn_count=session.turn_count,
             difficulty=session.difficulty,
@@ -679,17 +713,28 @@ class NarrativeService:
         player_user_id: str,
         turn_budget: int = 12,
         difficulty: str = "story",
+        *,
+        player_role_index: int | None = None,
     ) -> tuple[NarrativeSession, StoryMessage]:
         session_id = _generate_session_id()
         # Cast difficulty into the typed Literal — defensive; service-layer
         # callers may pass anything, but only the two values are valid.
         norm_difficulty: str = "gauntlet" if difficulty == "gauntlet" else "story"
+        # Resolve which role_id this session is locked to. None when the
+        # template was created before player roles existed (legacy).
+        selected_role_id: str | None = None
+        if (
+            player_role_index is not None
+            and 0 <= player_role_index < len(template.player_role_options)
+        ):
+            selected_role_id = template.player_role_options[player_role_index].role_id
         session = self._repo.create_session(
             session_id=session_id,
             template_id=template.template_id,
             player_user_id=player_user_id,
             turn_budget=turn_budget,
             difficulty=norm_difficulty,  # type: ignore[arg-type]
+            selected_player_role_id=selected_role_id,
         )
         opening_message = StoryMessage(
             ord=0,
@@ -775,6 +820,23 @@ class NarrativeService:
         return option.label, idx
 
 
+def _resolve_player_role(
+    template: NarrativeTemplate, role_id: str | None
+) -> PlayerRole | None:
+    """Find the PlayerRole for a session's selected_player_role_id.
+
+    Returns None if the session has no role pinned (legacy) or the role
+    no longer exists on the template (defensive — shouldn't happen in
+    practice).
+    """
+    if role_id is None or not template.player_role_options:
+        return None
+    for role in template.player_role_options:
+        if role.role_id == role_id:
+            return role
+    return None
+
+
 def _summarize_template(
     template: NarrativeTemplate, *, viewer_user_id: str
 ) -> NarrativeTemplateSummary:
@@ -787,6 +849,7 @@ def _summarize_template(
         advisor_persona=template.advisor_persona,
         player_goals=template.player_goals,
         failure_conditions=template.failure_conditions,
+        player_role_options=template.player_role_options,
         visibility=template.visibility,
         play_count=template.play_count,
         created_at=template.created_at,
@@ -806,6 +869,7 @@ def _summarize_session(
         turn_count=session.turn_count,
         turn_budget=session.turn_budget,
         difficulty=session.difficulty,
+        player_role=_resolve_player_role(template, session.selected_player_role_id),
         ending_label=session.ending_label,
         ending_subtitle=session.ending_subtitle,
         ending_tier=session.ending_tier,

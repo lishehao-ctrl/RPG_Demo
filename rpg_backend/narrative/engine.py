@@ -9,6 +9,8 @@ from rpg_backend.narrative.contracts import (
     FailureCondition,
     NPCPulse,
     PlayerGoal,
+    PlayerLeverageOverNPC,
+    PlayerRole,
     StoryMessage,
     StoryOption,
 )
@@ -44,7 +46,25 @@ _OPENING_SYSTEM_PROMPT = """\
     {"label": "短的触发器名，4-12 字（比如'公开撕脸'、'私生子曝光'）", "description": "**详细的触发条件**——什么样的玩家行为或剧情走向会让玩家提前出局。一句话不超过 80 字（举例：'玩家在前 5 回合主动公开承认伪造账目' / '玩家在公开场合对其他角色出现暴力肢体行为' / '玩家把核心证据交给反派阵营任何一个 NPC'）"}
     // 恰好 3-4 个。这些是**真正能 game over 的硬条件**，不是软警告。设计时要让一个聪明且谨慎的玩家**绝大多数时候不会碰**，但留有"作死"的可能性
   ],
-  "opening_passage": "开场叙述，第二人称（'你'），250-400 字。必须包含：① 玩家所在的具体场景 ② 至少 2 个 NPC 的当下反应 ③ 一个**正在发生**的紧张时刻（不是回忆、不是预告）④ 留给玩家一个明确的抉择窗口",
+  "player_role_options": [
+    {
+      "role_id": "role-01",
+      "label": "卡片标题（≤15 字，富戏剧张力，举例：'被赶出家门的浪子' / '为弟弟博命的姐姐' / '装傻的入赘女婿'）",
+      "public_persona": "故事世界**看到的玩家形象**——别人眼中的你是什么人、什么处境、什么姿态。50-100 字（举例：'你是嫁入陆家三年的儿媳。陆家上下都觉得你是个温顺的、家世不显的小媳妇，但只有你自己知道，你三年前签下结婚证那一刻就已经在算账'）",
+      "hidden_objective": "玩家**自己真正想要什么**——这是只有玩家知道的内心算盘，跟 player_goals 公开宣言不同。60 字内（举例：'让陆家在年夜饭上当众出丑，借机带弟弟离开这栋房子' / '逼苏曼承认是她当年烧了你父亲留下的真合同'）",
+      "leverages_over_npcs": [
+        {"npc_id": "cast 里某个 character_id", "leverage": "玩家手里**针对 TA** 的把柄/筹码，一句话 60 字内（举例：'玩家手里有她跟律师私下转移资产的录音' / '玩家知道大伯私生子的真实下落'）"}
+        // 0-3 条。**不是每个 NPC 都要有**——玩家只有针对部分 NPC 的牌才有戏剧张力
+      ],
+      "starting_assets": [
+        "开局玩家**手里具体握着的东西**，每条 30 字内（举例：'藏在车库第三块地砖下的合同原件' / '苏曼三个月前发给情人的微信截图' / '陆大伯儿子上周来借钱的欠条'）"
+        // 0-3 条
+      ]
+    }
+    // 恰好 3-5 张卡片。每张卡是**同一个故事种子下完全不同的玩家身份**——不只是"换个性格"，而是不同的处境、不同的诉求、不同的底牌。
+    // 设计原则：① 每张卡选下去整个故事走向应该不同 ② 至少有一张是"看似弱势"（无 leverages，无 assets，但 hidden_objective 清晰） ③ 至少有一张是"手里有重牌"（多张 leverages，但 public_persona 看起来普通）④ 不要让所有卡都是"被害者"——可以有"被害者"、"加害者"、"局外人"、"双面间谍"等等不同立场
+  ],
+  "opening_passage": "开场叙述，第二人称（'你'），250-400 字。必须包含：① 玩家所在的具体场景 ② 至少 2 个 NPC 的当下反应 ③ 一个**正在发生**的紧张时刻（不是回忆、不是预告）④ 留给玩家一个明确的抉择窗口。**注意：opening_passage 不要预设玩家是哪一个 player_role**——开场要写得让任何一张卡都能套进去。具体角色身份在 turn 1 才会被注入。",
   "options": [
     {"label": "选项标签，10-20 字，第一人称视角的动作", "hint": "（可选）一句话说明这个选择的语气或代价"}
     // 恰好 3 个选项
@@ -62,7 +82,7 @@ _OPENING_SYSTEM_PROMPT = """\
 _TURN_SYSTEM_PROMPT = """\
 你是一名擅长写关系剧的剧作家。玩家正在玩一个互动故事，你负责续写下一段。
 
-每个回合你会收到：故事种子、cast 名单（每个 NPC 都带有 `hidden_objective` 和 `leverage_over_player`）、最近若干段故事历史、玩家这一回合的动作、**当前所处的故事阶段**（关键！）、`difficulty` 字段（`story` 或 `gauntlet`）、可选的 `npc_agenda_this_turn`（gauntlet 主动调度）和 `recent_consequences`（上一回合结构化回响）。
+每个回合你会收到：故事种子、cast 名单（每个 NPC 都带有 `hidden_objective` 和 `leverage_over_player`）、最近若干段故事历史、玩家这一回合的动作、**当前所处的故事阶段**（关键！）、`difficulty` 字段（`story` 或 `gauntlet`）、**玩家的角色卡 `player_role`**（玩家这局选了谁来扮演）、可选的 `npc_agenda_this_turn`（gauntlet 主动调度）和 `recent_consequences`（上一回合结构化回响）。
 
 你的任务是续写**一段**叙述（200-400 字），并给出**3 个新选项**，同时输出每个 NPC 的当下反应（`npc_pulse`）。
 
@@ -137,6 +157,21 @@ _TURN_SYSTEM_PROMPT = """\
 - passage 必须**让玩家在叙述里看见自己的选择产生了具体后果**——至少有一个细节直接呼应 `last_player_action`（**不是机械重述**，而是把那个动作的"涟漪"写出来：别人怎么看 TA、空气怎么变、谁的态度松动了、谁记下了这笔账）
 - 如果某个 NPC 的 `pulse_trend` 已经是 `broken` 或连续 `colder`，**TA 这一回合的反应应当延续那个轨迹**，不要让 TA 突然回温——除非玩家这一回合明确做了挽回的动作
 - climax/pre_finale 阶段，优先让 `unused_leverage` 列表里的 NPC 把那张牌打出来——不要让一张 leverage 一直闲在手里到结束
+
+**玩家角色卡（player_role）—— 这是这局玩家的具体身份**:
+当 user_payload 含 `player_role`，它告诉你**玩家这一局扮演的是谁**：
+- `label`: 这张卡的标题
+- `public_persona`: **故事世界看到的玩家形象**——别人眼中的"你"是谁、在什么处境、什么姿态
+- `hidden_objective`: **玩家自己真正想要什么**——这是 player 的内心算盘，**只有玩家和你（剧作家）知道**，NPC 不知道
+- `leverages_over_npcs`: 玩家**手里针对每个 NPC 的把柄**——可以反将
+- `starting_assets`: 玩家开局**手里具体握着的东西**
+
+⚠️ 处理规则（这是这次升级的核心，必须严格执行）：
+- 整个故事的"你"必须**严格按 player_role.public_persona 来写**——不是泛泛"你"，是这个具体身份的"你"。同一个 opening_passage 不同 player_role 走出来的故事必须完全不同。
+- NPC 看到"你"时**只看得见 public_persona**——他们不知道你的 hidden_objective，也未必知道你手里有什么 leverages_over_npcs（除非剧情发展中暴露了）
+- **玩家的 leverages_over_npcs 是真正的双向博弈** —— 当 NPC 出 `leverage_over_player` 牌时，你应该让玩家**有机会反打**：在 narration 里暗示玩家手里也有牌（"你想起苏曼三个月前那张转账截图"），并在选项中给出"亮出 XXX 反将"的选择
+- **starting_assets 是真实存在的物件**——玩家在剧情中可以拿出来、亮出来、被别人发现。每条 asset 在 12 回合中至少应该有 1 次被引用或使用的机会（不一定都用上，但叙事要让它们"在场"）
+- 玩家的 `hidden_objective` 是**整局戏的隐藏主轴** —— passage 里偶尔可以闪现玩家朝着这个目标推进的内心动作（"你心里默数着今晚还剩多少机会"），但**不要明说**，除非玩家自己选择揭开
 
 **选项要求**:
 - 选项必须**反映当下局势的具体可能性**，不要给"继续观察 / 离开 / 思考"这种空洞选项
@@ -277,6 +312,7 @@ class OpeningResult:
     opening_message: StoryMessage
     player_goals: list[PlayerGoal]
     failure_conditions: list[FailureCondition]
+    player_role_options: list[PlayerRole]
 
 
 @dataclass(frozen=True)
@@ -425,6 +461,10 @@ def _generate_opening_once(
     options = _parse_options(payload.get("options"))
     player_goals = _parse_player_goals(payload.get("player_goals"))
     failure_conditions = _parse_failure_conditions(payload.get("failure_conditions"))
+    valid_npc_ids = {c.character_id for c in cast}
+    player_role_options = _parse_player_role_options(
+        payload.get("player_role_options"), valid_npc_ids=valid_npc_ids,
+    )
     opening_message = StoryMessage(
         ord=0,
         role="narrator",
@@ -439,6 +479,7 @@ def _generate_opening_once(
         opening_message=opening_message,
         player_goals=player_goals,
         failure_conditions=failure_conditions,
+        player_role_options=player_role_options,
     )
 
 
@@ -472,6 +513,7 @@ def advance_turn(
     turn_budget: int = 12,
     difficulty: str = "story",
     player_goals: list[PlayerGoal] | None = None,
+    player_role: PlayerRole | None = None,
 ) -> TurnResult:
     """Advance one turn."""
     stage_phase = _stage_for(turn_index, turn_budget)
@@ -489,6 +531,8 @@ def advance_turn(
     }
     if player_goals:
         user_payload["player_goals"] = [g.model_dump() for g in player_goals]
+    if player_role is not None:
+        user_payload["player_role"] = player_role.model_dump()
 
     # Active scheduling: tell the LLM which NPC should actively push their
     # agenda this turn. Empty in story mode and during the hook phase.
@@ -595,6 +639,7 @@ def synthesize_early_ending(
     history: list[StoryMessage],
     failure_trigger: str,
     failure_reason: str,
+    player_role: PlayerRole | None = None,
 ) -> EndingResult:
     """Generate a 'collapsed' ending when judge_failure flagged a trigger.
     Result label is constrained to {失控, 反噬, 破碎, 沉沦}."""
@@ -606,6 +651,8 @@ def synthesize_early_ending(
         "failure_trigger": failure_trigger,
         "failure_reason": failure_reason,
     }
+    if player_role is not None:
+        user_payload["player_role"] = player_role.model_dump()
     response = gateway.invoke_json(
         system_prompt=_EARLY_ENDING_SYSTEM_PROMPT,
         user_payload=user_payload,
@@ -826,6 +873,7 @@ def synthesize_ending(
     cast: list[CastMember],
     history: list[StoryMessage],
     turn_count: int,
+    player_role: PlayerRole | None = None,
 ) -> EndingResult:
     """Generate a 400-600 word ending + label + first-person subtitle.
 
@@ -842,6 +890,8 @@ def synthesize_ending(
         "story_so_far": [{"role": m.role, "content": m.content} for m in history],
         "instruction": "请基于上面所有历史，写下这一局完整故事的结局。",
     }
+    if player_role is not None:
+        user_payload["player_role"] = player_role.model_dump()
     system_prompt = _ENDING_SYSTEM_PROMPT_TEMPLATE.format(
         turn_count=turn_count,
         labels_list=" / ".join(ENDING_LABELS),
@@ -1091,6 +1141,68 @@ def _parse_failure_conditions(raw: Any) -> list[FailureCondition]:
             continue
         conds.append(FailureCondition(label=label[:80], description=desc[:200]))
     return conds[:6]
+
+
+def _parse_player_role_options(
+    raw: Any,
+    *,
+    valid_npc_ids: set[str],
+) -> list[PlayerRole]:
+    """Tolerant parser for the LLM's player_role_options array.
+
+    Drops malformed entries; reassigns role_id to a stable role-NN slug if
+    the LLM gave dupes or missing values; filters leverages_over_npcs to
+    only npc_ids that exist in cast (else they'd reference ghosts).
+    """
+    roles: list[PlayerRole] = []
+    if not isinstance(raw, list):
+        return roles
+    seen_ids: set[str] = set()
+    for idx, item in enumerate(raw):
+        if not isinstance(item, dict):
+            continue
+        label = str(item.get("label") or "").strip()
+        persona = str(item.get("public_persona") or "").strip()
+        objective = str(item.get("hidden_objective") or "").strip()
+        if not label or not persona or not objective:
+            continue
+        # Force a stable, unique role_id regardless of what the LLM said.
+        role_id = f"role-{idx + 1:02d}"
+        if role_id in seen_ids:
+            continue
+        seen_ids.add(role_id)
+
+        leverages: list[PlayerLeverageOverNPC] = []
+        raw_lev = item.get("leverages_over_npcs")
+        if isinstance(raw_lev, list):
+            for entry in raw_lev[:8]:
+                if not isinstance(entry, dict):
+                    continue
+                npc_id = str(entry.get("npc_id") or "").strip()
+                lev = str(entry.get("leverage") or "").strip()
+                if not npc_id or not lev or npc_id not in valid_npc_ids:
+                    continue
+                leverages.append(PlayerLeverageOverNPC(
+                    npc_id=npc_id[:64], leverage=lev[:200],
+                ))
+
+        assets: list[str] = []
+        raw_assets = item.get("starting_assets")
+        if isinstance(raw_assets, list):
+            for asset in raw_assets[:4]:
+                s = str(asset or "").strip()
+                if s:
+                    assets.append(s[:120])
+
+        roles.append(PlayerRole(
+            role_id=role_id,
+            label=label[:24],
+            public_persona=persona[:200],
+            hidden_objective=objective[:200],
+            leverages_over_npcs=leverages,
+            starting_assets=assets,
+        ))
+    return roles[:6]
 
 
 def _parse_npc_pulse(raw: Any, valid_ids: set[str]) -> list[NPCPulse]:

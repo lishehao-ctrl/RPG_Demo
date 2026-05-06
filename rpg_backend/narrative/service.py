@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import secrets
+from concurrent.futures import ThreadPoolExecutor
 
 from rpg_backend.config import Settings, get_settings
 from rpg_backend.narrative.contracts import (
@@ -474,28 +475,35 @@ class NarrativeService:
             return None
         tier = tier_for_label(result.label)
         # Synthesize highlights + branches AFTER ending exists. Both
-        # non-fatal — return [] on any failure.
-        highlights = synthesize_highlights(
-            gateway=self.gateway,
-            seed=template.seed,
-            title=template.title,
-            cast=template.cast,
-            history=full_history,
-            ending_label=result.label,
-            ending_subtitle=result.subtitle,
-            player_role=player_role,
-        )
-        branches = synthesize_branches(
-            gateway=self.gateway,
-            seed=template.seed,
-            title=template.title,
-            cast=template.cast,
-            history=full_history,
-            ending_label=result.label,
-            ending_tier=tier,
-            ending_passage=result.passage,
-            player_role=player_role,
-        )
+        # non-fatal — return [] on any failure. Run in parallel since
+        # they're independent LLM calls — cuts post-game wait from
+        # ~9s sequential to ~5s.
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            hl_future = pool.submit(
+                synthesize_highlights,
+                gateway=self.gateway,
+                seed=template.seed,
+                title=template.title,
+                cast=template.cast,
+                history=full_history,
+                ending_label=result.label,
+                ending_subtitle=result.subtitle,
+                player_role=player_role,
+            )
+            br_future = pool.submit(
+                synthesize_branches,
+                gateway=self.gateway,
+                seed=template.seed,
+                title=template.title,
+                cast=template.cast,
+                history=full_history,
+                ending_label=result.label,
+                ending_tier=tier,
+                ending_passage=result.passage,
+                player_role=player_role,
+            )
+            highlights = hl_future.result()
+            branches = br_future.result()
         self._repo.record_session_ending(
             session_id,
             label=result.label,
@@ -563,27 +571,33 @@ class NarrativeService:
         # Highlights + branches for the early collapse. Branches
         # especially valuable here — "you'd have hit a non-collapse
         # ending if you'd done X earlier" is core replay incentive.
-        highlights = synthesize_highlights(
-            gateway=self.gateway,
-            seed=template.seed,
-            title=template.title,
-            cast=template.cast,
-            history=full_history,
-            ending_label=result.label,
-            ending_subtitle=result.subtitle,
-            player_role=player_role,
-        )
-        branches = synthesize_branches(
-            gateway=self.gateway,
-            seed=template.seed,
-            title=template.title,
-            cast=template.cast,
-            history=full_history,
-            ending_label=result.label,
-            ending_tier=tier,
-            ending_passage=result.passage,
-            player_role=player_role,
-        )
+        # Parallelize for the same latency win as the full ending path.
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            hl_future = pool.submit(
+                synthesize_highlights,
+                gateway=self.gateway,
+                seed=template.seed,
+                title=template.title,
+                cast=template.cast,
+                history=full_history,
+                ending_label=result.label,
+                ending_subtitle=result.subtitle,
+                player_role=player_role,
+            )
+            br_future = pool.submit(
+                synthesize_branches,
+                gateway=self.gateway,
+                seed=template.seed,
+                title=template.title,
+                cast=template.cast,
+                history=full_history,
+                ending_label=result.label,
+                ending_tier=tier,
+                ending_passage=result.passage,
+                player_role=player_role,
+            )
+            highlights = hl_future.result()
+            branches = br_future.result()
         self._repo.record_session_ending(
             session_id,
             label=result.label,

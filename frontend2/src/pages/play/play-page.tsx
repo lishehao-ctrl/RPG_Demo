@@ -695,6 +695,9 @@ function EndingScreen({
                     transition={{ delay: 1.3 + i * 0.08, ...itemTransition }}
                     style={ppStyles.branchCard}
                   >
+                    <div style={ppStyles.branchTurnBadge}>
+                      第 {Math.floor(b.pivot_beat_ord / 2)} 回合
+                    </div>
                     <div style={ppStyles.branchPaths}>
                       <div style={ppStyles.branchChosen}>
                         <span style={ppStyles.branchPathTag}>你那回合选了</span>
@@ -2192,6 +2195,7 @@ const ppStyles: Record<string, CSSProperties> = {
     gap: 12,
   },
   branchCard: {
+    position: "relative" as const,
     padding: "14px 16px",
     background: "linear-gradient(180deg, rgba(140,100,200,0.06), rgba(140,100,200,0.02))",
     border: "1px solid rgba(140,100,200,0.28)",
@@ -2199,6 +2203,20 @@ const ppStyles: Record<string, CSSProperties> = {
     display: "flex",
     flexDirection: "column" as const,
     gap: 10,
+  },
+  branchTurnBadge: {
+    position: "absolute" as const,
+    top: -1,
+    right: 12,
+    fontSize: 10,
+    color: "rgba(180,150,230,0.9)",
+    background: "rgba(140,100,200,0.18)",
+    border: "1px solid rgba(140,100,200,0.30)",
+    borderTop: "none",
+    padding: "3px 8px",
+    borderRadius: "0 0 4px 4px",
+    letterSpacing: "0.06em",
+    fontWeight: 600,
   },
   branchPaths: {
     display: "flex",

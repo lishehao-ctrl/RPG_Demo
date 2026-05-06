@@ -604,19 +604,57 @@ class AdvisorReply:
     reply_text: str
 
 
+def _required_inter_leverage_edges(cast_size: int) -> int:
+    """Lower bound for the inter-NPC leverage network density given a
+    cast of N. Mirrors the targets stated in _OPENING_SYSTEM_PROMPT."""
+    if cast_size <= 3:
+        return 4
+    if cast_size == 4:
+        return 6
+    return 8
+
+
 def generate_opening(
     *,
     gateway: NarrativeLLMGateway,
     seed: str,
 ) -> OpeningResult:
-    """Generate world opening. Retries once on JSON / shape failure."""
+    """Generate world opening. Retries on JSON / shape failure or sparse
+    inter-NPC leverage network (LLM is consistently conservative on
+    density even with the prompt's hard rule, so we enforce via retry)."""
     last_error: Exception | None = None
     feedback: str | None = None
-    for attempt in range(2):
+    last_result: OpeningResult | None = None
+    for attempt in range(3):
         try:
             result = _generate_opening_once(gateway, seed, retry_feedback=feedback)
+            # Density check — count inter-NPC leverages across cast.
+            edges = sum(len(c.leverages_over_other_npcs) for c in result.cast)
+            required = _required_inter_leverage_edges(len(result.cast))
+            if edges < required and attempt < 2:
+                # Save for fallback (in case the next attempt errors out
+                # entirely — better to ship a sparse network than fail).
+                last_result = result
+                feedback = (
+                    f"Your previous output had only {edges} inter-NPC "
+                    f"leverage edges across {len(result.cast)} cast members. "
+                    f"This is below the required minimum of {required} edges. "
+                    f"Re-output the SAME cast structure (same character_ids, "
+                    f"same hidden_objective + leverage_over_player), but **add "
+                    f"more concrete entries to leverages_over_other_npcs** so "
+                    f"the total reaches at least {required}. Each major NPC "
+                    f"(those with strong hidden_objective and leverage_over_player) "
+                    f"must hold at least 1-2 leverages over OTHER NPCs. Form "
+                    f"chains and rings. Write specific items/secrets, not abstract."
+                )
+                print(
+                    f"[narrative.retry] operation=opening attempt={attempt + 1} "
+                    f"sparse_network edges={edges} required={required}",
+                    flush=True,
+                )
+                continue
             if attempt > 0:
-                print(f"[narrative.retry] operation=opening recovered_on_attempt={attempt + 1}", flush=True)
+                print(f"[narrative.retry] operation=opening recovered_on_attempt={attempt + 1} edges={edges}", flush=True)
             return result
         except (NarrativeGatewayError, ValueError) as exc:
             last_error = exc
@@ -636,6 +674,15 @@ def generate_opening(
                 # Non-JSON gateway errors (provider down, rate limit, etc.)
                 # should not be retried with feedback — surface immediately.
                 raise
+    # Exhausted retries on sparse density — fall back to last valid result
+    # (sparse but parseable). Better than raising and breaking the user's
+    # whole session create flow.
+    if last_result is not None:
+        print(
+            f"[narrative.retry] operation=opening exhausted_density_retries returning_sparse",
+            flush=True,
+        )
+        return last_result
     assert last_error is not None
     raise last_error
 
@@ -1076,42 +1123,66 @@ def _pick_twist_directive(
     player_role: PlayerRole | None,
     difficulty: str,
 ) -> dict[str, str] | None:
-    """Pick a twist kind for the reversal turn. Story mode and non-reversal
-    stages return None (no directive).
+    """Pick a twist kind for the reversal or climax turn.
 
-    Strategy:
-      - Prefer secret_inter_leverage_revealed when network exists — it's
-        the most narratively coherent way to fire #5 mechanic
-      - Then betrayal_realignment if player has leverages over NPCs (the
-        betrayed NPC can be the one targeted by player's leverage)
-      - Then player_persona_crack to extend the role mechanic into the
-        reversal beat
-      - Otherwise rotate hidden_npc_arrival / external_event_intrusion
-        as fallback signals
+    Reversal: ALWAYS fires (the canonical inflection point).
+    Climax: fires every other turn (turn_index % 2 == 0) — a smaller
+        injection that keeps the climax stage from being 4 turns of
+        even pressure. Climax twists bias to escalation kinds
+        (betrayal / external event), avoiding `secret_inter_leverage_
+        revealed` which is reversal's signature.
+    Hook / pressure / pre_finale: no twist.
+    Story mode: no twist regardless of stage.
+
+    Reversal selection priority:
+      - secret_inter_leverage_revealed when network exists
+      - betrayal_realignment when player has leverages
+      - player_persona_crack when player has a role at all
+      - hidden_npc_arrival / external_event_intrusion fallback rotation
     """
     if difficulty != "gauntlet":
         return None
-    if stage_phase != "reversal":
-        return None
 
-    if _has_inter_leverage_network(cast):
-        kind = "secret_inter_leverage_revealed"
-    elif _player_has_leverage(player_role):
-        kind = "betrayal_realignment"
-    elif player_role is not None:
-        kind = "player_persona_crack"
-    else:
-        # Deterministic rotation between the two fallbacks per turn so a
-        # template that lacks both networks still gets a twist.
-        kind = (
-            "hidden_npc_arrival"
-            if turn_index % 2 == 0
-            else "external_event_intrusion"
-        )
-    return {
-        "kind": kind,
-        "hint": _TWIST_KINDS[kind],
-    }
+    if stage_phase == "reversal":
+        # Canonical reversal — pick by priority.
+        if _has_inter_leverage_network(cast):
+            kind = "secret_inter_leverage_revealed"
+        elif _player_has_leverage(player_role):
+            kind = "betrayal_realignment"
+        elif player_role is not None:
+            kind = "player_persona_crack"
+        else:
+            kind = (
+                "hidden_npc_arrival"
+                if turn_index % 2 == 0
+                else "external_event_intrusion"
+            )
+        return {"kind": kind, "hint": _TWIST_KINDS[kind]}
+
+    if stage_phase == "climax":
+        # Sprinkle in climax to break up "4 turns of even agenda
+        # leverage/reveal pressure". Fire every other turn.
+        if turn_index % 2 != 0:
+            return None
+        # Avoid reusing reversal's signature kind. Bias to escalation:
+        # betrayal_realignment (preferred when player has leverage to
+        # be flipped against), then external_event_intrusion (always
+        # available), then player_persona_crack as final fallback.
+        if _player_has_leverage(player_role):
+            kind = "betrayal_realignment"
+        elif player_role is not None:
+            # Alternate between external event and persona crack across
+            # the climax turns so we don't replay the same beat.
+            kind = (
+                "external_event_intrusion"
+                if turn_index % 4 == 0
+                else "player_persona_crack"
+            )
+        else:
+            kind = "external_event_intrusion"
+        return {"kind": kind, "hint": _TWIST_KINDS[kind]}
+
+    return None
 
 
 # --------------------------------------------------------------------------

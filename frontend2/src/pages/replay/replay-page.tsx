@@ -3,6 +3,7 @@ import type { NarrativePublicReplayResponse } from "../../api/contracts"
 import { useApi } from "../../app/api-context"
 import { friendlyError } from "../../shared/lib/friendly-error"
 import { LoadingShim } from "../../shared/ui/loading-shim"
+import { EmptyState } from "../../shared/ui/empty-state"
 import {
   getAdvisorAvatar,
   getAvatarForCastMember,
@@ -53,7 +54,19 @@ export function ReplayPage({
     return (
       <div style={rpStyles.page}>
         {error ? (
-          <div style={rpStyles.center}>加载失败：{error}</div>
+          <EmptyState
+            title="这一局看不见了"
+            hint={error}
+            action={
+              <button
+                className="ts-btn ts-btn--primary"
+                type="button"
+                onClick={onBackHome}
+              >
+                回广场
+              </button>
+            }
+          />
         ) : (
           <LoadingShim label="正在还原这一局…" />
         )}

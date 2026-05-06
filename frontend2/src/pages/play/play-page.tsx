@@ -9,6 +9,7 @@ import type {
 } from "../../api/contracts"
 import { useApi } from "../../app/api-context"
 import { LoadingShim } from "../../shared/ui/loading-shim"
+import { StageProgressBar } from "../../shared/ui/stage-progress-bar"
 import { friendlyError } from "../../shared/lib/friendly-error"
 import {
   fadeTransition,
@@ -212,6 +213,12 @@ export function PlayPage({
               </div>
             ))}
           </div>
+
+          {/* Stage progression bar — visualizes the dramatic arc so
+              players see WHERE in the story they are, not just turn N. */}
+          {!isComplete ? (
+            <StageProgressBar turnIndex={turnsCompleted} turnBudget={turnBudget} />
+          ) : null}
 
           {/* Player role banner — who YOU are this run. Private POV
               card; persona is what NPCs see, hidden_objective + leverages
@@ -631,6 +638,11 @@ function EndingScreen({
                   key={`${h.beat_ord}-${i}`}
                   initial={{ opacity: 0, x: -8 }}
                   animate={{ opacity: 1, x: 0 }}
+                  whileHover={{
+                    y: -2,
+                    borderColor: "rgba(245,200,120,0.45)",
+                    transition: { duration: 0.18, ease: [0.16, 1, 0.3, 1] },
+                  }}
                   transition={{ delay: 1.05 + i * 0.08, ...itemTransition }}
                   style={ppStyles.highlightCard}
                 >
@@ -675,6 +687,11 @@ function EndingScreen({
                     key={`${b.pivot_beat_ord}-${i}`}
                     initial={{ opacity: 0, x: -8 }}
                     animate={{ opacity: 1, x: 0 }}
+                    whileHover={{
+                      y: -2,
+                      borderColor: "rgba(140,100,200,0.45)",
+                      transition: { duration: 0.18, ease: [0.16, 1, 0.3, 1] },
+                    }}
                     transition={{ delay: 1.3 + i * 0.08, ...itemTransition }}
                     style={ppStyles.branchCard}
                   >
@@ -845,16 +862,37 @@ function StoryBeat({
                 ppStyles[
                   ("pulseShift_" + p.shift) as keyof typeof ppStyles
                 ] as CSSProperties | undefined
+              const isBroken = p.shift === "broken"
               return (
-                <span
+                <motion.span
                   key={`${p.npc_id}-${idx}`}
                   style={{ ...ppStyles.pulseChip, ...(shiftStyle ?? {}) }}
                   title={`${name}: ${p.state} (${p.shift})`}
+                  // When an NPC just hit `broken` (first emotional
+                  // collapse), give the chip a 2-cycle glow pulse so
+                  // the player notices this watershed moment, not just
+                  // another color.
+                  animate={
+                    isBroken
+                      ? {
+                          boxShadow: [
+                            "0 0 0 0 rgba(220,80,60,0)",
+                            "0 0 0 4px rgba(220,80,60,0.45)",
+                            "0 0 0 0 rgba(220,80,60,0)",
+                          ],
+                        }
+                      : undefined
+                  }
+                  transition={
+                    isBroken
+                      ? { duration: 1.4, repeat: 2, ease: "easeOut", delay: 0.3 }
+                      : undefined
+                  }
                 >
                   <span style={ppStyles.pulseChipName}>{name}</span>
                   <span style={ppStyles.pulseChipState}>· {p.state}</span>
                   <span style={ppStyles.pulseChipArrow}>{shiftArrow(p.shift)}</span>
-                </span>
+                </motion.span>
               )
             })}
           </motion.div>

@@ -12,6 +12,7 @@ import { useAuth } from "../../app/auth-context"
 import { Header } from "../../shared/ui/header"
 import { friendlyError } from "../../shared/lib/friendly-error"
 import { LoadingShim } from "../../shared/ui/loading-shim"
+import { EmptyState } from "../../shared/ui/empty-state"
 import { hoverLift, itemTransition, tapPress } from "../../shared/lib/motion-presets"
 import {
   getAdvisorAvatar,
@@ -108,7 +109,19 @@ export function TemplateDetailPage({
       <div style={tdStyles.page}>
         <Header onHome={onBackHome} onCreate={onOpenCreate} />
         {error ? (
-          <div style={tdStyles.center}>加载失败：{error}</div>
+          <EmptyState
+            title="找不到这个故事"
+            hint={error}
+            action={
+              <button
+                className="ts-btn ts-btn--primary"
+                type="button"
+                onClick={onBackHome}
+              >
+                回广场
+              </button>
+            }
+          />
         ) : (
           <LoadingShim label="正在拉取这个故事…" />
         )}

@@ -122,3 +122,24 @@ input, textarea { font-family: inherit; color: inherit; }
 ::-webkit-scrollbar-track { background: transparent; }
 textarea::placeholder, input::placeholder { color: var(--text-faint); }
 textarea:focus, input:focus { border-color: var(--line-strong); }
+
+/* Focus rings — visible only on keyboard nav (focus-visible). Mouse
+ * clicks don't show the ring (no spurious outline on every click).
+ * Gold tint pairs with our --accent palette so focus reads as "this
+ * is what's selected" same way CTAs do.
+ */
+*:focus { outline: none; }
+button:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible {
+  outline: 2px solid rgba(212, 168, 83, 0.65);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+textarea:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid rgba(212, 168, 83, 0.55);
+  outline-offset: 1px;
+  border-color: var(--accent);
+}

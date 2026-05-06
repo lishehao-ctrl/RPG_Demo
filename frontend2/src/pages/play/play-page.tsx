@@ -26,6 +26,7 @@ import {
   getAvatarForCastMember,
   getCoverForTemplate,
   getEndingIllustration,
+  getSceneByPhase,
   getTierSplash,
 } from "../../shared/lib/webtoon-assets"
 
@@ -288,7 +289,23 @@ export function PlayPage({
           ) : null}
 
           {story.messages.map((m) => (
-            <StoryBeat key={`${m.role}-${m.ord}`} message={m} castNameById={castNameById} />
+            <StoryBeat
+              key={`${m.role}-${m.ord}`}
+              message={m}
+              castNameById={castNameById}
+              intensity={
+                m.role === "narrator"
+                  ? computeBeatIntensity(m, turnBudget)
+                  : "calm"
+              }
+              sceneUrl={
+                m.role === "narrator"
+                  ? `/webtoons/segments/${sceneSlugForStage(
+                      stageForLocal(Math.floor(m.ord / 2), turnBudget),
+                    )}.jpg`
+                  : undefined
+              }
+            />
           ))}
 
           {error ? <div style={ppStyles.errorInline}>{error}</div> : null}
@@ -615,14 +632,32 @@ function EndingScreen({
 function StoryBeat({
   message,
   castNameById,
+  intensity = "calm",
+  sceneUrl,
 }: {
   message: NarrativeStoryMessage
   castNameById?: Record<string, string>
+  intensity?: "calm" | "rising" | "peak"
+  sceneUrl?: string
 }) {
   if (message.role === "narrator") {
     const pulses = message.npc_pulse ?? []
     const delta = message.inventory_delta
     const hasDelta = !!(delta && (delta.added.length > 0 || delta.removed.length > 0))
+    // Visual tier: calm = default; rising = +size + decor line; peak =
+    // larger type + bold left rail + scene banner overlay.
+    const beatStyle =
+      intensity === "peak"
+        ? { ...ppStyles.narratorBeat, ...ppStyles.narratorBeatPeak }
+        : intensity === "rising"
+          ? { ...ppStyles.narratorBeat, ...ppStyles.narratorBeatRising }
+          : ppStyles.narratorBeat
+    const textStyle =
+      intensity === "peak"
+        ? { ...ppStyles.narratorText, ...ppStyles.narratorTextPeak }
+        : intensity === "rising"
+          ? { ...ppStyles.narratorText, ...ppStyles.narratorTextRising }
+          : ppStyles.narratorText
     return (
       <motion.article
         layout
@@ -630,9 +665,29 @@ function StoryBeat({
         animate="animate"
         variants={itemVariants}
         transition={itemTransition}
-        style={ppStyles.narratorBeat}
+        style={beatStyle}
       >
-        <div style={ppStyles.narratorText}>{message.content}</div>
+        {intensity === "peak" && sceneUrl ? (
+          <motion.div
+            initial={{ opacity: 0, scale: 1.05 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
+            style={{
+              ...ppStyles.beatSceneBanner,
+              backgroundImage: `linear-gradient(180deg, rgba(20,16,12,0.15) 0%, rgba(20,16,12,0.85) 90%, var(--bg) 100%), url(${sceneUrl})`,
+            }}
+            aria-hidden
+          />
+        ) : null}
+        {intensity === "rising" || intensity === "peak" ? (
+          <div
+            style={
+              intensity === "peak" ? ppStyles.beatDecorPeak : ppStyles.beatDecorRising
+            }
+            aria-hidden
+          />
+        ) : null}
+        <div style={textStyle}>{message.content}</div>
         {hasDelta && delta ? (
           <motion.div
             initial={{ opacity: 0, scale: 0.92, y: -4 }}
@@ -738,6 +793,60 @@ function computeLiveInventory(
     }
   }
   return inv
+}
+
+// Mirror of backend _stage_for. Used to drive visual intensity and to
+// map a narrator beat back to a segment scene asset.
+function stageForLocal(turnIndex: number, turnBudget: number): string {
+  if (turnIndex <= 1) return "hook"
+  const midpoint = turnBudget / 2
+  if (turnIndex < midpoint - 0.5) return "pressure"
+  if (turnIndex < midpoint + 0.5) return "reversal"
+  if (turnIndex < turnBudget - 1) return "climax"
+  if (turnIndex < turnBudget) return "pre_finale"
+  return "pre_finale_open"
+}
+
+// stage_phase → segment asset slug. Backend stage names don't match
+// asset filenames 1:1 (climax/pre_finale don't exist as scene art).
+function sceneSlugForStage(stage: string): string {
+  if (stage === "climax") return "reveal"
+  if (stage === "pre_finale" || stage === "pre_finale_open") return "terminal"
+  if (stage === "hook") return "opening"
+  return stage // pressure / reversal pass through
+}
+
+// Visual intensity heuristic — purely client-side from data we already
+// have. Peak: any pulse broken, OR inventory delta fired, OR (climax/
+// pre_finale stage AND any colder/wary). Rising: reversal/climax stages
+// without peak signal. Calm: hook + early pressure.
+function computeBeatIntensity(
+  message: NarrativeStoryMessage,
+  turnBudget: number,
+): "calm" | "rising" | "peak" {
+  if (message.role !== "narrator") return "calm"
+  const turnIndex = Math.floor(message.ord / 2)
+  // Opening (ord=0) is always calm — sets the scene, no visual punch yet.
+  if (turnIndex === 0) return "calm"
+  const stage = stageForLocal(turnIndex, turnBudget)
+  const pulses = message.npc_pulse ?? []
+  const hasBroken = pulses.some((p) => p.shift === "broken")
+  const hasColderOrWary = pulses.some(
+    (p) => p.shift === "colder" || p.shift === "wary",
+  )
+  const delta = message.inventory_delta
+  const hasDelta = !!(
+    delta && (delta.added.length > 0 || delta.removed.length > 0)
+  )
+  if (hasBroken) return "peak"
+  if (hasDelta) return "peak"
+  if ((stage === "climax" || stage === "pre_finale" || stage === "pre_finale_open") && hasColderOrWary) {
+    return "peak"
+  }
+  if (stage === "reversal" || stage === "climax" || stage === "pre_finale" || stage === "pre_finale_open") {
+    return "rising"
+  }
+  return "calm"
 }
 
 function shiftArrow(shift: NarrativeNPCPulse["shift"]): string {
@@ -1459,13 +1568,65 @@ const ppStyles: Record<string, CSSProperties> = {
     color: "rgba(255,255,255,0.78)",
   },
 
-  narratorBeat: { marginBottom: 32 },
+  narratorBeat: { marginBottom: 32, position: "relative" as const },
+  narratorBeatRising: {
+    marginBottom: 38,
+    paddingLeft: 18,
+    paddingTop: 8,
+    borderLeft: "2px solid rgba(140,100,200,0.45)",
+  },
+  narratorBeatPeak: {
+    marginBottom: 48,
+    paddingLeft: 22,
+    paddingTop: 12,
+    paddingRight: 4,
+    borderLeft: "3px solid rgba(245,200,120,0.75)",
+    background:
+      "linear-gradient(90deg, rgba(245,200,120,0.06) 0%, rgba(245,200,120,0) 60%)",
+    boxShadow: "inset 0 0 0 0 rgba(245,200,120,0)",
+  },
   narratorText: {
     fontFamily: "var(--font-narrative)",
     fontSize: 16.5,
     lineHeight: 1.85,
     color: "var(--text)",
     whiteSpace: "pre-wrap",
+  },
+  narratorTextRising: {
+    fontSize: 17.5,
+    lineHeight: 1.9,
+    letterSpacing: "0.005em",
+  },
+  narratorTextPeak: {
+    fontSize: 19,
+    lineHeight: 1.95,
+    letterSpacing: "0.01em",
+    color: "rgba(255,235,210,0.96)",
+  },
+  beatSceneBanner: {
+    height: 140,
+    backgroundSize: "cover",
+    backgroundPosition: "center",
+    // Bleed past the parent padding (paddingLeft 22, paddingRight 4) by
+    // pulling the box left/right with negative margins; the natural
+    // width with auto becomes parent width + 26.
+    marginLeft: -22,
+    marginRight: -4,
+    marginTop: -12,
+    marginBottom: 18,
+    borderRadius: "0 0 6px 6px",
+  },
+  beatDecorRising: {
+    width: 36,
+    height: 1,
+    background: "rgba(140,100,200,0.55)",
+    marginBottom: 12,
+  },
+  beatDecorPeak: {
+    width: 56,
+    height: 2,
+    background: "linear-gradient(90deg, rgba(245,200,120,0.85), rgba(245,200,120,0))",
+    marginBottom: 14,
   },
   chosenChip: {
     marginTop: 14,

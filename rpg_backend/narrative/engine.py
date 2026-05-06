@@ -14,7 +14,7 @@ from rpg_backend.narrative.contracts import (
     StoryMessage,
     StoryOption,
 )
-from rpg_backend.narrative.gateway import NarrativeLLMGateway
+from rpg_backend.narrative.gateway import NarrativeGatewayError, NarrativeLLMGateway
 
 
 _OPENING_SYSTEM_PROMPT = """\

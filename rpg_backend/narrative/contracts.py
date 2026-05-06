@@ -106,6 +106,11 @@ class NPCPulse(BaseModel):
     npc_id: str = Field(min_length=1, max_length=64)
     state: str = Field(min_length=1, max_length=80)
     shift: Literal["warmer", "colder", "steady", "wary", "broken"] = "steady"
+    # Optional 12-30 char causal attribution: WHY did this NPC just shift?
+    # References a specific player action or narrative event from this turn.
+    # Without it, pulse chips are mystery symbols — players can't connect
+    # color change to their own choices.
+    reason: str | None = Field(default=None, max_length=80)
 
 
 class StoryOption(BaseModel):

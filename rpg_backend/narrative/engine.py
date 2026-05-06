@@ -98,13 +98,14 @@ _TURN_SYSTEM_PROMPT = """\
 {
   "passage": "续写的叙述。第二人称。必须呼应玩家刚才的动作，写出 NPC 的反应、关系或局势的变化、一个新的紧张点",
   "options": [
-    {"label": "10-20 字的动作", "hint": "（可选）语气/代价提示"}
+    {"label": "10-20 字的动作（pressure / reversal / climax 阶段必须以中括号 intent tag 开头：[挑拨] / [反将] / [妥协] / [观望] / [试探] / [合作] / [硬刚] / [示弱]）", "hint": "（可选）语气/代价提示"}
   ],
   "npc_pulse": [
     {
       "npc_id": "cast 中某个角色的 character_id（必须存在于 cast 名单）",
       "state": "TA 此刻的内心状态——一句简短描述，6-14 字（举例：'撕开了温柔面具' / '被惊到说不出话' / '冷笑变成失望'）",
-      "shift": "warmer | colder | steady | wary | broken 中的一个"
+      "shift": "warmer | colder | steady | wary | broken 中的一个",
+      "reason": "**为什么 TA 这一刻变成这个 shift**，12-30 字，**必须引用玩家这回合的具体动作或刚刚发生的剧情事件**（举例：'你那句反问戳中她父亲的事' / '看到玩家不上钩，开始急了' / '陈伯父亮出账本击垮了她'）。**shift 是 steady 时这个字段可以省略；其他 shift 必须有 reason**"
     }
     // 列出**每个 cast 中的 NPC**，至少 2 个
   ],
@@ -257,6 +258,24 @@ cast 里每个 NPC 都可能在 `leverages_over_other_npcs` 字段里**捏着另
 - 选项必须**反映当下局势的具体可能性**，不要给"继续观察 / 离开 / 思考"这种空洞选项
 - 当 stage 接近 climax 时，选项之间的代价差异必须**显著**——一个"和解"vs"决裂"vs"复仇"那种级别的分叉
 - gauntlet 模式下，**至少有一个选项应该是"高风险高回报"**——能把局面推向玩家想要的方向，但也可能踩到 failure_conditions
+
+**选项 intent tag 前缀（pressure / reversal / climax / pre_finale 阶段必须遵守）**:
+每个 option 的 label 必须**以中括号 intent tag 开头**，让玩家立刻识别这是哪类操作。固定 tag 池（只能从这里选，不要发明新的）：
+- `[挑拨]` —— 利用玩家手里的把柄或 inter-NPC leverage 让两个 NPC 互撕
+- `[反将]` —— 拿出玩家自己的 leverage 当面戳穿某个 NPC
+- `[妥协]` —— 主动让步、求和、签字、交出资源
+- `[观望]` —— 不主动出手，看局势怎么走
+- `[试探]` —— 用一句话或一个动作探别人的底
+- `[合作]` —— 提出跟某个 NPC 联手对付第三方
+- `[硬刚]` —— 直接对抗，公开撕脸
+- `[示弱]` —— 假装受伤/无力/示好，用作策略性掩护
+
+⚠️ 强制规则：
+- 3 个 option 的 tag **必须互不相同**（不能 3 个全是 [妥协]，要给玩家真分叉）
+- 至少有一个 tag 是**主动型**（挑拨 / 反将 / 合作 / 硬刚），不能 3 个都是 passive（妥协 / 观望 / 示弱 / 试探）
+- 当玩家 player_role 有 leverages_over_npcs 或 cast 有 inter-NPC leverage 网络时，**3 个 option 中至少 1 个必须是 [挑拨] 或 [反将]**
+- tag 之后用一个空格再写动作描述：`[反将] 直接拿出录音证据当面对峙`
+- hook 阶段（前 1-2 回合）可以不带 tag，让玩家先进入情境
 """
 
 
@@ -2031,7 +2050,8 @@ def _parse_player_role_options(
 def _parse_npc_pulse(raw: Any, valid_ids: set[str]) -> list[NPCPulse]:
     """Parse npc_pulse from a turn payload. Drops entries with unknown
     npc_id (LLM occasionally hallucinates names not in cast). Coerces the
-    shift literal to one of the allowed values."""
+    shift literal to one of the allowed values. Captures optional `reason`
+    field for causal attribution UI."""
     pulses: list[NPCPulse] = []
     if not isinstance(raw, list):
         return pulses
@@ -2042,13 +2062,19 @@ def _parse_npc_pulse(raw: Any, valid_ids: set[str]) -> list[NPCPulse]:
         npc_id = str(item.get("npc_id") or item.get("character_id") or "").strip().lower()
         state = str(item.get("state") or "").strip()
         shift = str(item.get("shift") or "steady").strip().lower()
+        reason_raw = item.get("reason")
+        reason: str | None = None
+        if isinstance(reason_raw, str) and reason_raw.strip():
+            reason = reason_raw.strip()[:80]
         if not npc_id or npc_id not in valid_ids:
             continue
         if not state:
             continue
         if shift not in allowed_shifts:
             shift = "steady"
-        pulses.append(NPCPulse(npc_id=npc_id, state=state[:80], shift=shift))  # type: ignore[arg-type]
+        pulses.append(NPCPulse(  # type: ignore[arg-type]
+            npc_id=npc_id, state=state[:80], shift=shift, reason=reason,
+        ))
     return pulses
 
 

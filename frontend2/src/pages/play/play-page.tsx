@@ -896,36 +896,37 @@ function StoryBeat({
                   ("pulseShift_" + p.shift) as keyof typeof ppStyles
                 ] as CSSProperties | undefined
               const isBroken = p.shift === "broken"
+              const hasReason = !!(p.reason && p.shift !== "steady")
               return (
-                <motion.span
-                  key={`${p.npc_id}-${idx}`}
-                  style={{ ...ppStyles.pulseChip, ...(shiftStyle ?? {}) }}
-                  title={`${name}: ${p.state} (${p.shift})`}
-                  // When an NPC just hit `broken` (first emotional
-                  // collapse), give the chip a 2-cycle glow pulse so
-                  // the player notices this watershed moment, not just
-                  // another color.
-                  animate={
-                    isBroken
-                      ? {
-                          boxShadow: [
-                            "0 0 0 0 rgba(220,80,60,0)",
-                            "0 0 0 4px rgba(220,80,60,0.45)",
-                            "0 0 0 0 rgba(220,80,60,0)",
-                          ],
-                        }
-                      : undefined
-                  }
-                  transition={
-                    isBroken
-                      ? { duration: 1.4, repeat: 2, ease: "easeOut", delay: 0.3 }
-                      : undefined
-                  }
-                >
-                  <span style={ppStyles.pulseChipName}>{name}</span>
-                  <span style={ppStyles.pulseChipState}>· {p.state}</span>
-                  <span style={ppStyles.pulseChipArrow}>{shiftArrow(p.shift)}</span>
-                </motion.span>
+                <div key={`${p.npc_id}-${idx}`} style={ppStyles.pulseRow}>
+                  <motion.span
+                    style={{ ...ppStyles.pulseChip, ...(shiftStyle ?? {}) }}
+                    title={`${name}: ${p.state} (${p.shift})${p.reason ? ` — ${p.reason}` : ""}`}
+                    animate={
+                      isBroken
+                        ? {
+                            boxShadow: [
+                              "0 0 0 0 rgba(220,80,60,0)",
+                              "0 0 0 4px rgba(220,80,60,0.45)",
+                              "0 0 0 0 rgba(220,80,60,0)",
+                            ],
+                          }
+                        : undefined
+                    }
+                    transition={
+                      isBroken
+                        ? { duration: 1.4, repeat: 2, ease: "easeOut", delay: 0.3 }
+                        : undefined
+                    }
+                  >
+                    <span style={ppStyles.pulseChipName}>{name}</span>
+                    <span style={ppStyles.pulseChipState}>· {p.state}</span>
+                    <span style={ppStyles.pulseChipArrow}>{shiftArrow(p.shift)}</span>
+                  </motion.span>
+                  {hasReason ? (
+                    <span style={ppStyles.pulseReason}>因为：{p.reason}</span>
+                  ) : null}
+                </div>
               )
             })}
           </motion.div>
@@ -1024,6 +1025,50 @@ function computeBeatIntensity(
   return "calm"
 }
 
+// Parse an option label that may start with an intent tag like "[挑拨] xxx".
+// Returns { tag: "挑拨", body: "xxx" } or { tag: null, body: full label }.
+// Used so the UI can render the tag as a colored chip + the action body
+// as plain text, giving players a visual scan-tag for what the choice
+// means before reading the full action.
+function parseOptionLabel(label: string): { tag: string | null; body: string } {
+  const m = label.match(/^\s*[\[【]([^\]】]{1,8})[\]】]\s*(.*)$/)
+  if (m) {
+    return { tag: m[1].trim(), body: (m[2] ?? "").trim() }
+  }
+  return { tag: null, body: label }
+}
+
+// Color palette for the 8 known tags. Active/aggressive tags use warm
+// gold or red; passive/defensive use neutral or purple. Unknown tags
+// fall back to neutral.
+function optionTagStyle(tag: string): CSSProperties {
+  const ACTIVE_HOT = {
+    background: "linear-gradient(90deg, rgba(220,80,60,0.22), rgba(220,80,60,0.08))",
+    color: "rgba(245,180,170,0.96)",
+    border: "1px solid rgba(220,80,60,0.42)",
+  }
+  const ACTIVE_GOLD = {
+    background: "linear-gradient(90deg, rgba(212,168,83,0.22), rgba(212,168,83,0.08))",
+    color: "rgba(245,210,140,0.96)",
+    border: "1px solid rgba(212,168,83,0.45)",
+  }
+  const ACTIVE_PURPLE = {
+    background: "linear-gradient(90deg, rgba(140,100,200,0.20), rgba(140,100,200,0.06))",
+    color: "rgba(200,170,235,0.96)",
+    border: "1px solid rgba(140,100,200,0.45)",
+  }
+  const PASSIVE = {
+    background: "rgba(255,255,255,0.04)",
+    color: "var(--text-muted)",
+    border: "1px solid var(--line)",
+  }
+  if (tag === "挑拨" || tag === "硬刚") return ACTIVE_HOT
+  if (tag === "反将" || tag === "合作") return ACTIVE_GOLD
+  if (tag === "试探") return ACTIVE_PURPLE
+  // 妥协 / 观望 / 示弱 / unknown
+  return PASSIVE
+}
+
 function shiftArrow(shift: NarrativeNPCPulse["shift"]): string {
   switch (shift) {
     case "warmer": return "↗"
@@ -1079,27 +1124,42 @@ function ActionArea({
             （这一段没给选项，写下你想做的事）
           </div>
         ) : (
-          options.map((opt, i) => (
-            <motion.button
-              key={i}
-              style={{
-                ...ppStyles.optionBtn,
-                opacity: busy ? 0.5 : 1,
-                pointerEvents: busy ? "none" : "auto",
-              }}
-              onClick={() => onPickOption(i)}
-              disabled={busy}
-              type="button"
-              initial={{ opacity: 0, x: -6 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.05 * i + 0.1, ...itemTransition }}
-              whileHover={busy ? undefined : hoverNudge}
-              whileTap={busy ? undefined : tapPress}
-            >
-              <div style={ppStyles.optionLabel}>{opt.label}</div>
-              {opt.hint ? <div style={ppStyles.optionHint}>{opt.hint}</div> : null}
-            </motion.button>
-          ))
+          options.map((opt, i) => {
+            const parsed = parseOptionLabel(opt.label)
+            return (
+              <motion.button
+                key={i}
+                style={{
+                  ...ppStyles.optionBtn,
+                  opacity: busy ? 0.5 : 1,
+                  pointerEvents: busy ? "none" : "auto",
+                }}
+                onClick={() => onPickOption(i)}
+                disabled={busy}
+                type="button"
+                initial={{ opacity: 0, x: -6 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.05 * i + 0.1, ...itemTransition }}
+                whileHover={busy ? undefined : hoverNudge}
+                whileTap={busy ? undefined : tapPress}
+              >
+                <div style={ppStyles.optionLabel}>
+                  {parsed.tag ? (
+                    <span
+                      style={{
+                        ...ppStyles.optionTagChip,
+                        ...optionTagStyle(parsed.tag),
+                      }}
+                    >
+                      {parsed.tag}
+                    </span>
+                  ) : null}
+                  <span>{parsed.body}</span>
+                </div>
+                {opt.hint ? <div style={ppStyles.optionHint}>{opt.hint}</div> : null}
+              </motion.button>
+            )
+          })
         )}
       </div>
 
@@ -1763,8 +1823,20 @@ const ppStyles: Record<string, CSSProperties> = {
   pulseStrip: {
     marginTop: 14,
     display: "flex",
-    flexWrap: "wrap",
+    flexDirection: "column" as const,
     gap: 6,
+  },
+  pulseRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap" as const,
+  },
+  pulseReason: {
+    fontSize: 11,
+    color: "var(--text-faint)",
+    fontStyle: "italic" as const,
+    lineHeight: 1.5,
   },
   pulseChip: {
     display: "inline-flex",
@@ -1971,7 +2043,24 @@ const ppStyles: Record<string, CSSProperties> = {
     cursor: "pointer",
     transition: "all 160ms",
   },
-  optionLabel: { fontSize: 15, fontWeight: 500, lineHeight: 1.4 },
+  optionLabel: {
+    fontSize: 15,
+    fontWeight: 500,
+    lineHeight: 1.4,
+    display: "flex",
+    alignItems: "baseline",
+    gap: 8,
+    flexWrap: "wrap" as const,
+  },
+  optionTagChip: {
+    fontSize: 11,
+    fontWeight: 600,
+    padding: "2px 8px",
+    borderRadius: 4,
+    letterSpacing: "0.04em",
+    flexShrink: 0,
+    fontFamily: "var(--font-narrative)",
+  },
   optionHint: { fontSize: 12.5, color: "var(--text-muted)", marginTop: 5, lineHeight: 1.45 },
   noOptions: { fontSize: 13, color: "var(--text-faint)", fontStyle: "italic" },
 

@@ -575,6 +575,7 @@ export type NarrativeNPCPulse = {
   npc_id: string
   state: string
   shift: NarrativeNPCShift
+  reason?: string | null
 }
 
 export type NarrativeStoryOption = {

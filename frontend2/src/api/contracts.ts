@@ -530,6 +530,11 @@ export type AuthorJobEvent = {
 // Narrative — template/session architecture
 // ---------------------------------------------------------------------------
 
+export type NarrativeNPCLeverageOverNPC = {
+  target_npc_id: string
+  leverage: string
+}
+
 export type NarrativeCastMember = {
   character_id: string
   display_name: string
@@ -537,6 +542,7 @@ export type NarrativeCastMember = {
   relation_to_protagonist: string
   hidden_objective?: string | null
   leverage_over_player?: string | null
+  leverages_over_other_npcs?: NarrativeNPCLeverageOverNPC[]
 }
 
 export type NarrativePlayerGoal = {

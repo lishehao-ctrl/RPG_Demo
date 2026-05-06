@@ -149,22 +149,67 @@ export function TemplateDetailPage({
         <section style={tdStyles.section}>
           <div style={tdStyles.sectionLabel}>出场人物</div>
           <div style={tdStyles.castList}>
-            {template.cast.map((c) => (
-              <div key={c.character_id} style={tdStyles.castRow}>
-                <img
-                  src={getAvatarForCastMember(template.template_id, c)}
-                  alt={c.display_name}
-                  style={tdStyles.castAvatar}
-                  loading="lazy"
-                />
-                <div style={tdStyles.castInfo}>
-                  <div style={tdStyles.castName}>{c.display_name}</div>
-                  <div style={tdStyles.castRole}>{c.role}</div>
-                  <div style={tdStyles.castRelation}>{c.relation_to_protagonist}</div>
+            {template.cast.map((c) => {
+              const interLevs = c.leverages_over_other_npcs ?? []
+              return (
+                <div key={c.character_id} style={tdStyles.castRow}>
+                  <img
+                    src={getAvatarForCastMember(template.template_id, c)}
+                    alt={c.display_name}
+                    style={tdStyles.castAvatar}
+                    loading="lazy"
+                  />
+                  <div style={tdStyles.castInfo}>
+                    <div style={tdStyles.castName}>{c.display_name}</div>
+                    <div style={tdStyles.castRole}>{c.role}</div>
+                    <div style={tdStyles.castRelation}>{c.relation_to_protagonist}</div>
+                    {interLevs.length > 0 ? (
+                      <div style={tdStyles.castLevChip}>
+                        握着 {interLevs.length} 张别人的把柄
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
+          {(() => {
+            // Compute the inter-NPC leverage network across all cast for
+            // the dedicated "political network" subsection.
+            const npcNameById = new Map(
+              template.cast.map((c) => [c.character_id, c.display_name]),
+            )
+            const edges: Array<{ holder: string; target: string; leverage: string }> = []
+            for (const c of template.cast) {
+              for (const lev of c.leverages_over_other_npcs ?? []) {
+                edges.push({
+                  holder: c.display_name,
+                  target: npcNameById.get(lev.target_npc_id) ?? lev.target_npc_id,
+                  leverage: lev.leverage,
+                })
+              }
+            }
+            if (edges.length === 0) return null
+            return (
+              <div style={tdStyles.networkBox}>
+                <div style={tdStyles.networkLabel}>暗藏的把柄网络</div>
+                <p style={tdStyles.networkHint}>
+                  整局戏里 NPC 之间相互捏着把柄。看清这张网，你就能挑拨他们互撕。
+                </p>
+                <ul style={tdStyles.networkList}>
+                  {edges.map((e, i) => (
+                    <li key={i} style={tdStyles.networkRow}>
+                      <span style={tdStyles.networkHolder}>{e.holder}</span>
+                      <span style={tdStyles.networkArrow}>→</span>
+                      <span style={tdStyles.networkTarget}>{e.target}</span>
+                      <span style={tdStyles.networkColon}>：</span>
+                      <span style={tdStyles.networkLeverage}>{e.leverage}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )
+          })()}
         </section>
 
         <section style={tdStyles.section}>
@@ -460,6 +505,79 @@ const tdStyles: Record<string, CSSProperties> = {
   castName: { fontSize: 15, fontWeight: 500 },
   castRole: { fontSize: 12, color: "var(--accent)", marginTop: 3 },
   castRelation: { fontSize: 13, color: "var(--text-muted)", lineHeight: 1.5, marginTop: 4 },
+  castLevChip: {
+    display: "inline-block",
+    marginTop: 6,
+    fontSize: 11,
+    color: "rgba(245,200,120,0.92)",
+    background: "rgba(245,200,120,0.08)",
+    border: "1px solid rgba(245,200,120,0.30)",
+    padding: "2px 8px",
+    borderRadius: 4,
+    letterSpacing: "0.04em",
+  },
+
+  networkBox: {
+    marginTop: 16,
+    padding: "16px 18px",
+    background: "linear-gradient(180deg, rgba(140,100,200,0.06), rgba(140,100,200,0.02))",
+    border: "1px solid rgba(140,100,200,0.28)",
+    borderRadius: "var(--radius-sm)",
+  },
+  networkLabel: {
+    fontSize: 11,
+    color: "rgba(180,150,230,0.92)",
+    letterSpacing: "0.1em",
+    textTransform: "uppercase" as const,
+    fontWeight: 600,
+    marginBottom: 6,
+  },
+  networkHint: {
+    fontSize: 12.5,
+    color: "var(--text-muted)",
+    lineHeight: 1.55,
+    margin: "0 0 12px",
+  },
+  networkList: {
+    listStyle: "none",
+    margin: 0,
+    padding: 0,
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: 8,
+  },
+  networkRow: {
+    fontSize: 13,
+    lineHeight: 1.55,
+    color: "var(--text)",
+    display: "flex",
+    flexWrap: "wrap" as const,
+    alignItems: "baseline",
+    gap: 4,
+  },
+  networkHolder: {
+    fontWeight: 600,
+    color: "rgba(245,200,120,0.95)",
+  },
+  networkArrow: {
+    color: "var(--text-faint)",
+    fontSize: 12,
+    margin: "0 2px",
+  },
+  networkTarget: {
+    fontWeight: 600,
+    color: "var(--accent)",
+  },
+  networkColon: {
+    color: "var(--text-faint)",
+  },
+  networkLeverage: {
+    color: "var(--text-muted)",
+    flex: "1 1 100%",
+    paddingLeft: 14,
+    fontStyle: "italic" as const,
+    fontSize: 12.5,
+  },
 
   advisorBlock: {
     padding: "14px 18px",

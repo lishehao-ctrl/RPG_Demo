@@ -385,6 +385,10 @@ class AdvisorAskRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     question: str = Field(min_length=1, max_length=400)
+    # Oracle mode: advisor uses privileged info (NPC hidden_objectives,
+    # pulse trends, unused leverage) to give the player a mood-appropriate
+    # hint. Costs 1 turn from session.turn_budget. Off by default.
+    oracle_mode: bool = False
 
 
 class AdvisorAskResponse(BaseModel):
@@ -392,6 +396,12 @@ class AdvisorAskResponse(BaseModel):
 
     player_message: AdvisorMessage
     advisor_message: AdvisorMessage
+    # Filled when oracle_mode was true. Shows the new turn_budget so the
+    # frontend can update the budget chip without a refetch.
+    turn_budget_after: int | None = None
+    # Marks the advisor reply as oracle so the UI can render it
+    # differently (e.g. gold-tinted "情报").
+    oracle_used: bool = False
 
 
 class AdvisorHistoryResponse(BaseModel):

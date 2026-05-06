@@ -420,6 +420,26 @@ class NarrativeRepository:
             )
             conn.commit()
 
+    def decrement_turn_budget(self, session_id: str, *, by: int = 1) -> int:
+        """Reduce the session's turn_budget by `by` (used by advisor oracle
+        to charge the player a turn). Floors at 1 to prevent killing the
+        session immediately. Returns the new turn_budget."""
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE narrative_sessions
+                SET turn_budget = MAX(1, turn_budget - ?), last_active_at = ?
+                WHERE session_id = ?
+                """,
+                (by, _utc_now(), session_id),
+            )
+            row = conn.execute(
+                "SELECT turn_budget FROM narrative_sessions WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+            conn.commit()
+        return int(row["turn_budget"]) if row else 0
+
     # ------------------------------------------------------------------
     # Story messages (per session)
     # ------------------------------------------------------------------

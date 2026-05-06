@@ -31,6 +31,7 @@ from rpg_backend.narrative.contracts import (
 from rpg_backend.narrative.engine import (
     advance_turn,
     ask_advisor,
+    ask_advisor_oracle,
     compute_current_inventory,
     generate_opening,
     judge_failure,
@@ -659,18 +660,49 @@ class NarrativeService:
         story_history = self._repo.list_story_messages(session_id)
         advisor_history = self._repo.list_advisor_messages(session_id)
 
+        # Oracle mode: charge 1 turn from session.turn_budget, then call
+        # the privileged-info variant of advisor. Cap-floor at 1 inside
+        # the repo so we don't bottom out a session mid-asking.
+        # If session is already complete, oracle is rejected.
+        is_oracle = bool(request.oracle_mode)
+        if is_oracle and session.ending_label is not None:
+            raise NarrativeServiceError(
+                code="session_complete",
+                message="这一局已经走完了，不能再消耗回合换情报。",
+                status_code=409,
+            )
+
         reply_text: str | None = None
         try:
-            reply = ask_advisor(
-                gateway=self.gateway,
-                seed=template.seed,
-                title=template.title,
-                cast=template.cast,
-                advisor_persona=template.advisor_persona,
-                story_history=story_history,
-                advisor_history=advisor_history,
-                question=question,
-            )
+            if is_oracle:
+                # Resolve the active player_role for privileged context.
+                active_role = _resolve_player_role(template, session.selected_player_role_id)
+                starting_assets = active_role.starting_assets if active_role else []
+                current_inventory = compute_current_inventory(starting_assets, story_history)
+                reply = ask_advisor_oracle(
+                    gateway=self.gateway,
+                    seed=template.seed,
+                    title=template.title,
+                    cast=template.cast,
+                    advisor_persona=template.advisor_persona,
+                    story_history=story_history,
+                    advisor_history=advisor_history,
+                    question=question,
+                    player_role=active_role,
+                    failure_conditions=template.failure_conditions or None,
+                    current_inventory=current_inventory or None,
+                )
+            else:
+                reply = ask_advisor(
+                    gateway=self.gateway,
+                    seed=template.seed,
+                    title=template.title,
+                    cast=template.cast,
+                    advisor_persona=template.advisor_persona,
+                    story_history=story_history,
+                    advisor_history=advisor_history,
+                    question=question,
+                )
             reply_text = reply.reply_text
         except NarrativeGatewayError as exc:
             if _is_content_moderation_failure(exc):
@@ -695,9 +727,24 @@ class NarrativeService:
         self._repo.append_advisor_message(session_id, player_message)
         self._repo.append_advisor_message(session_id, advisor_message)
         self._repo.touch_session(session_id)
+
+        # Charge the oracle cost AFTER the LLM call succeeds — don't
+        # decrement budget if the call failed.
+        new_budget: int | None = None
+        if is_oracle:
+            new_budget = self._repo.decrement_turn_budget(session_id, by=1)
+            _emit_metric(
+                "advisor_oracle_used",
+                session_id=session_id,
+                template_id=template.template_id,
+                new_budget=new_budget,
+            )
+
         return AdvisorAskResponse(
             player_message=player_message,
             advisor_message=advisor_message,
+            turn_budget_after=new_budget,
+            oracle_used=is_oracle,
         )
 
     def get_advisor_history(

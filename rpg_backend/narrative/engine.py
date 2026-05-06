@@ -337,6 +337,56 @@ _ADVISOR_SYSTEM_PROMPT = """\
 """
 
 
+_ORACLE_SYSTEM_PROMPT = """\
+你扮演故事世界里的**一个真实存在的人**（advisor_persona 定义），玩家正在游戏中。
+
+⚠️ 之前 advisor 的两条铁律仍然在：
+- 你**不在主线场景里**，通过手机联系玩家
+- 你**不替玩家做决定**
+
+但这一次玩家**专门向你求一次"看穿"** —— TA 愿意付出 1 个回合的代价，让你帮 TA **看穿这局棋**。这是 TA 在这一刻消耗一个回合（少一段剧情时间）来换你的洞察。
+
+你会拿到的特权信息（user_payload 字段）：
+- `cast`：每个 NPC 的 `hidden_objective`（TA 真正想要什么）和 `leverage_over_player`（TA 手里捏着玩家的什么）
+- `player_role`：玩家这一局是谁，TA 自己的 `hidden_objective` 和 `leverages_over_npcs`、`current_inventory`
+- `recent_pulse_trend`：最近几回合每个 NPC 的情绪轨迹（warmer/colder/wary/broken）
+- `failure_conditions`：玩家可能踩到的 game-over 触发器
+- `recent_history`：最近几段剧情
+- `player_question`：玩家问的具体问题
+
+⚠️ 处理规则（**这是 oracle 模式的核心**）：
+
+1. **你不是 LLM 在 dump 字段**。你是 advisor，用**外人视角**推理出来你看到的东西。绝对不要原文复述 hidden_objective、leverage 这些字段名。
+   错误示范："苏曼的 hidden_objective 是夺回豪宅控制权"
+   正确示范："我从你这两段描述里读出来——她今晚不止想撕你的脸。整局戏她都在往那栋房子的方向布置局。"
+
+2. **必须真有信息量**。不能糊弄成"加油 你可以的"。每次 oracle 至少要让玩家明白：
+   - 某个 NPC 的真实意图方向（不暴露原话）
+   - 或某张牌（leverage / asset）该不该这一刻打
+   - 或某个动作有可能踩到的 failure trigger
+   选 1-2 个最贴近 player_question 的角度回答即可
+
+3. **关键铁律：观察可以果断，决定必须留给玩家**。
+   - **观察层面**可以斩钉截铁说出你看到的：「她今晚不是来谈和的」「大伯刚才那句话是在试探车库」「这步走下去你大概率踩到 X」——这种事实性观察就该说清楚，毒舌死党不会扭扭捏捏。
+   - **但决定层面禁止替 TA 做选择**：**不要说**"听我的 / 你必须 / 绝对不能 / 你应该"。**要说**"换我我大概会先压一压" / "这种局我个人会怎么怎么..."。
+   - **结尾必须把决定权还给玩家**。一句话明确 handoff："但你最了解现场，自己定" / "反正你来拿主意" / "决定权在你手里"。
+
+4. **必须用至少一个软性观察词**（"我感觉 / 我猜 / 我从你刚才描述里读出来 / 我看你刚才说 / 依我看 / 也许 / 我读出来"）来 frame 你的观察——再果断也是"我看到的"，不是"事实就是这样"。
+
+5. **保持 advisor persona 的语气**。毒舌就毒舌，温柔就温柔，紧张就紧张——这不是冷静的情报员，是你在电话那头着急地帮 TA 看局。
+
+6. **长度**：80-180 字。不要太短（没信息量），不要太长（不像 advisor 在打电话/发微信）。
+
+输出**严格** JSON：
+
+{
+  "reply": "你作为这个人物对玩家这次专门求看穿的回应"
+}
+
+不要 markdown，不要额外字段。
+"""
+
+
 @dataclass(frozen=True)
 class OpeningResult:
     title: str
@@ -1100,6 +1150,79 @@ def ask_advisor(
     payload = _coerce_dict(response.payload)
     reply_text = _require_str(payload, "reply", limit=2000)
     return AdvisorReply(reply_text=reply_text)
+
+
+def ask_advisor_oracle(
+    *,
+    gateway: NarrativeLLMGateway,
+    seed: str,
+    title: str,
+    cast: list[CastMember],
+    advisor_persona: str,
+    story_history: list[StoryMessage],
+    advisor_history: list[AdvisorMessage],
+    question: str,
+    player_role: PlayerRole | None,
+    failure_conditions: list[FailureCondition] | None,
+    current_inventory: list[str] | None,
+) -> AdvisorReply:
+    """Oracle variant of ask_advisor. The advisor sees privileged info
+    (NPC hidden_objectives + leverages, player hidden_objective + assets,
+    pulse trend, failure conditions) and must produce a mood-appropriate
+    *vague-but-useful* hint. Costs 1 turn from session.turn_budget at the
+    service layer. The prompt enforces in-character voice + strict rules
+    against literal field-dumping."""
+    pulse_trend = _summarize_pulse_trend_for_oracle(story_history)
+    user_payload: dict[str, Any] = {
+        "player_question": question,
+        "advisor_persona": advisor_persona,
+        "advisor_history": [
+            {"role": m.role, "content": m.content} for m in advisor_history
+        ],
+        "recent_history": _render_history(story_history),
+        "world_meta": {
+            "title": title,
+            "seed": seed,
+        },
+        # Privileged info — only oracle mode sees these structured fields.
+        "cast": [c.model_dump() for c in cast],
+        "recent_pulse_trend": pulse_trend,
+    }
+    if player_role is not None:
+        user_payload["player_role"] = player_role.model_dump()
+    if failure_conditions:
+        user_payload["failure_conditions"] = [c.model_dump() for c in failure_conditions]
+    if current_inventory:
+        user_payload["current_inventory"] = current_inventory
+
+    response = gateway.invoke_json(
+        system_prompt=_ORACLE_SYSTEM_PROMPT,
+        user_payload=user_payload,
+        operation_name="narrative.advisor_oracle",
+        max_output_tokens=1200,
+    )
+    payload = _coerce_dict(response.payload)
+    reply_text = _require_str(payload, "reply", limit=2000)
+    return AdvisorReply(reply_text=reply_text)
+
+
+def _summarize_pulse_trend_for_oracle(
+    history: list[StoryMessage],
+) -> dict[str, list[str]]:
+    """Last-4-narrator-beats shift sequence per NPC. Used in oracle prompt
+    so the advisor can read trajectory ('warmer→colder→broken') instead
+    of a single point-in-time snapshot."""
+    trend: dict[str, list[str]] = {}
+    seen = 0
+    for msg in reversed(history):
+        if msg.role != "narrator":
+            continue
+        for pulse in msg.npc_pulse:
+            trend.setdefault(pulse.npc_id, []).insert(0, pulse.shift)
+        seen += 1
+        if seen >= 4:
+            break
+    return trend
 
 
 # --------------------------------------------------------------------------

@@ -7,6 +7,7 @@ from rpg_backend.narrative.contracts import (
     AdvisorMessage,
     CastMember,
     FailureCondition,
+    InventoryDelta,
     NPCPulse,
     PlayerGoal,
     PlayerLeverageOverNPC,
@@ -82,7 +83,7 @@ _OPENING_SYSTEM_PROMPT = """\
 _TURN_SYSTEM_PROMPT = """\
 你是一名擅长写关系剧的剧作家。玩家正在玩一个互动故事，你负责续写下一段。
 
-每个回合你会收到：故事种子、cast 名单（每个 NPC 都带有 `hidden_objective` 和 `leverage_over_player`）、最近若干段故事历史、玩家这一回合的动作、**当前所处的故事阶段**（关键！）、`difficulty` 字段（`story` 或 `gauntlet`）、**玩家的角色卡 `player_role`**（玩家这局选了谁来扮演）、可选的 `npc_agenda_this_turn`（gauntlet 主动调度）和 `recent_consequences`（上一回合结构化回响）。
+每个回合你会收到：故事种子、cast 名单（每个 NPC 都带有 `hidden_objective` 和 `leverage_over_player`）、最近若干段故事历史、玩家这一回合的动作、**当前所处的故事阶段**（关键！）、`difficulty` 字段（`story` 或 `gauntlet`）、**玩家的角色卡 `player_role`**（玩家这局选了谁来扮演）、**`current_inventory`**（玩家当前手里的所有物件/情报，包括 starting_assets 和过去几回合获得的）、可选的 `npc_agenda_this_turn`（gauntlet 主动调度）和 `recent_consequences`（上一回合结构化回响）。
 
 你的任务是续写**一段**叙述（200-400 字），并给出**3 个新选项**，同时输出每个 NPC 的当下反应（`npc_pulse`）。
 
@@ -100,7 +101,13 @@ _TURN_SYSTEM_PROMPT = """\
       "shift": "warmer | colder | steady | wary | broken 中的一个"
     }
     // 列出**每个 cast 中的 NPC**，至少 2 个
-  ]
+  ],
+  "inventory_delta": {
+    "added": ["新拿到的物件或情报，30 字内一条（举例：'苏曼塞过来的银行卡' / '偷拍到的伯父亲笔签字'）"],
+    "removed": ["被夺走/主动交出/毁掉的物件，30 字内一条（举例：'录音笔被苏曼当场摔碎' / '把钥匙交给了伯父'）"],
+    "reason": "为什么这一回合发生了交接，一句 60 字内的描述"
+  }
+  // ⚠️ inventory_delta 是**可选**字段——大多数回合不会有交接，**省略整个 inventory_delta 字段**。只在剧情**真的发生物件/情报交接**时输出。
 }
 
 写作要求：
@@ -172,6 +179,32 @@ _TURN_SYSTEM_PROMPT = """\
 - **玩家的 leverages_over_npcs 是真正的双向博弈** —— 当 NPC 出 `leverage_over_player` 牌时，你应该让玩家**有机会反打**：在 narration 里暗示玩家手里也有牌（"你想起苏曼三个月前那张转账截图"），并在选项中给出"亮出 XXX 反将"的选择
 - **starting_assets 是真实存在的物件**——玩家在剧情中可以拿出来、亮出来、被别人发现。每条 asset 在 12 回合中至少应该有 1 次被引用或使用的机会（不一定都用上，但叙事要让它们"在场"）
 - 玩家的 `hidden_objective` 是**整局戏的隐藏主轴** —— passage 里偶尔可以闪现玩家朝着这个目标推进的内心动作（"你心里默数着今晚还剩多少机会"），但**不要明说**，除非玩家自己选择揭开
+
+**玩家随身物件 / 情报（current_inventory）**:
+`current_inventory` 字段告诉你**玩家此刻手里到底有什么东西** —— 这是 starting_assets 加上过去若干回合积累来的所有物件/情报。是一个字符串数组，每条 30 字内描述。
+
+⚠️ 处理规则：
+- 选项里出现"亮出 XXX"、"用 YYY"、"打开 ZZZ"这类动作时，XXX/YYY/ZZZ **必须**真的在 current_inventory 里。不要让玩家凭空亮出不存在的东西。
+- passage 应当在合理时机让 inventory 里的物件**真的发挥作用** —— 玩家亮出某张照片，NPC 反应应该承认这张照片的具体内容；玩家拿出某段录音，NPC 应该被那段录音的具体话语震到。
+- 不要把 inventory 写成清单——它是玩家的"袖里乾坤"，剧情在用到时才让它出场。
+
+**inventory_delta —— 怎么让玩家"获得"或"失去"东西**:
+你可以在合理时机让玩家手里的清单**变化**。具体方式：在输出 JSON 里多带一个 `inventory_delta` 字段，描述 added / removed。
+
+什么算"获得"：
+- 某 NPC 被玩家挤出 ta 的某样东西（"伯父怒甩出那张账单" → 玩家拿到账单）
+- 玩家偷听/偷拍/偷拿（"你趁苏曼离开走廊时录下了她和情人的对话" → 玩家拿到录音）
+- 玩家在剧情里发现的物件（"你在车库角落踢到了一只手机" → 玩家拿到手机）
+- 某 NPC 主动塞给玩家（"管家阿姨悄悄递过一把钥匙" → 玩家拿到钥匙）
+
+什么算"失去"：
+- 物件被夺走、被毁、主动交出、被勒索走
+
+⚠️ 严格频率：
+- **大多数回合 inventory 不变 —— 那就完全省略 `inventory_delta` 字段**，不要输出空数组
+- 一局 12 回合，预期最多 3-5 次 delta 触发（climax 阶段较多）
+- 不要每回合编造一条获得 —— 那会让 inventory 膨胀失真
+- delta 必须**真的发生在 passage 里** —— 不要叙事没写却 delta 加东西，反过来也不行
 
 **选项要求**:
 - 选项必须**反映当下局势的具体可能性**，不要给"继续观察 / 离开 / 思考"这种空洞选项
@@ -514,6 +547,7 @@ def advance_turn(
     difficulty: str = "story",
     player_goals: list[PlayerGoal] | None = None,
     player_role: PlayerRole | None = None,
+    current_inventory: list[str] | None = None,
 ) -> TurnResult:
     """Advance one turn."""
     stage_phase = _stage_for(turn_index, turn_budget)
@@ -533,6 +567,8 @@ def advance_turn(
         user_payload["player_goals"] = [g.model_dump() for g in player_goals]
     if player_role is not None:
         user_payload["player_role"] = player_role.model_dump()
+    if current_inventory:
+        user_payload["current_inventory"] = current_inventory
 
     # Active scheduling: tell the LLM which NPC should actively push their
     # agenda this turn. Empty in story mode and during the hook phase.
@@ -559,6 +595,7 @@ def advance_turn(
     passage = _extract_passage(payload)
     options = _parse_options(payload.get("options") or payload.get("next_options"))
     npc_pulse = _parse_npc_pulse(payload.get("npc_pulse"), valid_ids)
+    inventory_delta = _parse_inventory_delta(payload.get("inventory_delta"))
     if not passage:
         print(
             "[narrative.retry] operation=advance_turn attempt=1 error=empty_passage_field",
@@ -574,6 +611,7 @@ def advance_turn(
         passage = _extract_passage(payload)
         options = _parse_options(payload.get("options") or payload.get("next_options"))
         npc_pulse = _parse_npc_pulse(payload.get("npc_pulse"), valid_ids)
+        inventory_delta = _parse_inventory_delta(payload.get("inventory_delta"))
         if passage:
             print(
                 "[narrative.retry] operation=advance_turn recovered_on_attempt=2",
@@ -589,6 +627,7 @@ def advance_turn(
             options=options,
             chosen_option_index=None,
             npc_pulse=npc_pulse,
+            inventory_delta=inventory_delta,
         )
     )
 
@@ -800,6 +839,38 @@ def _pick_npc_agenda(
 # write a passage that explicitly calls back to the player's last move
 # instead of producing a generic continuation.
 # --------------------------------------------------------------------------
+
+
+def compute_current_inventory(
+    starting_assets: list[str] | None,
+    history: list[StoryMessage],
+) -> list[str]:
+    """Walk all narrator messages, applying inventory_delta to derive the
+    player's current sticky inventory.
+
+    starting_assets is the player_role baseline (or empty for legacy
+    sessions). Walk-on-read: source of truth is starting_assets +
+    sum(narrator.inventory_delta), so the inventory always reflects the
+    persisted history exactly.
+
+    Removed items are matched by case-insensitive substring against the
+    accumulated list and dropped on first match. We don't error on a
+    missing match — LLM might "remove" something it never put on
+    inventory because it was a starting_asset described differently.
+    """
+    inv: list[str] = list(starting_assets or [])
+    for msg in history:
+        if msg.role != "narrator" or msg.inventory_delta is None:
+            continue
+        for added in msg.inventory_delta.added:
+            inv.append(added)
+        for removed in msg.inventory_delta.removed:
+            target = removed.lower()
+            for i, item in enumerate(inv):
+                if target in item.lower() or item.lower() in target:
+                    inv.pop(i)
+                    break
+    return inv
 
 
 def _summarize_recent_consequences(
@@ -1141,6 +1212,32 @@ def _parse_failure_conditions(raw: Any) -> list[FailureCondition]:
             continue
         conds.append(FailureCondition(label=label[:80], description=desc[:200]))
     return conds[:6]
+
+
+def _parse_inventory_delta(raw: Any) -> InventoryDelta | None:
+    """Tolerant parser for an optional inventory_delta field. Returns None
+    when missing, malformed, or empty (no added/removed entries) so we
+    don't pollute the message with empty-list deltas."""
+    if not isinstance(raw, dict):
+        return None
+    added: list[str] = []
+    raw_added = raw.get("added")
+    if isinstance(raw_added, list):
+        for item in raw_added[:4]:
+            s = str(item or "").strip()
+            if s:
+                added.append(s[:120])
+    removed: list[str] = []
+    raw_removed = raw.get("removed")
+    if isinstance(raw_removed, list):
+        for item in raw_removed[:4]:
+            s = str(item or "").strip()
+            if s:
+                removed.append(s[:120])
+    if not added and not removed:
+        return None
+    reason = str(raw.get("reason") or "").strip()[:120]
+    return InventoryDelta(added=added, removed=removed, reason=reason)
 
 
 def _parse_player_role_options(

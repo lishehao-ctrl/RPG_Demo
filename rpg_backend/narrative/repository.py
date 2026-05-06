@@ -12,6 +12,7 @@ from rpg_backend.narrative.contracts import (
     Difficulty,
     EndingTier,
     FailureCondition,
+    InventoryDelta,
     NarrativeSession,
     NarrativeTemplate,
     NPCPulse,
@@ -125,6 +126,10 @@ class NarrativeRepository:
         if "npc_pulse_json" not in existing_msg_cols:
             connection.execute(
                 "ALTER TABLE narrative_story_messages ADD COLUMN npc_pulse_json TEXT NOT NULL DEFAULT '[]'"
+            )
+        if "inventory_delta_json" not in existing_msg_cols:
+            connection.execute(
+                "ALTER TABLE narrative_story_messages ADD COLUMN inventory_delta_json TEXT"
             )
         connection.execute(
             """
@@ -420,12 +425,16 @@ class NarrativeRepository:
     # ------------------------------------------------------------------
 
     def append_story_message(self, session_id: str, message: StoryMessage) -> None:
+        delta_json: str | None = None
+        if message.inventory_delta is not None:
+            delta_json = json.dumps(message.inventory_delta.model_dump(), ensure_ascii=False)
         with self._connect() as conn:
             conn.execute(
                 """
                 INSERT INTO narrative_story_messages
-                (session_id, ord, role, content, options_json, chosen_option_index, npc_pulse_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                (session_id, ord, role, content, options_json, chosen_option_index,
+                 npc_pulse_json, inventory_delta_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     session_id,
@@ -435,6 +444,7 @@ class NarrativeRepository:
                     json.dumps([o.model_dump() for o in message.options], ensure_ascii=False),
                     message.chosen_option_index,
                     json.dumps([p.model_dump() for p in message.npc_pulse], ensure_ascii=False),
+                    delta_json,
                 ),
             )
             conn.commit()
@@ -443,7 +453,8 @@ class NarrativeRepository:
         with self._connect() as conn:
             rows = conn.execute(
                 """
-                SELECT ord, role, content, options_json, chosen_option_index, npc_pulse_json
+                SELECT ord, role, content, options_json, chosen_option_index,
+                       npc_pulse_json, inventory_delta_json
                 FROM narrative_story_messages
                 WHERE session_id = ?
                 ORDER BY ord ASC
@@ -649,6 +660,17 @@ def _row_to_story_message(row: sqlite3.Row) -> StoryMessage:
                         continue
         except Exception:  # noqa: BLE001
             pass
+    delta: InventoryDelta | None = None
+    if "inventory_delta_json" in keys and row["inventory_delta_json"]:
+        try:
+            delta_raw = json.loads(row["inventory_delta_json"])
+            if isinstance(delta_raw, dict):
+                try:
+                    delta = InventoryDelta.model_validate(delta_raw)
+                except Exception:  # noqa: BLE001
+                    delta = None
+        except Exception:  # noqa: BLE001
+            pass
     chosen = row["chosen_option_index"]
     return StoryMessage(
         ord=int(row["ord"]),
@@ -657,4 +679,5 @@ def _row_to_story_message(row: sqlite3.Row) -> StoryMessage:
         options=options,
         chosen_option_index=int(chosen) if chosen is not None else None,
         npc_pulse=pulse,
+        inventory_delta=delta,
     )

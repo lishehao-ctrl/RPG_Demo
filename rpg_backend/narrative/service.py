@@ -31,6 +31,7 @@ from rpg_backend.narrative.contracts import (
 from rpg_backend.narrative.engine import (
     advance_turn,
     ask_advisor,
+    compute_current_inventory,
     generate_opening,
     judge_failure,
     synthesize_early_ending,
@@ -341,6 +342,12 @@ class NarrativeService:
         is_final_turn = upcoming_turn_index >= session.turn_budget
 
         active_role = _resolve_player_role(template, session.selected_player_role_id)
+        # Walk history to derive the sticky inventory the LLM should see
+        # this turn. Source of truth = role.starting_assets + Σ(narrator
+        # inventory deltas). Walk-on-read so we never desync from the
+        # persisted message stream.
+        starting_assets = active_role.starting_assets if active_role else []
+        current_inventory = compute_current_inventory(starting_assets, history)
 
         try:
             turn = advance_turn(
@@ -356,6 +363,7 @@ class NarrativeService:
                 difficulty=session.difficulty,
                 player_goals=template.player_goals or None,
                 player_role=active_role,
+                current_inventory=current_inventory or None,
             )
         except NarrativeGatewayError as exc:
             raise NarrativeServiceError(

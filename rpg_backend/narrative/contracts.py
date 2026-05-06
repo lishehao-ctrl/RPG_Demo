@@ -93,6 +93,19 @@ class StoryOption(BaseModel):
     hint: str = Field(default="", max_length=120)
 
 
+class InventoryDelta(BaseModel):
+    """A narrator turn may emit a delta describing what objects/info the
+    player gained or lost in this beat. Walked-on-read: the session's
+    current inventory = role.starting_assets + sum(added) - sum(removed)
+    over all narrator messages in order."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    added: list[str] = Field(default_factory=list, max_length=4)
+    removed: list[str] = Field(default_factory=list, max_length=4)
+    reason: str = Field(default="", max_length=120)
+
+
 class StoryMessage(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -105,6 +118,9 @@ class StoryMessage(BaseModel):
     # rendered as chips between story beats. None for story-mode runs
     # (or for player messages, which never have a pulse).
     npc_pulse: list[NPCPulse] = Field(default_factory=list)
+    # Optional per-turn inventory delta. None on most turns (objects
+    # don't change hands every beat); fires on real "物件交接" moments.
+    inventory_delta: InventoryDelta | None = None
 
 
 class AdvisorMessage(BaseModel):

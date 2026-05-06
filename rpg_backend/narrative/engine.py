@@ -87,7 +87,7 @@ _OPENING_SYSTEM_PROMPT = """\
 _TURN_SYSTEM_PROMPT = """\
 你是一名擅长写关系剧的剧作家。玩家正在玩一个互动故事，你负责续写下一段。
 
-每个回合你会收到：故事种子、cast 名单（每个 NPC 都带有 `hidden_objective`、`leverage_over_player`、以及 `leverages_over_other_npcs` —— **这是 NPC 之间的相互把柄网络**）、最近若干段故事历史、玩家这一回合的动作、**当前所处的故事阶段**（关键！）、`difficulty` 字段（`story` 或 `gauntlet`）、**玩家的角色卡 `player_role`**（玩家这局选了谁来扮演）、**`current_inventory`**（玩家当前手里的所有物件/情报，包括 starting_assets 和过去几回合获得的）、可选的 `npc_agenda_this_turn`（gauntlet 主动调度）和 `recent_consequences`（上一回合结构化回响）。
+每个回合你会收到：故事种子、cast 名单（每个 NPC 都带有 `hidden_objective`、`leverage_over_player`、以及 `leverages_over_other_npcs` —— **这是 NPC 之间的相互把柄网络**）、最近若干段故事历史、玩家这一回合的动作、**当前所处的故事阶段**（关键！）、`difficulty` 字段（`story` 或 `gauntlet`）、**玩家的角色卡 `player_role`**（玩家这局选了谁来扮演）、**`current_inventory`**（玩家当前手里的所有物件/情报，包括 starting_assets 和过去几回合获得的）、可选的 `npc_agenda_this_turn`（gauntlet 主动调度）、**可选的 `twist_directive`**（reversal 阶段强制翻转指令）和 `recent_consequences`（上一回合结构化回响）。
 
 你的任务是续写**一段**叙述（200-400 字），并给出**3 个新选项**，同时输出每个 NPC 的当下反应（`npc_pulse`）。
 
@@ -183,6 +183,22 @@ _TURN_SYSTEM_PROMPT = """\
 - **玩家的 leverages_over_npcs 是真正的双向博弈** —— 当 NPC 出 `leverage_over_player` 牌时，你应该让玩家**有机会反打**：在 narration 里暗示玩家手里也有牌（"你想起苏曼三个月前那张转账截图"），并在选项中给出"亮出 XXX 反将"的选择
 - **starting_assets 是真实存在的物件**——玩家在剧情中可以拿出来、亮出来、被别人发现。每条 asset 在 12 回合中至少应该有 1 次被引用或使用的机会（不一定都用上，但叙事要让它们"在场"）
 - 玩家的 `hidden_objective` 是**整局戏的隐藏主轴** —— passage 里偶尔可以闪现玩家朝着这个目标推进的内心动作（"你心里默数着今晚还剩多少机会"），但**不要明说**，除非玩家自己选择揭开
+
+**Reversal 强制翻转（twist_directive）—— 仅在 reversal 阶段出现**:
+当 user_payload 含 `twist_directive: {kind, hint}`，这表示**当前回合是 reversal 拐点**，**不能只升压**——必须真正发生一个让玩家立场或局势发生根本变化的事件。kind 是下面之一：
+
+- `secret_inter_leverage_revealed` —— 把某条 inter-NPC leverage **当众公开**，原本私下的威胁变成全场撕脸
+- `betrayal_realignment` —— 某个看似站玩家这边或中立的 NPC **倒戈**，让玩家少一张牌、对方多一张牌
+- `player_persona_crack` —— 某 NPC 一句话**点破玩家 public_persona 是装的**（"你最近怎么不像之前那么唯唯诺诺"）
+- `hidden_npc_arrival` —— **一个本来不在 cast 里的角色突然登场**（管家/保安/前任/远亲/记者/医院电话），一次性使用，不要进 cast
+- `external_event_intrusion` —— 外部信息闯入（警察来电、媒体推送、家族长辈视频通话、合作方紧急邮件），让封闭场景被外部世界穿透
+
+⚠️ 处理规则（**这是这次升级的核心**）：
+- 该回合 passage **必须真正 honor 指定的 twist kind** —— 不是描述压力上升，而是发生一个**改变局势走向的事件**。读者读完应该能说出"哎，这一段发生了 X"
+- twist 应该是**惊讶但合理**——读者读到既要意外，又要立刻意识到"对啊，前面那些铺垫都指向这一刻"
+- twist 出现后，整段 passage 后半部分应该让玩家**面对一个全新的局势**，options 也应该反映这个新局势（不是惯性选项）
+- 不要只用 hint 做装饰——hint 只是大方向，具体怎么发生由你写
+- twist 跟 npc_agenda_this_turn 共存时，**先让 agenda NPC 出招制造氛围，再让 twist 发生** —— twist 是这段戏的高潮收尾
 
 **NPC 之间的把柄网络（leverages_over_other_npcs）—— 整局戏的政治骨架**:
 cast 里每个 NPC 都可能在 `leverages_over_other_npcs` 字段里**捏着另一个 NPC 的把柄**。这是 NPC 之间的相互制衡，不是玩家 vs NPC 的轴。这张网决定了"为什么 X 不敢公开撕 Y" / "为什么 Z 突然倒戈"。
@@ -646,6 +662,20 @@ def advance_turn(
     if agenda:
         user_payload["npc_agenda_this_turn"] = agenda
 
+    # Reversal twist: at the reversal stage, force a real inflection point
+    # (betrayal / inter-leverage exposed / persona crack / new arrival /
+    # external event) — not just "more pressure". None outside reversal
+    # or in story mode.
+    twist = _pick_twist_directive(
+        stage_phase=stage_phase,
+        turn_index=turn_index,
+        cast=cast,
+        player_role=player_role,
+        difficulty=difficulty,
+    )
+    if twist is not None:
+        user_payload["twist_directive"] = twist
+
     # Action echo: structured snapshot of the player's last move + NPC
     # pulse trends + unused leverage. Empty on the opening turn.
     consequences = _summarize_recent_consequences(history, cast)
@@ -896,6 +926,98 @@ def _pick_npc_agenda(
             agenda.append(_make_agenda_entry(pick_two, intent="reveal"))
         return agenda
     return []
+
+
+# --------------------------------------------------------------------------
+# Reversal twist directive — at the reversal stage of a gauntlet arc, the
+# story should TURN, not just escalate. We force the LLM to honor a real
+# inflection point by injecting a structured twist directive that picks a
+# kind of reversal (betrayal / inter-leverage exposed / persona crack /
+# new arrival / external intrusion) tailored to the current cast and
+# player state. The LLM must use this kind to write the beat — not just
+# pile on more pressure.
+# --------------------------------------------------------------------------
+
+
+_TWIST_KINDS: dict[str, str] = {
+    "secret_inter_leverage_revealed": (
+        "某 NPC 把 ta 手里别人的把柄（cast.leverages_over_other_npcs 里的某条）**当众**摊开，"
+        "原本只能私下威胁的牌变成公开撕脸。被揭的 NPC 第一次失去优雅，整个房间的权力分布瞬间改变"
+    ),
+    "betrayal_realignment": (
+        "某个看似站玩家这边、或者至少中立的 NPC，**这一刻倒戈**。可能是被对方用 leverage 重新对齐，"
+        "或者 ta 早就在演双面间谍。玩家发现自己手里少了一张牌，对方阵营多了一张牌"
+    ),
+    "player_persona_crack": (
+        "某个 NPC **看出玩家的 public_persona 是装的**——TA 一句话点破：'你最近怎么不像之前那么唯唯诺诺' / "
+        "'你那只是装无辜，对吧？' 玩家的伪装出现裂缝（不一定全暴露，但被怀疑了）"
+    ),
+    "hidden_npc_arrival": (
+        "**一个本来没在 cast 里的角色突然登场**——管家、保安、前任、远亲、记者、医院电话、孩子打来视频。"
+        "TA 一次性使用，不需要进 cast，但 ta 的出现让原本封闭的场景被外部世界穿透"
+    ),
+    "external_event_intrusion": (
+        "外部力量以信息形式闯入：警察来电、媒体推送的热搜、家族长辈的视频通话、合作方突发邮件、"
+        "证券所交易所通知。某条信息让所有人意识到这场戏不再是封闭的私人冲突"
+    ),
+}
+
+
+def _has_inter_leverage_network(cast: list[CastMember]) -> bool:
+    """True if at least one NPC in cast holds an inter-NPC leverage."""
+    return any(c.leverages_over_other_npcs for c in cast)
+
+
+def _player_has_leverage(player_role: PlayerRole | None) -> bool:
+    if player_role is None:
+        return False
+    return bool(player_role.leverages_over_npcs)
+
+
+def _pick_twist_directive(
+    *,
+    stage_phase: str,
+    turn_index: int,
+    cast: list[CastMember],
+    player_role: PlayerRole | None,
+    difficulty: str,
+) -> dict[str, str] | None:
+    """Pick a twist kind for the reversal turn. Story mode and non-reversal
+    stages return None (no directive).
+
+    Strategy:
+      - Prefer secret_inter_leverage_revealed when network exists — it's
+        the most narratively coherent way to fire #5 mechanic
+      - Then betrayal_realignment if player has leverages over NPCs (the
+        betrayed NPC can be the one targeted by player's leverage)
+      - Then player_persona_crack to extend the role mechanic into the
+        reversal beat
+      - Otherwise rotate hidden_npc_arrival / external_event_intrusion
+        as fallback signals
+    """
+    if difficulty != "gauntlet":
+        return None
+    if stage_phase != "reversal":
+        return None
+
+    if _has_inter_leverage_network(cast):
+        kind = "secret_inter_leverage_revealed"
+    elif _player_has_leverage(player_role):
+        kind = "betrayal_realignment"
+    elif player_role is not None:
+        kind = "player_persona_crack"
+    else:
+        # Deterministic rotation between the two fallbacks per turn so a
+        # template that lacks both networks still gets a twist.
+        kind = (
+            "hidden_npc_arrival"
+            if turn_index % 2 == 0
+            else "external_event_intrusion"
+        )
+    return {
+        "kind": kind,
+        "hint": _TWIST_KINDS[kind],
+    }
 
 
 # --------------------------------------------------------------------------

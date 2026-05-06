@@ -220,6 +220,36 @@ export function PlayPage({
             <StageProgressBar turnIndex={turnsCompleted} turnBudget={turnBudget} />
           ) : null}
 
+          {/* Pulse legend — explains what the 5 NPC pulse colors mean.
+              Without it, "warmer/colder/wary/broken" chips are mystery
+              symbols. Always visible in gauntlet mode so players can
+              cross-reference any time. */}
+          {isGauntlet && !isComplete ? (
+            <div style={ppStyles.pulseLegend} aria-label="NPC 情绪图例">
+              <span style={ppStyles.pulseLegendLabel}>NPC 情绪</span>
+              {[
+                { shift: "warmer", text: "倾向你" },
+                { shift: "colder", text: "冷下来" },
+                { shift: "wary", text: "起疑" },
+                { shift: "broken", text: "崩塌" },
+                { shift: "steady", text: "未变" },
+              ].map((s) => {
+                const shiftStyle =
+                  ppStyles[("pulseShift_" + s.shift) as keyof typeof ppStyles] as
+                    | CSSProperties
+                    | undefined
+                return (
+                  <span
+                    key={s.shift}
+                    style={{ ...ppStyles.pulseLegendItem, ...(shiftStyle ?? {}) }}
+                  >
+                    {s.text}
+                  </span>
+                )
+              })}
+            </div>
+          ) : null}
+
           {/* Player role banner — who YOU are this run. Private POV
               card; persona is what NPCs see, hidden_objective + leverages
               are your secrets. */}
@@ -1749,6 +1779,32 @@ const ppStyles: Record<string, CSSProperties> = {
   pulseChipName: { fontWeight: 600, color: "var(--text)" },
   pulseChipState: { color: "var(--text-muted)" },
   pulseChipArrow: { marginLeft: 2, fontSize: 12 },
+  pulseLegend: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    flexWrap: "wrap" as const,
+    marginBottom: 24,
+    padding: "8px 12px",
+    background: "rgba(255,255,255,0.02)",
+    border: "1px dashed var(--line)",
+    borderRadius: "var(--radius-sm)",
+  },
+  pulseLegendLabel: {
+    fontSize: 10.5,
+    color: "var(--text-faint)",
+    letterSpacing: "0.10em",
+    textTransform: "uppercase" as const,
+    marginRight: 4,
+  },
+  pulseLegendItem: {
+    fontSize: 10.5,
+    padding: "2px 8px",
+    borderRadius: 999,
+    border: "1px solid var(--line)",
+    color: "var(--text-muted)",
+    letterSpacing: "0.04em",
+  },
   pulseShift_warmer: { borderColor: "rgba(80,180,120,0.5)", background: "rgba(80,180,120,0.08)" },
   pulseShift_colder: { borderColor: "rgba(140,160,200,0.5)", background: "rgba(140,160,200,0.08)" },
   pulseShift_wary: { borderColor: "rgba(220,180,80,0.5)", background: "rgba(220,180,80,0.10)" },

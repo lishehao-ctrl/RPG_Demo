@@ -230,6 +230,23 @@ export function TemplateDetailPage({
           })()}
         </section>
 
+        {template.failure_conditions && template.failure_conditions.length > 0 ? (
+          <section style={tdStyles.section}>
+            <div style={tdStyles.sectionLabel}>红线 · 这一局可能让你提前出局</div>
+            <p style={tdStyles.failureHint}>
+              触碰任意一条会触发 GAME OVER（崩盘结局）。事先看一眼，玩的时候才知道哪些动作不能轻易做。
+            </p>
+            <ul style={tdStyles.failureList}>
+              {template.failure_conditions.map((fc, i) => (
+                <li key={i} style={tdStyles.failureRow}>
+                  <span style={tdStyles.failureLabel}>⚠ {fc.label}</span>
+                  <span style={tdStyles.failureDesc}>{fc.description}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+
         <section style={tdStyles.section}>
           <div style={tdStyles.sectionLabel}>你的局外人朋友</div>
           <div style={tdStyles.advisorBlock}>
@@ -386,6 +403,18 @@ function PlayerRoleCard({
         <span style={tdStyles.roleCardTagPersona}>外人眼中的你</span>
       </div>
 
+      <div style={tdStyles.roleSummaryRow}>
+        <span style={tdStyles.roleSummaryChip}>
+          ⚔ {role.leverages_over_npcs.length} 张反将牌
+        </span>
+        <span style={tdStyles.roleSummaryChip}>
+          💼 {role.starting_assets.length} 件初始物品
+        </span>
+        <span style={{ ...tdStyles.roleSummaryChip, ...tdStyles.roleSummaryHidden }}>
+          🎯 {role.hidden_objective.slice(0, 18)}{role.hidden_objective.length > 18 ? "…" : ""}
+        </span>
+      </div>
+
       <p style={tdStyles.rolePersona}>{role.public_persona}</p>
 
       <div style={tdStyles.roleObjectiveBlock}>
@@ -538,6 +567,42 @@ const tdStyles: Record<string, CSSProperties> = {
     padding: "2px 8px",
     borderRadius: 4,
     letterSpacing: "0.04em",
+  },
+
+  failureHint: {
+    fontSize: 13,
+    color: "var(--text-muted)",
+    lineHeight: 1.6,
+    margin: "0 0 12px",
+  },
+  failureList: {
+    listStyle: "none",
+    margin: 0,
+    padding: 0,
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: 10,
+  },
+  failureRow: {
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: 4,
+    padding: "12px 14px",
+    background: "linear-gradient(180deg, rgba(220,80,60,0.08), rgba(220,80,60,0.02))",
+    border: "1px solid rgba(220,80,60,0.32)",
+    borderRadius: "var(--radius-sm)",
+  },
+  failureLabel: {
+    fontFamily: "var(--font-narrative)",
+    fontSize: 14,
+    fontWeight: 500,
+    color: "rgba(245,180,170,0.96)",
+    letterSpacing: "0.04em",
+  },
+  failureDesc: {
+    fontSize: 13,
+    color: "var(--text-muted)",
+    lineHeight: 1.6,
   },
 
   networkBox: {
@@ -727,6 +792,31 @@ const tdStyles: Record<string, CSSProperties> = {
     fontWeight: 500,
     color: "var(--text)",
     lineHeight: 1.25,
+  },
+  roleSummaryRow: {
+    display: "flex",
+    flexWrap: "wrap" as const,
+    gap: 6,
+    marginTop: 4,
+    marginBottom: 4,
+  },
+  roleSummaryChip: {
+    fontSize: 11.5,
+    color: "rgba(245,200,120,0.92)",
+    background: "rgba(245,200,120,0.08)",
+    border: "1px solid rgba(245,200,120,0.30)",
+    padding: "3px 10px",
+    borderRadius: 999,
+    letterSpacing: "0.02em",
+    whiteSpace: "nowrap" as const,
+  },
+  roleSummaryHidden: {
+    color: "rgba(180,150,230,0.92)",
+    background: "rgba(140,100,200,0.08)",
+    border: "1px solid rgba(140,100,200,0.32)",
+    maxWidth: "100%",
+    overflow: "hidden",
+    textOverflow: "ellipsis" as const,
   },
   roleCardTagPersona: {
     fontSize: 10.5,

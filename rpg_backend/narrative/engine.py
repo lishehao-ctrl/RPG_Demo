@@ -209,6 +209,11 @@ cast 里每个 NPC 都可能在 `leverages_over_other_npcs` 字段里**捏着另
 - **narration 必须让 inter-NPC leverage 在剧情里发挥作用** —— 不要让 NPC 群像死板。比如"苏曼端起酒杯走向陆大伯，大伯眼神瞬间紧张" —— 这种细节背后通常是因为苏曼手里有大伯的把柄
 - **NPC 倒戈、临时联盟、突然反水** 都该有 leverage 网络作为合理性支撑。LLM 不要凭空让 NPC 翻面，而是让 narration 暗示"为什么 TA 这一刻这么做"
 - **玩家可以挑拨**：如果 player_role 的 `leverages_over_npcs` 里有针对 X 的把柄，玩家可以选择"告诉 Y 关于 X 的事" → 触发 X vs Y 的紧张甚至撕脸。这种选项在 selection 里出现时，passage 应该让玩家知道"自己手里的这张牌可以这样打"
+- **⚠️ pressure / reversal / climax 阶段，3 个 options 中至少有 1 个应该是"主动挑拨/利用 inter-NPC 关系"** —— 这是玩家从"被动应对"切到"主动操盘"的关键操作入口。具体形式：
+  * "把 X 的把柄递给 Y"（挑拨两 NPC 互撕）
+  * "故意让 X 听到关于 Y 的事"（被动信息泄漏）
+  * "提议跟 X 联手对付 Y"（结盟 + 出卖第三方）
+  option 的 hint 字段要点出"代价 / 风险"（"风险：Y 可能反过来咬你"），让玩家做 informed choice
 - **climax 阶段优先让 inter-NPC leverage 引爆** —— 让两个 NPC 互撕给玩家创造空间，比让玩家硬冲更戏剧化
 - 不要把整张网络一次性 dump 在 narration 里 —— 一回合最多让 1-2 条 inter-leverage 浮出水面，留悬念
 
@@ -1563,26 +1568,49 @@ def synthesize_branches(
         labels_list=" / ".join(ENDING_LABELS),
     )
 
-    try:
-        response = gateway.invoke_json(
-            system_prompt=system_prompt,
-            user_payload=user_payload,
-            operation_name="narrative.branches",
-            max_output_tokens=1500,
-        )
-    except NarrativeGatewayError as exc:
-        print(
-            f"[narrative.branches] gateway error, returning []: {exc}",
-            flush=True,
-        )
-        return []
+    # Retry once if first response gives < 2 branches — LLM is sometimes
+    # conservative and one branch isn't enough to drive replay intent.
+    last_branches: list[BranchHypothetical] = []
+    feedback: str | None = None
+    for attempt in range(2):
+        retry_payload = dict(user_payload)
+        if feedback:
+            retry_payload["retry_feedback"] = feedback
+        try:
+            response = gateway.invoke_json(
+                system_prompt=system_prompt,
+                user_payload=retry_payload,
+                operation_name="narrative.branches",
+                max_output_tokens=1500,
+            )
+        except NarrativeGatewayError as exc:
+            print(
+                f"[narrative.branches] gateway error attempt={attempt + 1}: {exc}",
+                flush=True,
+            )
+            return last_branches  # may be [] on first-attempt failure
 
-    payload = _coerce_dict(response.payload)
-    return _parse_branches(
-        payload.get("branches"),
-        valid_ords=valid_ords,
-        actual_ending_label=ending_label,
-    )
+        payload = _coerce_dict(response.payload)
+        parsed = _parse_branches(
+            payload.get("branches"),
+            valid_ords=valid_ords,
+            actual_ending_label=ending_label,
+        )
+        if len(parsed) >= 2:
+            return parsed
+        last_branches = parsed
+        if attempt == 0:
+            print(
+                f"[narrative.branches] sparse output ({len(parsed)} branches); retrying for ≥2",
+                flush=True,
+            )
+            feedback = (
+                f"Your previous output had only {len(parsed)} branch(es). "
+                "Per spec, output 2-3 distinct branches. Pick at least 2 different "
+                "pivot turns where alternate options would lead to alternate ending labels. "
+                "Re-output the JSON with at least 2 branches."
+            )
+    return last_branches
 
 
 def _parse_branches(

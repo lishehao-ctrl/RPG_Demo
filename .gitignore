@@ -2,6 +2,8 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .env
+*.egg-info/
+.DS_Store
 artifacts/
 artifacts/benchmarks/
 artifacts/*.sqlite3

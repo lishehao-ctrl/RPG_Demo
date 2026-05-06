@@ -8,6 +8,7 @@ from typing import Any
 
 from rpg_backend.narrative.contracts import (
     AdvisorMessage,
+    BranchHypothetical,
     CastMember,
     Difficulty,
     EndingTier,
@@ -98,6 +99,7 @@ class NarrativeRepository:
             ("failure_trigger", "ALTER TABLE narrative_sessions ADD COLUMN failure_trigger TEXT"),
             ("selected_player_role_id", "ALTER TABLE narrative_sessions ADD COLUMN selected_player_role_id TEXT"),
             ("ending_highlights_json", "ALTER TABLE narrative_sessions ADD COLUMN ending_highlights_json TEXT"),
+            ("ending_branches_json", "ALTER TABLE narrative_sessions ADD COLUMN ending_branches_json TEXT"),
         ):
             if col not in existing_cols:
                 connection.execute(ddl)
@@ -344,11 +346,17 @@ class NarrativeRepository:
         early_terminated: bool = False,
         failure_trigger: str | None = None,
         highlights: list[Highlight] | None = None,
+        branches: list[BranchHypothetical] | None = None,
     ) -> None:
         highlights_json: str | None = None
         if highlights:
             highlights_json = json.dumps(
                 [h.model_dump() for h in highlights], ensure_ascii=False,
+            )
+        branches_json: str | None = None
+        if branches:
+            branches_json = json.dumps(
+                [b.model_dump() for b in branches], ensure_ascii=False,
             )
         with self._connect() as conn:
             conn.execute(
@@ -356,7 +364,8 @@ class NarrativeRepository:
                 UPDATE narrative_sessions
                 SET ending_label = ?, ending_subtitle = ?, ending_passage = ?,
                     ending_tier = ?, early_terminated = ?, failure_trigger = ?,
-                    ending_highlights_json = ?, last_active_at = ?
+                    ending_highlights_json = ?, ending_branches_json = ?,
+                    last_active_at = ?
                 WHERE session_id = ?
                 """,
                 (
@@ -367,11 +376,38 @@ class NarrativeRepository:
                     1 if early_terminated else 0,
                     failure_trigger,
                     highlights_json,
+                    branches_json,
                     _utc_now(),
                     session_id,
                 ),
             )
             conn.commit()
+
+    def get_session_branches(self, session_id: str) -> list[BranchHypothetical]:
+        """Read persisted branch hypotheticals. Empty if not generated
+        or session isn't done."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT ending_branches_json FROM narrative_sessions WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+        if row is None or not row["ending_branches_json"]:
+            return []
+        try:
+            raw = json.loads(row["ending_branches_json"])
+        except Exception:  # noqa: BLE001
+            return []
+        if not isinstance(raw, list):
+            return []
+        out: list[BranchHypothetical] = []
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            try:
+                out.append(BranchHypothetical.model_validate(item))
+            except Exception:  # noqa: BLE001
+                continue
+        return out
 
     def get_session_highlights(self, session_id: str) -> list[Highlight]:
         """Read persisted highlights for a finished session. Empty list

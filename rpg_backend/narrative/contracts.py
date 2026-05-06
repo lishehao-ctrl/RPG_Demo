@@ -286,6 +286,39 @@ class Highlight(BaseModel):
     why_pivotal: str = Field(min_length=1, max_length=200)
 
 
+class BranchHypothetical(BaseModel):
+    """One 'what-if' fork point identified by the LLM after a session
+    finishes. Anchored to a specific narrator beat, showing what the
+    player picked vs an alternate option, and the LLM's plausibility-
+    grade prediction of which ending label the alternate path would
+    have hit.
+
+    These are not authoritative — the LLM is hypothesizing, not
+    simulating. The alternate_ending_label must be in the closed
+    ENDING_LABELS pool so the player sees it as "another tier-marked
+    outcome they could have collected", not a free-form spoiler.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Which narrator beat the branch forks from. Always references a
+    # real narrator beat from this session.
+    pivot_beat_ord: int = Field(ge=0)
+    # Short summary of what the player actually did at this turn.
+    chosen_path_summary: str = Field(min_length=1, max_length=80)
+    # Short summary of the alternate move the player could have made.
+    alternate_path_summary: str = Field(min_length=1, max_length=80)
+    # The ending label the LLM predicts for the alternate path. Must
+    # be one of the closed ENDING_LABELS values (validator drops misses).
+    alternate_ending_label: str = Field(min_length=1, max_length=20)
+    # Tier of that hypothetical ending — derived server-side from
+    # alternate_ending_label so the UI can color-grade the card.
+    alternate_ending_tier: EndingTier = "compromised"
+    # 1-2 sentence narrative justification — why this alt path likely
+    # leads to that label. ≤200 chars.
+    rationale: str = Field(min_length=1, max_length=200)
+
+
 class NarrativeEnding(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -299,6 +332,10 @@ class NarrativeEnding(BaseModel):
     # highlight reel. Empty list on legacy sessions or if the
     # synthesize_highlights call failed (non-fatal).
     highlights: list[Highlight] = Field(default_factory=list, max_length=6)
+    # Up to 3 hypothetical fork points showing alternate endings the
+    # player could have hit. Drives replay intent: "you didn't take
+    # these 2 paths, here's roughly what they'd have looked like."
+    branches: list[BranchHypothetical] = Field(default_factory=list, max_length=4)
 
 
 class EndingDistributionEntry(BaseModel):

@@ -5,6 +5,7 @@ from typing import Any
 
 from rpg_backend.narrative.contracts import (
     AdvisorMessage,
+    BranchHypothetical,
     CastMember,
     FailureCondition,
     Highlight,
@@ -364,6 +365,49 @@ _HIGHLIGHTS_SYSTEM_PROMPT = """\
     ...
   ]
 }
+
+不要 markdown，不要其他字段。
+"""
+
+
+_BRANCHES_SYSTEM_PROMPT = """\
+你是一名剧评人。一段 12 回合的互动短剧刚结束。你看到了完整的 narrator beats（每个带 ord）+ player actions（玩家选了哪个选项 / 写了什么自由输入）+ 实际 ending（label + tier + passage）。
+
+你的任务：**找出这局戏里 2-3 个真正的"分岔点"**——玩家在那个 turn 选了 X，**如果当时选了完全不同的 Y**，故事整体走向会大幅不同，最后会落在另一个 ending label 上。
+
+合法的 ending labels（**alternate_ending_label 必须从这个池子里选**，不能编新的）：
+{labels_list}
+
+⚠️ 选择规则（关键）：
+- **2-3 个分岔点**，不能多不能少
+- **按 pivot_beat_ord 升序排列**
+- 优先选这些类型的 turn：
+  * 玩家选了 [0] 安全选项 vs 实际有 [2] 高风险选项的回合
+  * 玩家亮 leverage / asset 的回合（"如果不亮"会怎样）
+  * Reversal stage 玩家应对 twist 的回合
+  * Climax stage 玩家做了让步 / 反击 的回合
+- **不要选纯 setup 回合**（hook 阶段早期 / 信息收集回合）
+- **不要选最后 1-2 回合**（已经定型，分岔意义弱）
+- 所选的 alternate_ending_label **必须跟实际 ending 不同** —— 这是"另一条路"，不是"这条路的另一种"
+- **alternate_ending_tier 别填**（服务端会根据 label 推导，你写啥都覆盖）
+
+每个分岔点输出：
+- `pivot_beat_ord`: 那个 narrator beat 的 ord（必须是这局戏里出现过的）
+- `chosen_path_summary`: 玩家**实际**做了什么（≤30 字，扼要）
+- `alternate_path_summary`: 玩家**本来可以**做什么（≤30 字。基于那回合的 options 或合理替代）
+- `alternate_ending_label`: 走那条路最后大概会落在哪个 label（**必须从上面池子里选**，**必须跟实际 ending 不同**）
+- `rationale`: 为什么走那条路会到那个结局，1-2 句话 ≤ 100 字
+
+⚠️ 重要：**这是 hypothetical**，是"剧评人推测"，不是"模拟引擎"。rationale 应该写成"我推测..."、"那条路大概率..."的口吻，不是断言。
+
+输出**严格** JSON，只一个字段 `branches`，是数组：
+
+{{
+  "branches": [
+    {{"pivot_beat_ord": 4, "chosen_path_summary": "...", "alternate_path_summary": "...", "alternate_ending_label": "...", "rationale": "..."}},
+    ...
+  ]
+}}
 
 不要 markdown，不要其他字段。
 """
@@ -1382,6 +1426,141 @@ def _parse_highlights(raw: Any, *, valid_ords: set[int]) -> list[Highlight]:
     # Sort chronologically (LLM should already; defensive)
     out.sort(key=lambda h: h.beat_ord)
     return out[:6]
+
+
+def synthesize_branches(
+    *,
+    gateway: NarrativeLLMGateway,
+    seed: str,
+    title: str,
+    cast: list[CastMember],
+    history: list[StoryMessage],
+    ending_label: str,
+    ending_tier: str,
+    ending_passage: str,
+    player_role: PlayerRole | None = None,
+) -> list[BranchHypothetical]:
+    """Generate 2-3 hypothetical fork-point cards: 'if you'd done Y at
+    turn N instead of X, you would likely have hit ending label Z'.
+
+    Non-fatal — returns [] on LLM failure. The alternate_ending_label
+    is forced into ENDING_LABELS via _normalize_ending_label, and any
+    branch whose label collides with the actual ending label is dropped.
+    """
+    # Provide narrator beats with ord + content + the player's recorded
+    # action. The LLM picks pivot beats by ord.
+    enriched_history: list[dict[str, Any]] = []
+    for msg in history:
+        if msg.role == "narrator":
+            enriched_history.append({
+                "ord": msg.ord,
+                "role": "narrator",
+                "content": msg.content,
+                "options": [{"label": o.label, "hint": o.hint} for o in msg.options],
+                "chosen_option_index": msg.chosen_option_index,
+            })
+        else:
+            enriched_history.append({
+                "ord": msg.ord,
+                "role": "player",
+                "content": msg.content,
+            })
+
+    valid_ords = {m.ord for m in history if m.role == "narrator"}
+
+    user_payload: dict[str, Any] = {
+        "seed": seed,
+        "title": title,
+        "cast_brief": [
+            {"id": c.character_id, "name": c.display_name, "role": c.role}
+            for c in cast
+        ],
+        "history": enriched_history,
+        "actual_ending": {
+            "label": ending_label,
+            "tier": ending_tier,
+            "passage_excerpt": ending_passage[:400],
+        },
+    }
+    if player_role is not None:
+        user_payload["player_role"] = {
+            "label": player_role.label,
+            "hidden_objective": player_role.hidden_objective,
+        }
+
+    system_prompt = _BRANCHES_SYSTEM_PROMPT.format(
+        labels_list=" / ".join(ENDING_LABELS),
+    )
+
+    try:
+        response = gateway.invoke_json(
+            system_prompt=system_prompt,
+            user_payload=user_payload,
+            operation_name="narrative.branches",
+            max_output_tokens=1500,
+        )
+    except NarrativeGatewayError as exc:
+        print(
+            f"[narrative.branches] gateway error, returning []: {exc}",
+            flush=True,
+        )
+        return []
+
+    payload = _coerce_dict(response.payload)
+    return _parse_branches(
+        payload.get("branches"),
+        valid_ords=valid_ords,
+        actual_ending_label=ending_label,
+    )
+
+
+def _parse_branches(
+    raw: Any,
+    *,
+    valid_ords: set[int],
+    actual_ending_label: str,
+) -> list[BranchHypothetical]:
+    """Tolerant parse: drop entries with unknown ord, missing fields,
+    or alternate_ending_label collision with actual ending. Snaps off-pool
+    labels via _normalize_ending_label. Caps at 4."""
+    if not isinstance(raw, list):
+        return []
+    seen_ords: set[int] = set()
+    out: list[BranchHypothetical] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        try:
+            ord_val = int(item.get("pivot_beat_ord", -1))
+        except (TypeError, ValueError):
+            continue
+        if ord_val < 0 or ord_val not in valid_ords or ord_val in seen_ords:
+            continue
+        chosen = str(item.get("chosen_path_summary") or "").strip()[:80]
+        alt = str(item.get("alternate_path_summary") or "").strip()[:80]
+        label_raw = str(item.get("alternate_ending_label") or "").strip()
+        rationale = str(item.get("rationale") or "").strip()[:200]
+        if not chosen or not alt or not label_raw or not rationale:
+            continue
+        # Snap to closed pool; drop branch if same as actual ending.
+        normalized_label = _normalize_ending_label(label_raw)
+        if normalized_label == actual_ending_label:
+            continue
+        tier = tier_for_label(normalized_label)
+        seen_ords.add(ord_val)
+        try:
+            out.append(BranchHypothetical(
+                pivot_beat_ord=ord_val,
+                chosen_path_summary=chosen,
+                alternate_path_summary=alt,
+                alternate_ending_label=normalized_label,
+                alternate_ending_tier=tier,  # type: ignore[arg-type]
+                rationale=rationale,
+            ))
+        except Exception:  # noqa: BLE001
+            continue
+    out.sort(key=lambda b: b.pivot_beat_ord)
+    return out[:4]
 
 
 def _invoke_turn(

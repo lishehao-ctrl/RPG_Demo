@@ -655,6 +655,15 @@ export type NarrativeHighlight = {
   why_pivotal: string
 }
 
+export type NarrativeBranchHypothetical = {
+  pivot_beat_ord: number
+  chosen_path_summary: string
+  alternate_path_summary: string
+  alternate_ending_label: string
+  alternate_ending_tier: NarrativeEndingTier
+  rationale: string
+}
+
 export type NarrativeEnding = {
   label: string
   subtitle: string
@@ -663,6 +672,7 @@ export type NarrativeEnding = {
   early_terminated?: boolean
   failure_trigger?: string | null
   highlights?: NarrativeHighlight[]
+  branches?: NarrativeBranchHypothetical[]
 }
 
 export type NarrativeEndingDistributionEntry = {

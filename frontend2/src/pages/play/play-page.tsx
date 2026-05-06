@@ -646,10 +646,66 @@ function EndingScreen({
           </motion.section>
         ) : null}
 
+        {/* Branches — alternate paths the player didn't take, drives
+            replay intent. Each card shows the pivot turn, what they
+            chose vs alternate, and tier-color-graded predicted ending. */}
+        {ending.branches && ending.branches.length > 0 ? (
+          <motion.section
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 1.25, ...itemTransition }}
+            style={ppStyles.branchesSection}
+          >
+            <div style={ppStyles.branchesLabel}>
+              你没走的另外 {ending.branches.length} 条路
+            </div>
+            <p style={ppStyles.branchesHint}>
+              如果当时换个选择，故事大概率会走向这些结局。再玩一次试试？
+            </p>
+            <div style={ppStyles.branchList}>
+              {ending.branches.map((b, i) => {
+                const tierStyle =
+                  b.alternate_ending_tier === "victory"
+                    ? ppStyles.branchTierVictory
+                    : b.alternate_ending_tier === "collapsed"
+                      ? ppStyles.branchTierCollapsed
+                      : ppStyles.branchTierCompromised
+                return (
+                  <motion.div
+                    key={`${b.pivot_beat_ord}-${i}`}
+                    initial={{ opacity: 0, x: -8 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: 1.3 + i * 0.08, ...itemTransition }}
+                    style={ppStyles.branchCard}
+                  >
+                    <div style={ppStyles.branchPaths}>
+                      <div style={ppStyles.branchChosen}>
+                        <span style={ppStyles.branchPathTag}>你那回合选了</span>
+                        <span style={ppStyles.branchPathText}>{b.chosen_path_summary}</span>
+                      </div>
+                      <div style={ppStyles.branchArrow}>↓ 但如果选了 ↓</div>
+                      <div style={ppStyles.branchAlternate}>
+                        <span style={ppStyles.branchPathTag}>另一条路</span>
+                        <span style={ppStyles.branchPathText}>{b.alternate_path_summary}</span>
+                      </div>
+                    </div>
+                    <div style={ppStyles.branchOutcome}>
+                      <span style={{ ...ppStyles.branchEndingChip, ...tierStyle }}>
+                        {b.alternate_ending_label}
+                      </span>
+                      <span style={ppStyles.branchRationale}>{b.rationale}</span>
+                    </div>
+                  </motion.div>
+                )
+              })}
+            </div>
+          </motion.section>
+        ) : null}
+
         <motion.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 1.4, ...itemTransition }}
+          transition={{ delay: 1.7, ...itemTransition }}
           style={ppStyles.endingActions}
         >
           <motion.button
@@ -2069,6 +2125,117 @@ const ppStyles: Record<string, CSSProperties> = {
     lineHeight: 1.55,
     paddingLeft: 28,
     fontStyle: "italic" as const,
+  },
+
+  // Branches section — alternate paths the player didn't take
+  branchesSection: {
+    marginBottom: 28,
+    paddingBottom: 28,
+    borderBottom: "1px dashed var(--line)",
+  },
+  branchesLabel: {
+    fontSize: 11,
+    color: "rgba(180,150,230,0.92)",
+    letterSpacing: "0.12em",
+    textTransform: "uppercase" as const,
+    fontWeight: 600,
+    marginBottom: 8,
+  },
+  branchesHint: {
+    fontSize: 12.5,
+    color: "var(--text-muted)",
+    lineHeight: 1.55,
+    margin: "0 0 16px",
+    fontStyle: "italic" as const,
+  },
+  branchList: {
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: 12,
+  },
+  branchCard: {
+    padding: "14px 16px",
+    background: "linear-gradient(180deg, rgba(140,100,200,0.06), rgba(140,100,200,0.02))",
+    border: "1px solid rgba(140,100,200,0.28)",
+    borderRadius: "var(--radius-sm)",
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: 10,
+  },
+  branchPaths: {
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: 6,
+  },
+  branchChosen: {
+    fontSize: 13,
+    lineHeight: 1.55,
+    color: "var(--text-muted)",
+    display: "flex",
+    flexDirection: "column" as const,
+  },
+  branchAlternate: {
+    fontSize: 13,
+    lineHeight: 1.55,
+    color: "var(--text)",
+    display: "flex",
+    flexDirection: "column" as const,
+  },
+  branchPathTag: {
+    fontSize: 10,
+    color: "var(--text-faint)",
+    letterSpacing: "0.08em",
+    textTransform: "uppercase" as const,
+    marginBottom: 2,
+  },
+  branchPathText: {
+    fontFamily: "var(--font-narrative)",
+    fontSize: 14,
+  },
+  branchArrow: {
+    fontSize: 10.5,
+    color: "rgba(180,150,230,0.8)",
+    letterSpacing: "0.12em",
+    textAlign: "center" as const,
+    padding: "2px 0",
+  },
+  branchOutcome: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: 10,
+    paddingTop: 8,
+    borderTop: "1px dashed rgba(140,100,200,0.18)",
+  },
+  branchEndingChip: {
+    fontFamily: "var(--font-narrative)",
+    fontSize: 13,
+    fontWeight: 600,
+    padding: "4px 10px",
+    borderRadius: 999,
+    flexShrink: 0,
+    letterSpacing: "0.04em",
+  },
+  branchTierVictory: {
+    background: "linear-gradient(90deg, rgba(212,168,83,0.22), rgba(212,168,83,0.08))",
+    color: "rgba(245,210,140,0.96)",
+    border: "1px solid rgba(212,168,83,0.45)",
+  },
+  branchTierCompromised: {
+    background: "rgba(255,255,255,0.05)",
+    color: "var(--text)",
+    border: "1px solid var(--line)",
+  },
+  branchTierCollapsed: {
+    background: "linear-gradient(90deg, rgba(220,80,60,0.20), rgba(220,80,60,0.06))",
+    color: "rgba(245,180,170,0.96)",
+    border: "1px solid rgba(220,80,60,0.42)",
+  },
+  branchRationale: {
+    fontSize: 12,
+    color: "var(--text-muted)",
+    lineHeight: 1.6,
+    fontStyle: "italic" as const,
+    flex: 1,
   },
 
   endingActions: { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 10 },

@@ -35,6 +35,7 @@ from rpg_backend.narrative.engine import (
     compute_current_inventory,
     generate_opening,
     judge_failure,
+    synthesize_branches,
     synthesize_early_ending,
     synthesize_ending,
     synthesize_highlights,
@@ -472,8 +473,8 @@ class NarrativeService:
             )
             return None
         tier = tier_for_label(result.label)
-        # Synthesize highlights AFTER ending exists. Non-fatal —
-        # synthesize_highlights returns [] on any failure.
+        # Synthesize highlights + branches AFTER ending exists. Both
+        # non-fatal — return [] on any failure.
         highlights = synthesize_highlights(
             gateway=self.gateway,
             seed=template.seed,
@@ -482,6 +483,17 @@ class NarrativeService:
             history=full_history,
             ending_label=result.label,
             ending_subtitle=result.subtitle,
+            player_role=player_role,
+        )
+        branches = synthesize_branches(
+            gateway=self.gateway,
+            seed=template.seed,
+            title=template.title,
+            cast=template.cast,
+            history=full_history,
+            ending_label=result.label,
+            ending_tier=tier,
+            ending_passage=result.passage,
             player_role=player_role,
         )
         self._repo.record_session_ending(
@@ -493,6 +505,7 @@ class NarrativeService:
             early_terminated=False,
             failure_trigger=None,
             highlights=highlights or None,
+            branches=branches or None,
         )
         _emit_metric(
             "session_completed",
@@ -502,6 +515,7 @@ class NarrativeService:
             tier=tier,
             early=0,
             num_highlights=len(highlights),
+            num_branches=len(branches),
         )
         return NarrativeEnding(
             label=result.label,
@@ -511,6 +525,7 @@ class NarrativeService:
             early_terminated=False,
             failure_trigger=None,
             highlights=highlights,
+            branches=branches,
         )
 
     def _finalize_session_early(
@@ -545,8 +560,9 @@ class NarrativeService:
             return None
         # Early endings are always tier=collapsed by design.
         tier = "collapsed"
-        # Highlights for the early collapse — same fn, just shorter
-        # input history. Non-fatal.
+        # Highlights + branches for the early collapse. Branches
+        # especially valuable here — "you'd have hit a non-collapse
+        # ending if you'd done X earlier" is core replay incentive.
         highlights = synthesize_highlights(
             gateway=self.gateway,
             seed=template.seed,
@@ -555,6 +571,17 @@ class NarrativeService:
             history=full_history,
             ending_label=result.label,
             ending_subtitle=result.subtitle,
+            player_role=player_role,
+        )
+        branches = synthesize_branches(
+            gateway=self.gateway,
+            seed=template.seed,
+            title=template.title,
+            cast=template.cast,
+            history=full_history,
+            ending_label=result.label,
+            ending_tier=tier,
+            ending_passage=result.passage,
             player_role=player_role,
         )
         self._repo.record_session_ending(
@@ -566,6 +593,7 @@ class NarrativeService:
             early_terminated=True,
             failure_trigger=failure_trigger,
             highlights=highlights or None,
+            branches=branches or None,
         )
         _emit_metric(
             "session_completed",
@@ -576,6 +604,7 @@ class NarrativeService:
             early=1,
             trigger=failure_trigger,
             num_highlights=len(highlights),
+            num_branches=len(branches),
         )
         return NarrativeEnding(
             label=result.label,
@@ -585,6 +614,7 @@ class NarrativeService:
             early_terminated=True,
             failure_trigger=failure_trigger,
             highlights=highlights,
+            branches=branches,
         )
 
     # ------------------------------------------------------------------
@@ -599,6 +629,7 @@ class NarrativeService:
             return None
         tier = session.ending_tier or tier_for_label(session.ending_label)
         highlights = self._repo.get_session_highlights(session_id)
+        branches = self._repo.get_session_branches(session_id)
         return NarrativeEnding(
             label=session.ending_label,
             subtitle=session.ending_subtitle or "",
@@ -607,6 +638,7 @@ class NarrativeService:
             early_terminated=session.early_terminated,
             failure_trigger=session.failure_trigger,
             highlights=highlights,
+            branches=branches,
         )
 
     def get_ending_distribution(
@@ -652,6 +684,7 @@ class NarrativeService:
         if session.ending_label is not None:
             tier = session.ending_tier or tier_for_label(session.ending_label)
             highlights = self._repo.get_session_highlights(session_id)
+            branches = self._repo.get_session_branches(session_id)
             ending_payload = NarrativeEnding(
                 label=session.ending_label,
                 subtitle=session.ending_subtitle or "",
@@ -660,6 +693,7 @@ class NarrativeService:
                 early_terminated=session.early_terminated,
                 failure_trigger=session.failure_trigger,
                 highlights=highlights,
+                branches=branches,
             )
         return PublicReplayResponse(
             session_id=session.session_id,

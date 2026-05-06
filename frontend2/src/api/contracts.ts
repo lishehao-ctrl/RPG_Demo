@@ -598,6 +598,7 @@ export type NarrativeStoryMessage = {
   chosen_option_index: number | null
   npc_pulse?: NarrativeNPCPulse[]
   inventory_delta?: NarrativeInventoryDelta | null
+  diary?: string | null
 }
 
 export type NarrativeDifficulty = "story" | "gauntlet"
@@ -731,6 +732,7 @@ export type NarrativeStoryHistoryResponse = {
 export type NarrativeAdvanceTurnRequest = {
   chosen_option_index?: number | null
   free_input?: string | null
+  diary?: string | null
 }
 
 export type NarrativeAdvanceTurnResponse = {

@@ -131,6 +131,10 @@ class NarrativeRepository:
             connection.execute(
                 "ALTER TABLE narrative_story_messages ADD COLUMN inventory_delta_json TEXT"
             )
+        if "diary" not in existing_msg_cols:
+            connection.execute(
+                "ALTER TABLE narrative_story_messages ADD COLUMN diary TEXT"
+            )
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS narrative_advisor_messages (
@@ -453,8 +457,8 @@ class NarrativeRepository:
                 """
                 INSERT INTO narrative_story_messages
                 (session_id, ord, role, content, options_json, chosen_option_index,
-                 npc_pulse_json, inventory_delta_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                 npc_pulse_json, inventory_delta_json, diary)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     session_id,
@@ -465,6 +469,7 @@ class NarrativeRepository:
                     message.chosen_option_index,
                     json.dumps([p.model_dump() for p in message.npc_pulse], ensure_ascii=False),
                     delta_json,
+                    message.diary,
                 ),
             )
             conn.commit()
@@ -474,7 +479,7 @@ class NarrativeRepository:
             rows = conn.execute(
                 """
                 SELECT ord, role, content, options_json, chosen_option_index,
-                       npc_pulse_json, inventory_delta_json
+                       npc_pulse_json, inventory_delta_json, diary
                 FROM narrative_story_messages
                 WHERE session_id = ?
                 ORDER BY ord ASC
@@ -692,6 +697,9 @@ def _row_to_story_message(row: sqlite3.Row) -> StoryMessage:
         except Exception:  # noqa: BLE001
             pass
     chosen = row["chosen_option_index"]
+    diary_val: str | None = None
+    if "diary" in keys and row["diary"]:
+        diary_val = str(row["diary"])[:600]
     return StoryMessage(
         ord=int(row["ord"]),
         role=row["role"],
@@ -700,4 +708,5 @@ def _row_to_story_message(row: sqlite3.Row) -> StoryMessage:
         chosen_option_index=int(chosen) if chosen is not None else None,
         npc_pulse=pulse,
         inventory_delta=delta,
+        diary=diary_val,
     )

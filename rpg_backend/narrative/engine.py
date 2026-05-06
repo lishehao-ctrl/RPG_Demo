@@ -87,7 +87,7 @@ _OPENING_SYSTEM_PROMPT = """\
 _TURN_SYSTEM_PROMPT = """\
 你是一名擅长写关系剧的剧作家。玩家正在玩一个互动故事，你负责续写下一段。
 
-每个回合你会收到：故事种子、cast 名单（每个 NPC 都带有 `hidden_objective`、`leverage_over_player`、以及 `leverages_over_other_npcs` —— **这是 NPC 之间的相互把柄网络**）、最近若干段故事历史、玩家这一回合的动作、**当前所处的故事阶段**（关键！）、`difficulty` 字段（`story` 或 `gauntlet`）、**玩家的角色卡 `player_role`**（玩家这局选了谁来扮演）、**`current_inventory`**（玩家当前手里的所有物件/情报，包括 starting_assets 和过去几回合获得的）、可选的 `npc_agenda_this_turn`（gauntlet 主动调度）、**可选的 `twist_directive`**（reversal 阶段强制翻转指令）和 `recent_consequences`（上一回合结构化回响）。
+每个回合你会收到：故事种子、cast 名单（每个 NPC 都带有 `hidden_objective`、`leverage_over_player`、以及 `leverages_over_other_npcs` —— **这是 NPC 之间的相互把柄网络**）、最近若干段故事历史、玩家这一回合的动作、**当前所处的故事阶段**（关键！）、`difficulty` 字段（`story` 或 `gauntlet`）、**玩家的角色卡 `player_role`**（玩家这局选了谁来扮演）、**`current_inventory`**（玩家当前手里的所有物件/情报，包括 starting_assets 和过去几回合获得的）、可选的 `npc_agenda_this_turn`（gauntlet 主动调度）、**可选的 `twist_directive`**（reversal 阶段强制翻转指令）、**可选的 `player_diary`**（玩家私下对自己说的话，NPC 不可见）和 `recent_consequences`（上一回合结构化回响）。
 
 你的任务是续写**一段**叙述（200-400 字），并给出**3 个新选项**，同时输出每个 NPC 的当下反应（`npc_pulse`）。
 
@@ -209,6 +209,16 @@ cast 里每个 NPC 都可能在 `leverages_over_other_npcs` 字段里**捏着另
 - **玩家可以挑拨**：如果 player_role 的 `leverages_over_npcs` 里有针对 X 的把柄，玩家可以选择"告诉 Y 关于 X 的事" → 触发 X vs Y 的紧张甚至撕脸。这种选项在 selection 里出现时，passage 应该让玩家知道"自己手里的这张牌可以这样打"
 - **climax 阶段优先让 inter-NPC leverage 引爆** —— 让两个 NPC 互撕给玩家创造空间，比让玩家硬冲更戏剧化
 - 不要把整张网络一次性 dump 在 narration 里 —— 一回合最多让 1-2 条 inter-leverage 浮出水面，留悬念
+
+**玩家内心独白（player_diary —— 仅玩家与你可见，NPC 看不到）**:
+当 user_payload 含 `player_diary`，那是玩家这一刻**对自己说的话** —— 不是 ta 说出口的，是 ta 心里的真实声音。NPC **听不见也读不到**。
+
+⚠️ 处理规则：
+- 用独白来 **calibrate 玩家的内心动作描写** —— 比如玩家独白说"我恨苏曼这种笑容但我不能让她看出来"，narration 里玩家的"笑"应当带着压抑（"嘴角的弧度精确得像练过"），但 NPC 反应不能写"苏曼察觉到玩家的恨意"——她不知道
+- 独白可能跟玩家公开动作**矛盾** —— 这正是张力来源。passage 应当把这种"演与真"之间的缝隙写出来：表面动作 vs 真实状态
+- **不要让 NPC 反应到独白内容**。如果玩家独白透露了一个秘密，NPC 不能说"你居然还藏着这件事" —— 他们读不到玩家的心
+- 不要每段都引用独白 —— 选 1-2 处最切题的瞬间让它影响内心动作描写就好
+- 独白是玩家自己的产物，**不要替玩家加情绪** —— 按 ta 写的来
 
 **玩家随身物件 / 情报（current_inventory）**:
 `current_inventory` 字段告诉你**玩家此刻手里到底有什么东西** —— 这是 starting_assets 加上过去若干回合积累来的所有物件/情报。是一个字符串数组，每条 30 字内描述。
@@ -628,6 +638,7 @@ def advance_turn(
     player_goals: list[PlayerGoal] | None = None,
     player_role: PlayerRole | None = None,
     current_inventory: list[str] | None = None,
+    player_diary: str | None = None,
 ) -> TurnResult:
     """Advance one turn."""
     stage_phase = _stage_for(turn_index, turn_budget)
@@ -649,6 +660,8 @@ def advance_turn(
         user_payload["player_role"] = player_role.model_dump()
     if current_inventory:
         user_payload["current_inventory"] = current_inventory
+    if player_diary:
+        user_payload["player_diary"] = player_diary
 
     # Active scheduling: tell the LLM which NPC should actively push their
     # agenda this turn. Empty in story mode and during the hook phase.

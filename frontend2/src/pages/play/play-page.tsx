@@ -45,6 +45,8 @@ export function PlayPage({
   const [error, setError] = useState<string | null>(null)
   const [freeInput, setFreeInput] = useState("")
   const [showFreeInput, setShowFreeInput] = useState(false)
+  const [diary, setDiary] = useState("")
+  const [showDiary, setShowDiary] = useState(false)
   const [advisorOpen, setAdvisorOpen] = useState(false)
   const [shareCopied, setShareCopied] = useState(false)
 
@@ -86,7 +88,11 @@ export function PlayPage({
   }, [story?.messages.length])
 
   const handleAdvance = useCallback(
-    async (action: { chosen_option_index?: number; free_input?: string }) => {
+    async (action: {
+      chosen_option_index?: number
+      free_input?: string
+      diary?: string
+    }) => {
       if (busy) return
       setBusy(true)
       setError(null)
@@ -122,6 +128,8 @@ export function PlayPage({
         }
         setFreeInput("")
         setShowFreeInput(false)
+        setDiary("")
+        setShowDiary(false)
       } catch (err) {
         setError(friendlyError(err, "续写失败，请稍后再试。"))
       } finally {
@@ -351,11 +359,23 @@ export function PlayPage({
               freeInput={freeInput}
               setFreeInput={setFreeInput}
               setShowFreeInput={setShowFreeInput}
+              diary={diary}
+              setDiary={setDiary}
+              showDiary={showDiary}
+              setShowDiary={setShowDiary}
               busy={busy}
-              onPickOption={(i) => void handleAdvance({ chosen_option_index: i })}
+              onPickOption={(i) =>
+                void handleAdvance({
+                  chosen_option_index: i,
+                  diary: diary.trim() || undefined,
+                })
+              }
               onSubmitFree={() => {
                 if (!freeInput.trim()) return
-                void handleAdvance({ free_input: freeInput.trim() })
+                void handleAdvance({
+                  free_input: freeInput.trim(),
+                  diary: diary.trim() || undefined,
+                })
               }}
             />
           ) : !isComplete && busy ? (
@@ -762,6 +782,12 @@ function StoryBeat({
     >
       <div style={ppStyles.playerLabel}>你</div>
       <div style={ppStyles.playerText}>{message.content}</div>
+      {message.diary ? (
+        <div style={ppStyles.playerDiary}>
+          <span style={ppStyles.playerDiaryTag}>内心独白</span>
+          <span style={ppStyles.playerDiaryText}>{message.diary}</span>
+        </div>
+      ) : null}
     </motion.article>
   )
 }
@@ -856,6 +882,10 @@ function ActionArea({
   freeInput,
   setFreeInput,
   setShowFreeInput,
+  diary,
+  setDiary,
+  showDiary,
+  setShowDiary,
   busy,
   onPickOption,
   onSubmitFree,
@@ -865,6 +895,10 @@ function ActionArea({
   freeInput: string
   setFreeInput: (v: string) => void
   setShowFreeInput: (v: boolean) => void
+  diary: string
+  setDiary: (v: string) => void
+  showDiary: boolean
+  setShowDiary: (v: boolean) => void
   busy: boolean
   onPickOption: (idx: number) => void
   onSubmitFree: () => void
@@ -952,6 +986,50 @@ function ActionArea({
           type="button"
         >
           + 我想自己写一个动作
+        </button>
+      )}
+
+      {/* Diary input — private inner monologue. Sits alongside the action
+          and gets sent with the next submission. NPCs cannot see it. */}
+      {showDiary ? (
+        <div style={ppStyles.diaryBox}>
+          <div style={ppStyles.diaryLabel}>
+            <span style={ppStyles.diaryLabelTag}>内心独白</span>
+            <span style={ppStyles.diaryLabelHint}>
+              只有你和叙述者看得到 · NPC 听不到 · 跟下一个动作一起提交
+            </span>
+          </div>
+          <textarea
+            style={ppStyles.diaryTextarea}
+            value={diary}
+            placeholder="你心里真正在想什么？（30-200 字最佳，留空就是不写）"
+            onChange={(e) => setDiary(e.target.value)}
+            disabled={busy}
+            spellCheck={false}
+            rows={2}
+            maxLength={600}
+          />
+          <button
+            className="ts-btn ts-btn--ghost"
+            onClick={() => {
+              setShowDiary(false)
+              setDiary("")
+            }}
+            disabled={busy}
+            type="button"
+            style={{ fontSize: 12, padding: "4px 10px" }}
+          >
+            取消独白
+          </button>
+        </div>
+      ) : (
+        <button
+          style={ppStyles.diaryToggle}
+          onClick={() => setShowDiary(true)}
+          disabled={busy}
+          type="button"
+        >
+          + 写一句内心独白（NPC 看不到）
         </button>
       )}
     </motion.div>
@@ -1653,6 +1731,29 @@ const ppStyles: Record<string, CSSProperties> = {
     marginBottom: 4,
   },
   playerText: { fontSize: 14.5, lineHeight: 1.6, color: "var(--text-muted)", fontStyle: "italic" },
+  playerDiary: {
+    marginTop: 8,
+    padding: "8px 12px",
+    background: "rgba(140,100,200,0.06)",
+    border: "1px dashed rgba(140,100,200,0.32)",
+    borderRadius: 6,
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: 4,
+  },
+  playerDiaryTag: {
+    fontSize: 10,
+    color: "rgba(180,150,230,0.85)",
+    letterSpacing: "0.08em",
+    textTransform: "uppercase" as const,
+    fontWeight: 600,
+  },
+  playerDiaryText: {
+    fontSize: 13,
+    lineHeight: 1.65,
+    color: "rgba(220,210,240,0.92)",
+    fontFamily: "var(--font-narrative)",
+  },
 
   actionArea: { marginTop: 28, paddingTop: 24, borderTop: "1px dashed var(--line)" },
   optionsList: { display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 },
@@ -1697,6 +1798,59 @@ const ppStyles: Record<string, CSSProperties> = {
     padding: "8px 0",
     cursor: "pointer",
     textAlign: "left",
+  },
+
+  // Diary input — same shape as freeInputBox but purple-tinted to read
+  // as private/inner monologue, paired with diary toggle button.
+  diaryToggle: {
+    background: "none",
+    border: "none",
+    color: "rgba(180,150,230,0.85)",
+    fontSize: 12.5,
+    padding: "6px 0",
+    cursor: "pointer",
+    textAlign: "left",
+    fontStyle: "italic" as const,
+  },
+  diaryBox: {
+    marginTop: 12,
+    padding: "12px 14px",
+    background: "rgba(140,100,200,0.05)",
+    border: "1px dashed rgba(140,100,200,0.30)",
+    borderRadius: "var(--radius-sm)",
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: 8,
+  },
+  diaryLabel: {
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: 2,
+  },
+  diaryLabelTag: {
+    fontSize: 10,
+    color: "rgba(180,150,230,0.92)",
+    letterSpacing: "0.08em",
+    textTransform: "uppercase" as const,
+    fontWeight: 600,
+  },
+  diaryLabelHint: {
+    fontSize: 11,
+    color: "var(--text-faint)",
+    fontStyle: "italic" as const,
+  },
+  diaryTextarea: {
+    width: "100%",
+    background: "var(--bg-elev)",
+    border: "1px solid rgba(140,100,200,0.20)",
+    borderRadius: "var(--radius-sm)",
+    fontSize: 13.5,
+    lineHeight: 1.6,
+    color: "rgba(230,220,240,0.95)",
+    padding: "10px 12px",
+    resize: "none" as const,
+    outline: "none",
+    fontFamily: "var(--font-narrative)",
   },
 
   busyShim: {

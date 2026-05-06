@@ -324,6 +324,11 @@ class NarrativeService:
         player_action_text, chosen_index = self._resolve_player_action(
             request, last_narrator
         )
+        # Optional inner monologue. Trimmed by the contract's max_length;
+        # we still defensively strip whitespace and skip empty.
+        diary_text: str | None = None
+        if request.diary and request.diary.strip():
+            diary_text = request.diary.strip()[:600]
 
         # Build the player message in memory; do NOT persist until the
         # narrator beat succeeds. Avoids orphan player messages.
@@ -334,6 +339,7 @@ class NarrativeService:
             content=player_action_text,
             options=[],
             chosen_option_index=chosen_index,
+            diary=diary_text,
         )
 
         # turn_index = the index of the new narrator beat we're about to write.
@@ -365,6 +371,7 @@ class NarrativeService:
                 player_goals=template.player_goals or None,
                 player_role=active_role,
                 current_inventory=current_inventory or None,
+                player_diary=diary_text,
             )
         except NarrativeGatewayError as exc:
             raise NarrativeServiceError(

@@ -143,6 +143,11 @@ class StoryMessage(BaseModel):
     # Optional per-turn inventory delta. None on most turns (objects
     # don't change hands every beat); fires on real "物件交接" moments.
     inventory_delta: InventoryDelta | None = None
+    # Optional inner monologue the player wrote alongside their action.
+    # Only present on player messages. NPCs cannot read this — only
+    # the LLM uses it to calibrate the inner-state register of
+    # subsequent narration. Empty/missing on most turns.
+    diary: str | None = Field(default=None, max_length=600)
 
 
 class AdvisorMessage(BaseModel):
@@ -389,6 +394,11 @@ class AdvanceTurnRequest(BaseModel):
 
     chosen_option_index: int | None = None
     free_input: str | None = Field(default=None, max_length=400)
+    # Optional inner monologue. Stored on the player message and fed to
+    # the LLM as private context, never shown to NPC characters in the
+    # fiction. Lets the player record what they're really thinking
+    # while playing the role.
+    diary: str | None = Field(default=None, max_length=600)
 
 
 class AdvanceTurnResponse(BaseModel):

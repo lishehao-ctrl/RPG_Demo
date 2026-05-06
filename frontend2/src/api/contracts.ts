@@ -578,6 +578,12 @@ export type NarrativeStoryOption = {
 
 export type NarrativeStoryRole = "narrator" | "player"
 
+export type NarrativeInventoryDelta = {
+  added: string[]
+  removed: string[]
+  reason: string
+}
+
 export type NarrativeStoryMessage = {
   ord: number
   role: NarrativeStoryRole
@@ -585,6 +591,7 @@ export type NarrativeStoryMessage = {
   options: NarrativeStoryOption[]
   chosen_option_index: number | null
   npc_pulse?: NarrativeNPCPulse[]
+  inventory_delta?: NarrativeInventoryDelta | null
 }
 
 export type NarrativeDifficulty = "story" | "gauntlet"

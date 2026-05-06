@@ -161,6 +161,13 @@ export function PlayPage({
   const castNameById: Record<string, string> = Object.fromEntries(
     story.template.cast.map((c) => [c.character_id, c.display_name]),
   )
+  // Live inventory derived from role.starting_assets + Σ delta over
+  // narrator messages. Mirrors backend compute_current_inventory.
+  const liveInventory = computeLiveInventory(
+    story.session.player_role?.starting_assets ?? [],
+    story.messages,
+  )
+  const startingAssetSet = new Set(story.session.player_role?.starting_assets ?? [])
 
   return (
     <div style={ppStyles.page}>
@@ -229,13 +236,29 @@ export function PlayPage({
                   </ul>
                 </div>
               ) : null}
-              {story.session.player_role.starting_assets.length > 0 ? (
+              {liveInventory.length > 0 ? (
                 <div style={ppStyles.roleBannerLevSection}>
-                  <span style={ppStyles.roleBannerSecretTag}>开局握着</span>
+                  <span style={ppStyles.roleBannerSecretTag}>
+                    手里的牌（{liveInventory.length}）
+                  </span>
                   <ul style={ppStyles.roleBannerLevList}>
-                    {story.session.player_role.starting_assets.map((a, i) => (
-                      <li key={i}>· {a}</li>
-                    ))}
+                    {liveInventory.map((item, i) => {
+                      const isAcquired = !startingAssetSet.has(item)
+                      return (
+                        <motion.li
+                          key={`${i}-${item}`}
+                          initial={isAcquired ? { opacity: 0, x: -8 } : false}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={itemTransition}
+                          style={{
+                            ...(isAcquired ? ppStyles.roleInvAcquired : {}),
+                          }}
+                        >
+                          {isAcquired ? "+ " : "· "}
+                          {item}
+                        </motion.li>
+                      )
+                    })}
                   </ul>
                 </div>
               ) : null}
@@ -583,6 +606,8 @@ function StoryBeat({
 }) {
   if (message.role === "narrator") {
     const pulses = message.npc_pulse ?? []
+    const delta = message.inventory_delta
+    const hasDelta = !!(delta && (delta.added.length > 0 || delta.removed.length > 0))
     return (
       <motion.article
         layout
@@ -593,6 +618,30 @@ function StoryBeat({
         style={ppStyles.narratorBeat}
       >
         <div style={ppStyles.narratorText}>{message.content}</div>
+        {hasDelta && delta ? (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.92, y: -4 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            transition={{ delay: 0.18, ...itemTransition }}
+            style={ppStyles.invToast}
+          >
+            {delta.added.map((item, i) => (
+              <div key={`add-${i}`} style={ppStyles.invToastAdded}>
+                <span style={ppStyles.invToastIcon}>＋</span>
+                你拿到：{item}
+              </div>
+            ))}
+            {delta.removed.map((item, i) => (
+              <div key={`rm-${i}`} style={ppStyles.invToastRemoved}>
+                <span style={ppStyles.invToastIcon}>－</span>
+                你失去了：{item}
+              </div>
+            ))}
+            {delta.reason ? (
+              <div style={ppStyles.invToastReason}>{delta.reason}</div>
+            ) : null}
+          </motion.div>
+        ) : null}
         {message.chosen_option_index != null && message.options.length > 0 ? (
           <motion.div
             initial={{ opacity: 0, scale: 0.92 }}
@@ -650,6 +699,30 @@ function StoryBeat({
       <div style={ppStyles.playerText}>{message.content}</div>
     </motion.article>
   )
+}
+
+function computeLiveInventory(
+  startingAssets: string[],
+  messages: NarrativeStoryMessage[],
+): string[] {
+  const inv: string[] = [...startingAssets]
+  for (const msg of messages) {
+    if (msg.role !== "narrator" || !msg.inventory_delta) continue
+    for (const added of msg.inventory_delta.added) {
+      inv.push(added)
+    }
+    for (const removed of msg.inventory_delta.removed) {
+      const target = removed.toLowerCase()
+      for (let i = 0; i < inv.length; i += 1) {
+        const item = inv[i]?.toLowerCase() ?? ""
+        if (item && (item.includes(target) || target.includes(item))) {
+          inv.splice(i, 1)
+          break
+        }
+      }
+    }
+  }
+  return inv
 }
 
 function shiftArrow(shift: NarrativeNPCPulse["shift"]): string {
@@ -1175,6 +1248,47 @@ const ppStyles: Record<string, CSSProperties> = {
     color: "rgba(180,150,230,0.95)",
     fontWeight: 600,
     marginRight: 6,
+  },
+  roleInvAcquired: {
+    color: "rgba(245,200,120,0.92)",
+    fontWeight: 500,
+  },
+
+  // Inventory delta toast — sits above pulse chips on a narrator beat
+  invToast: {
+    margin: "10px 0 8px",
+    padding: "10px 14px",
+    background: "linear-gradient(180deg, rgba(245,200,120,0.13), rgba(245,200,120,0.04))",
+    border: "1px solid rgba(245,200,120,0.36)",
+    borderRadius: 8,
+    fontSize: 13,
+    lineHeight: 1.55,
+  },
+  invToastAdded: {
+    color: "rgba(245,210,140,1)",
+    fontWeight: 600,
+    display: "flex",
+    alignItems: "baseline",
+    gap: 8,
+  },
+  invToastRemoved: {
+    color: "rgba(220,140,140,0.95)",
+    fontWeight: 500,
+    display: "flex",
+    alignItems: "baseline",
+    gap: 8,
+    marginTop: 4,
+  },
+  invToastIcon: {
+    fontSize: 15,
+    fontWeight: 700,
+    minWidth: 14,
+  },
+  invToastReason: {
+    marginTop: 6,
+    fontSize: 11.5,
+    color: "var(--text-faint)",
+    fontStyle: "italic" as const,
   },
 
   // Gauntlet-mode goals card

@@ -1,14 +1,48 @@
 # Tiny Stories
 
-> 一个 LLM 驱动的互动叙事 Demo —— 12 回合短剧,3 张可选玩家身份,15 种可分享结局.
->
-> An LLM-driven interactive narrative demo — 12-turn short drama, 3 selectable player roles, 15 shareable endings.
+<p align="center">
+  <img src="./docs/images/hero.jpg" alt="Tiny Stories — interactive drama hero" width="100%" />
+</p>
 
-[Architecture deep-dive](./ARCHITECTURE.md) · [Specs](./specs/)
+<p align="center">
+  <strong>一个 LLM 驱动的 12 回合互动博弈剧引擎 · An LLM-driven 12-turn interactive drama engine</strong>
+</p>
 
-![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
-![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)
-![React 19](https://img.shields.io/badge/react-19-61dafb.svg)
+<p align="center">
+  3 张可选玩家身份 · NPC 之间互握把柄 · 15 种可分享结局 · MIT licensed
+</p>
+
+<p align="center">
+  <a href="./ARCHITECTURE.md">Architecture deep-dive</a> ·
+  <a href="./CONTRIBUTING.md">Contributing</a> ·
+  <a href="./docs/devlog/2026-05-tiny-stories-9-mechanisms.md">Design devlog</a> ·
+  <a href="./docs/GOOD_FIRST_ISSUES.md">Good first issues</a>
+</p>
+
+<p align="center">
+  <img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-yellow.svg" />
+  <img alt="Python 3.11+" src="https://img.shields.io/badge/python-3.11+-blue.svg" />
+  <img alt="React 19" src="https://img.shields.io/badge/react-19-61dafb.svg" />
+  <img alt="Status: Alpha" src="https://img.shields.io/badge/status-alpha-orange.svg" />
+</p>
+
+---
+
+## TL;DR
+
+你写一句故事开头.AI 给你搭一个**完整的 12 回合博弈剧** — 几个有秘密的 NPC、彼此手里捏着把柄的政治网络、几张可选的玩家身份卡(每张走出不同故事).你 15 分钟玩完一局,拿到一个**可发朋友圈的结局标签**,看自己没走过的另外 2 条路.
+
+> 这不是聊天 bot,不是无穷模拟,是一个**有结构、有结局、可分享**的短剧引擎.
+
+```
+hook → pressure → reversal (强制翻转) → climax → pre_finale
+   ↓ each turn ↓
+   你的选择 + NPC 主动出招 + inventory 累积 + 可选 advisor oracle
+   ↓ end ↓
+   15 ending labels · 5 个关键时刻 highlight · 2-3 条"你没走过的路"
+```
+
+**这是给做 LLM-driven 产品的人的 study showcase**,不是给终端用户的 SaaS.机制完整 + 文档详尽 + 可 fork.读懂这个 repo 你能拿到的:**结构化 prompt design + scheduler-driven LLM control + 跨层契约设计** 这一套实战 pattern.
 
 ---
 

@@ -35,6 +35,13 @@ export function ReplayPage({
   const [replay, setReplay] = useState<NarrativePublicReplayResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [showAdvisor, setShowAdvisor] = useState(true)
+  // Entry mode for shared replay links:
+  //   "preview" — hero + 5 highlight cards in a horizontal carousel +
+  //   CTA. The default. Friends arriving from a shared link see the
+  //   shape of the story at a glance, decide if they want to dive in.
+  //   "full"    — the original 12-beat read, with skim toggle.
+  // Switching is a single tap; preference is per-tab (not persisted).
+  const [viewMode, setViewMode] = useState<"preview" | "full">("preview")
   // Skim mode: collapse narrator beats to a 3-line preview by default.
   // Friends opening a 12-turn replay link don't necessarily want to
   // read all 4000 words — they want to see the shape, then expand
@@ -168,6 +175,100 @@ export function ReplayPage({
           </div>
         </section>
 
+        {/* Preview / Full view-mode toggle. Hidden when there are no
+            highlights to preview (incomplete run or LLM failure) —
+            in that case "full" is the only sensible mode anyway. */}
+        {replay.ending?.highlights && replay.ending.highlights.length > 0 ? (
+          <div style={rpStyles.viewModeRow}>
+            <button
+              type="button"
+              style={{
+                ...rpStyles.viewModeBtn,
+                ...(viewMode === "preview" ? rpStyles.viewModeBtnActive : null),
+              }}
+              onClick={() => setViewMode("preview")}
+              aria-pressed={viewMode === "preview"}
+            >
+              {t("replay.view_preview")}
+            </button>
+            <button
+              type="button"
+              style={{
+                ...rpStyles.viewModeBtn,
+                ...(viewMode === "full" ? rpStyles.viewModeBtnActive : null),
+              }}
+              onClick={() => setViewMode("full")}
+              aria-pressed={viewMode === "full"}
+            >
+              {t("replay.view_full")}
+            </button>
+          </div>
+        ) : null}
+
+        {/* PREVIEW MODE — highlight carousel with CTA. Skipped when
+            no ending/highlights or when user picked full mode. */}
+        {viewMode === "preview" &&
+        replay.ending?.highlights &&
+        replay.ending.highlights.length > 0 ? (
+          <>
+            <section style={rpStyles.section}>
+              <div style={rpStyles.sectionLabel}>{t("replay.preview_label")}</div>
+              <p style={rpStyles.previewHint}>{t("replay.preview_hint")}</p>
+              <div style={rpStyles.highlightCarousel}>
+                {replay.ending.highlights.map((h, i) => (
+                  <article key={`${h.beat_ord}-${i}`} style={rpStyles.previewCard}>
+                    <div style={rpStyles.previewCardIndex}>
+                      {String(i + 1).padStart(2, "0")}
+                    </div>
+                    <h3 style={rpStyles.previewCardHeadline}>{h.headline}</h3>
+                    <p style={rpStyles.previewCardBody}>{h.body_excerpt}</p>
+                    <p style={rpStyles.previewCardWhy}>{h.why_pivotal}</p>
+                  </article>
+                ))}
+              </div>
+            </section>
+
+            {/* Ending splash sits below the carousel as the punctuation. */}
+            {replay.ending ? (
+              <section style={rpStyles.section}>
+                <div style={rpStyles.endingDivider}>
+                  <span style={rpStyles.endingDividerLabel}>{t("replay.ending_divider")}</span>
+                </div>
+                <div style={rpStyles.endingCard}>
+                  <div style={rpStyles.endingLabelChip}>
+                    {ENDING_LABEL_DISPLAY[lang][replay.ending.label] ?? replay.ending.label}
+                  </div>
+                  <h2 style={rpStyles.endingSubtitle}>「{replay.ending.subtitle}」</h2>
+                </div>
+              </section>
+            ) : null}
+
+            {/* CTA — switch to full read or play yourself. */}
+            <div style={rpStyles.cta}>
+              <p style={rpStyles.ctaHint}>{t("replay.preview_cta_hint")}</p>
+              <div style={rpStyles.ctaRow}>
+                <button
+                  className="ts-btn ts-btn--secondary ts-btn--lg"
+                  onClick={() => setViewMode("full")}
+                  type="button"
+                >
+                  {t("replay.preview_cta_full")}
+                </button>
+                <button
+                  className="ts-btn ts-btn--primary ts-btn--lg"
+                  onClick={onBackHome}
+                  type="button"
+                >
+                  {t("replay.cta_back_plaza")}
+                </button>
+              </div>
+            </div>
+          </>
+        ) : null}
+
+        {/* FULL MODE — advisor toggle + story column + ending. */}
+        {viewMode === "full" || !replay.ending?.highlights || replay.ending.highlights.length === 0 ? (
+        <>
         {/* Advisor toggle */}
         {replay.advisor_messages.length > 0 ? (
           <section style={rpStyles.advisorToggleSection}>
@@ -262,6 +363,8 @@ export function ReplayPage({
             {t("replay.cta_back_plaza")}
           </button>
         </div>
+        </>
+        ) : null}
       </main>
     </div>
   )
@@ -516,6 +619,91 @@ const rpStyles: Record<string, CSSProperties> = {
   advisorToggleArrow: { color: "var(--text-faint)", fontSize: 12 },
 
   storyColumn: {},
+  // View-mode toggle (preview vs full) — same pill-segmented look
+  // as the skim toggle below, but at the page level.
+  viewModeRow: {
+    display: "inline-flex",
+    gap: 0,
+    margin: "0 0 24px",
+    padding: 2,
+    background: "var(--bg-elev)",
+    border: "1px solid var(--line)",
+    borderRadius: 999,
+  },
+  viewModeBtn: {
+    background: "transparent",
+    border: "none",
+    color: "var(--text-muted)",
+    fontSize: 12.5,
+    padding: "6px 16px",
+    borderRadius: 999,
+    letterSpacing: "0.04em",
+    cursor: "pointer",
+    transition: "background 160ms, color 160ms",
+  },
+  viewModeBtnActive: {
+    background: "var(--accent-soft)",
+    color: "var(--accent)",
+    fontWeight: 500,
+  },
+  // Highlight carousel — horizontal scroll with snap-to-card on
+  // mobile, stack-of-3 on desktop. Entry experience for shared links.
+  highlightCarousel: {
+    display: "grid",
+    gridAutoFlow: "row",
+    gap: 12,
+    marginTop: 12,
+  },
+  previewCard: {
+    padding: "18px 22px",
+    background: "linear-gradient(180deg, rgba(245,200,120,0.08), rgba(245,200,120,0.02))",
+    border: "1px solid rgba(245,200,120,0.28)",
+    borderRadius: "var(--radius-md)",
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: 10,
+  },
+  previewCardIndex: {
+    fontFamily: "var(--font-narrative)",
+    fontSize: 11.5,
+    fontWeight: 700,
+    letterSpacing: "0.16em",
+    color: "rgba(245,200,120,0.78)",
+  },
+  previewCardHeadline: {
+    fontFamily: "var(--font-narrative)",
+    fontSize: 19,
+    fontWeight: 500,
+    color: "rgba(255,235,210,0.96)",
+    lineHeight: 1.3,
+    margin: 0,
+  },
+  previewCardBody: {
+    fontFamily: "var(--font-narrative)",
+    fontSize: 14.5,
+    lineHeight: 1.7,
+    color: "var(--text)",
+    margin: 0,
+    fontStyle: "italic" as const,
+  },
+  previewCardWhy: {
+    fontSize: 12.5,
+    lineHeight: 1.55,
+    color: "var(--text-muted)",
+    margin: 0,
+  },
+  previewHint: {
+    fontSize: 13,
+    color: "var(--text-muted)",
+    lineHeight: 1.6,
+    margin: "8px 0 0",
+  },
+  ctaRow: {
+    display: "flex",
+    gap: 10,
+    flexWrap: "wrap" as const,
+    alignItems: "center",
+  },
   // Skim toggle row pinned at the top of the story column.
   skimToggleRow: {
     display: "inline-flex",

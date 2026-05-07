@@ -12,6 +12,7 @@ import { Hint } from "../../shared/ui/hint"
 import { LoadingShim } from "../../shared/ui/loading-shim"
 import { StageProgressBar } from "../../shared/ui/stage-progress-bar"
 import { Truncated } from "../../shared/ui/truncated"
+import { useBookmarks } from "../../shared/lib/bookmarks"
 import { friendlyError } from "../../shared/lib/friendly-error"
 import { useT } from "../../shared/lib/i18n"
 import {
@@ -50,6 +51,12 @@ export function PlayPage({
   const t = useT()
   const [story, setStory] = useState<NarrativeStoryHistoryResponse | null>(null)
   const [ending, setEnding] = useState<NarrativeEnding | null>(null)
+  // Per-session bookmarks — beats the user marked as "I want to
+  // remember this." Merged into ending highlights at finalize so
+  // the user's call has authority alongside the LLM's picks.
+  const { marked: bookmarkedOrds, toggle: toggleBookmark, count: bookmarkCount } =
+    useBookmarks(sessionId)
+  void bookmarkCount
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // Remember the last action that errored so the inline error banner
@@ -399,19 +406,43 @@ export function PlayPage({
             </motion.div>
           ) : null}
 
-          {story.messages.map((m) => (
-            <StoryBeat
-              key={`${m.role}-${m.ord}`}
-              message={m}
-              castNameById={castNameById}
-              intensity={
-                m.role === "narrator"
-                  ? computeBeatIntensity(m, turnBudget)
-                  : "calm"
+          {story.messages.map((m, idx) => {
+            // For player messages that picked an option, find the
+            // previous narrator beat and look up the option's handle.
+            // Using this in StoryBeat lets us render "you picked: 亮录音"
+            // as a memory anchor instead of the full intent-tagged sentence.
+            let pickedHandle: string | undefined
+            if (m.role === "player" && idx > 0) {
+              const prev = story.messages[idx - 1]
+              if (
+                prev?.role === "narrator" &&
+                prev.chosen_option_index != null &&
+                prev.options[prev.chosen_option_index]?.handle
+              ) {
+                pickedHandle = prev.options[prev.chosen_option_index].handle
               }
-              sceneUrl={m.role === "narrator" ? getPeakCloseUp(m.ord) : undefined}
-            />
-          ))}
+            }
+            return (
+              <StoryBeat
+                key={`${m.role}-${m.ord}`}
+                message={m}
+                castNameById={castNameById}
+                intensity={
+                  m.role === "narrator"
+                    ? computeBeatIntensity(m, turnBudget)
+                    : "calm"
+                }
+                sceneUrl={m.role === "narrator" ? getPeakCloseUp(m.ord) : undefined}
+                pickedHandle={pickedHandle}
+                isBookmarked={m.role === "narrator" && bookmarkedOrds.has(m.ord)}
+                onToggleBookmark={
+                  m.role === "narrator" && !isComplete
+                    ? () => toggleBookmark(m.ord)
+                    : undefined
+                }
+              />
+            )
+          })}
 
           <AnimatePresence>
             {error ? (
@@ -464,6 +495,8 @@ export function PlayPage({
               ending={ending}
               sessionId={sessionId}
               templateId={story.template.template_id}
+              messages={story.messages}
+              bookmarkedOrds={bookmarkedOrds}
               shareCopied={shareCopied}
               onShare={() => {
                 const url = `${window.location.origin}/#/replay/${sessionId}`
@@ -650,6 +683,8 @@ function EndingScreen({
   ending,
   sessionId,
   templateId,
+  messages,
+  bookmarkedOrds,
   shareCopied,
   onShare,
   onPlayAgain,
@@ -658,6 +693,8 @@ function EndingScreen({
   ending: NarrativeEnding
   sessionId: string
   templateId: string
+  messages: NarrativeStoryMessage[]
+  bookmarkedOrds: Set<number>
   shareCopied: boolean
   onShare: () => void
   onPlayAgain: () => void
@@ -665,6 +702,49 @@ function EndingScreen({
 }) {
   void templateId
   const t = useT()
+
+  // Merge user bookmarks into the LLM's highlight list. User picks
+  // get a `userMarked` flag and a synthesized headline / body
+  // excerpt so they slot into the same card layout. Dedupe against
+  // LLM picks (same ord = the LLM and the user both flagged it,
+  // collapse into one card with the badge).
+  type DisplayHighlight = {
+    beat_ord: number
+    headline: string
+    body_excerpt: string
+    why_pivotal: string
+    userMarked: boolean
+  }
+  const llmHighlights: DisplayHighlight[] = (ending.highlights ?? []).map((h) => ({
+    beat_ord: h.beat_ord,
+    headline: h.headline,
+    body_excerpt: h.body_excerpt,
+    why_pivotal: h.why_pivotal,
+    userMarked: bookmarkedOrds.has(h.beat_ord),
+  }))
+  const llmOrds = new Set(llmHighlights.map((h) => h.beat_ord))
+  const narratorByOrd = new Map(
+    messages.filter((m) => m.role === "narrator").map((m) => [m.ord, m]),
+  )
+  const userOnlyHighlights: DisplayHighlight[] = Array.from(bookmarkedOrds)
+    .filter((ord) => !llmOrds.has(ord))
+    .map((ord) => {
+      const m = narratorByOrd.get(ord)
+      return {
+        beat_ord: ord,
+        headline: t("play.ending_user_bookmark"),
+        body_excerpt: m?.content?.slice(0, 200) ?? "",
+        why_pivotal: "",
+        userMarked: true,
+      }
+    })
+    .filter((h) => h.body_excerpt.length > 0)
+  const mergedHighlights: DisplayHighlight[] = [
+    // User-only marks lead so the user's voice is first.
+    ...userOnlyHighlights,
+    ...llmHighlights,
+  ].sort((a, b) => a.beat_ord - b.beat_ord)
+
   // Skip the 1.7s choreography in two cases:
   //  1. User prefers reduced motion (a11y system pref)
   //  2. They've already seen this exact ending in this browser session
@@ -813,8 +893,10 @@ function EndingScreen({
           {ending.passage}
         </motion.div>
 
-        {/* Highlight reel — 5 pivotal moments LLM picked from the run. */}
-        {ending.highlights && ending.highlights.length > 0 ? (
+        {/* Highlight reel — LLM picks merged with user bookmarks.
+            User-marked cards lead with a ★ badge and yellow accent
+            border so it reads as "your pick" alongside the system's. */}
+        {mergedHighlights.length > 0 ? (
           <motion.section
             initial={initialOr({ opacity: 0, y: 12 })}
             animate={{ opacity: 1, y: 0 }}
@@ -822,10 +904,10 @@ function EndingScreen({
             style={ppStyles.highlightReel}
           >
             <div style={ppStyles.highlightReelLabel}>
-              {t("play.ending_highlights_title", { count: ending.highlights.length })}
+              {t("play.ending_highlights_title", { count: mergedHighlights.length })}
             </div>
             <div style={ppStyles.highlightList}>
-              {ending.highlights.map((h, i) => (
+              {mergedHighlights.map((h, i) => (
                 <motion.div
                   key={`${h.beat_ord}-${i}`}
                   initial={initialOr({ opacity: 0, x: -8 })}
@@ -836,14 +918,24 @@ function EndingScreen({
                     transition: transitions.snap,
                   }}
                   transition={{ delay: delayOr(1.05 + cascadeDelay(i, 0.08)), ...itemTransition }}
-                  style={ppStyles.highlightCard}
+                  style={{
+                    ...ppStyles.highlightCard,
+                    ...(h.userMarked ? ppStyles.highlightCardUserMarked : null),
+                  }}
                 >
                   <div style={ppStyles.highlightHeader}>
                     <span style={ppStyles.highlightIndex}>{i + 1}</span>
+                    {h.userMarked ? (
+                      <span style={ppStyles.highlightUserMark} aria-label="bookmarked by you">
+                        ★
+                      </span>
+                    ) : null}
                     <span style={ppStyles.highlightHeadline}>{h.headline}</span>
                   </div>
                   <div style={ppStyles.highlightBody}>{h.body_excerpt}</div>
-                  <div style={ppStyles.highlightWhy}>{h.why_pivotal}</div>
+                  {h.why_pivotal ? (
+                    <div style={ppStyles.highlightWhy}>{h.why_pivotal}</div>
+                  ) : null}
                 </motion.div>
               ))}
             </div>
@@ -979,11 +1071,23 @@ function StoryBeat({
   castNameById,
   intensity = "calm",
   sceneUrl,
+  pickedHandle,
+  isBookmarked,
+  onToggleBookmark,
 }: {
   message: NarrativeStoryMessage
   castNameById?: Record<string, string>
   intensity?: "calm" | "rising" | "peak"
   sceneUrl?: string
+  /** When this player message was an option pick, the option's
+   *  short memory handle. Used to render a leading chip so users
+   *  remember "I picked X" rather than re-parsing the full sentence. */
+  pickedHandle?: string
+  /** True if the user has bookmarked this narrator beat. */
+  isBookmarked?: boolean
+  /** Click handler for the bookmark icon. Undefined hides the icon
+   *  (e.g. for player messages or after the run is complete). */
+  onToggleBookmark?: () => void
 }) {
   const t = useT()
   if (message.role === "narrator") {
@@ -1011,8 +1115,32 @@ function StoryBeat({
         animate="animate"
         variants={itemVariants}
         transition={itemTransition}
-        style={beatStyle}
+        style={{
+          ...beatStyle,
+          position: "relative",
+          ...(isBookmarked ? ppStyles.narratorBeatBookmarked : null),
+        }}
       >
+        {/* Bookmark toggle — top-right of every narrator beat while
+            the run is active. Lets the user mark "this is the
+            moment I want to remember" so it shows up in the ending
+            highlights with their own badge, alongside (or instead
+            of) the LLM picks. */}
+        {onToggleBookmark ? (
+          <button
+            type="button"
+            onClick={onToggleBookmark}
+            aria-label={isBookmarked ? "Bookmarked — click to remove" : "Bookmark this beat"}
+            aria-pressed={!!isBookmarked}
+            style={{
+              ...ppStyles.beatBookmarkBtn,
+              ...(isBookmarked ? ppStyles.beatBookmarkBtnActive : null),
+            }}
+            title={isBookmarked ? "已标记 · 点击取消" : "标记这一段"}
+          >
+            {isBookmarked ? "★" : "☆"}
+          </button>
+        ) : null}
         {intensity === "peak" && sceneUrl ? (
           <motion.div
             initial={{ opacity: 0, scale: 1.05 }}
@@ -1136,7 +1264,14 @@ function StoryBeat({
       transition={itemTransition}
       style={ppStyles.playerBeat}
     >
-      <div style={ppStyles.playerLabel}>{t("play.beat_player_label")}</div>
+      <div style={ppStyles.playerLabel}>
+        {t("play.beat_player_label")}
+        {pickedHandle ? (
+          <span style={ppStyles.playerHandleChip} title={message.content}>
+            {pickedHandle}
+          </span>
+        ) : null}
+      </div>
       <div style={ppStyles.playerText}>{message.content}</div>
       {message.diary ? (
         <div style={ppStyles.playerDiary}>
@@ -1459,6 +1594,16 @@ function ActionArea({
           >
             <span style={ppStyles.pickedReflectIcon}>✓</span>
             <span>{t("play.action_busy")}</span>
+            {/* Echo the picked option's `handle` (memory hook) — gives
+                the user something concrete to remember picking, instead
+                of just the abstract "submitting…". E.g. "✓ submitting…
+                · 亮录音". When the option had no handle (legacy data),
+                falls back to nothing extra. */}
+            {pickedIndex !== null && options[pickedIndex]?.handle ? (
+              <span style={ppStyles.pickedReflectHandle}>
+                · {options[pickedIndex]?.handle}
+              </span>
+            ) : null}
           </motion.div>
         ) : null}
       </AnimatePresence>
@@ -2309,7 +2454,33 @@ const ppStyles: Record<string, CSSProperties> = {
     color: "rgba(255,255,255,0.78)",
   },
 
-  narratorBeat: { marginBottom: 32, position: "relative" as const },
+  narratorBeat: { marginBottom: 32, position: "relative" as const, paddingRight: 36 },
+  // Bookmarked beat — soft accent ring on the left edge, signals
+  // "you marked this" without competing with the rising/peak intensity
+  // ramp.
+  narratorBeatBookmarked: {
+    background: "linear-gradient(90deg, var(--accent-soft) 0%, transparent 16%)",
+    borderRadius: "var(--radius-sm)",
+  },
+  beatBookmarkBtn: {
+    position: "absolute" as const,
+    top: 0,
+    right: 0,
+    width: 28,
+    height: 28,
+    padding: 0,
+    background: "transparent",
+    border: "none",
+    color: "var(--text-faint)",
+    fontSize: 18,
+    lineHeight: 1,
+    cursor: "pointer",
+    transition: "color 160ms, transform 160ms",
+    borderRadius: 4,
+  },
+  beatBookmarkBtnActive: {
+    color: "var(--accent)",
+  },
   narratorBeatRising: {
     marginBottom: 38,
     paddingLeft: 18,
@@ -2385,6 +2556,23 @@ const ppStyles: Record<string, CSSProperties> = {
   chosenText: { color: "var(--text-muted)" },
 
   playerBeat: { marginBottom: 28, paddingLeft: 16, borderLeft: "2px solid var(--accent)" },
+  // Picked-option memory handle chip — sits inline next to the
+  // "you" label. Reads as "you · 亮录音" so users can later say
+  // "I picked '亮录音' that turn" instead of re-parsing the full
+  // intent-tagged sentence below.
+  playerHandleChip: {
+    marginLeft: 8,
+    fontSize: 11.5,
+    fontFamily: "var(--font-narrative)",
+    fontWeight: 500,
+    color: "var(--accent)",
+    background: "var(--accent-soft)",
+    padding: "2px 8px",
+    borderRadius: 4,
+    letterSpacing: 0,
+    textTransform: "none" as const,
+    fontStyle: "normal" as const,
+  },
   playerLabel: {
     fontSize: 11,
     color: "var(--accent)",
@@ -2472,6 +2660,16 @@ const ppStyles: Record<string, CSSProperties> = {
     fontSize: 14,
     fontWeight: 600,
     fontStyle: "normal" as const,
+  },
+  // Memory-handle echo on the picked-reflect banner. Visually
+  // distinct from the "submitting…" copy via heavier weight + the
+  // accent color. Anchors the moment as "this is what I picked."
+  pickedReflectHandle: {
+    fontWeight: 600,
+    color: "var(--accent)",
+    fontStyle: "normal" as const,
+    letterSpacing: "0.02em",
+    marginLeft: 2,
   },
   optionLabel: {
     fontSize: 15,
@@ -2745,6 +2943,18 @@ const ppStyles: Record<string, CSSProperties> = {
     display: "flex",
     flexDirection: "column" as const,
     gap: 8,
+  },
+  // User-bookmarked highlight — slightly heavier accent border
+  // and a soft side bar so the card reads as "your call" rather
+  // than "what the system thought."
+  highlightCardUserMarked: {
+    borderColor: "rgba(245,200,120,0.45)",
+    boxShadow: "inset 3px 0 0 0 var(--accent)",
+  },
+  highlightUserMark: {
+    color: "var(--accent)",
+    fontSize: 13,
+    lineHeight: 1,
   },
   highlightHeader: {
     display: "flex",

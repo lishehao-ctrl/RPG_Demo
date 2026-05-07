@@ -306,6 +306,7 @@ export const STRINGS_ZH = {
   "play.ending_ribbon_early": "提前崩盘",
   "play.ending_trigger_prefix": "· 触发：{trigger}",
   "play.ending_highlights_title": "这一局的关键 {count} 个时刻",
+  "play.ending_user_bookmark": "你标记的时刻",
   "play.ending_branches_title": "你没走的另外 {count} 条路",
   "play.ending_branches_hint": "如果当时换个选择，故事大概率会走向这些结局。再玩一次试试？",
   "play.ending_branch_turn": "第 {turn} 回合",
@@ -331,6 +332,12 @@ export const STRINGS_ZH = {
   "stage_bar.aria": "第 {turn} 回合，共 {total} 回合，当前阶段：{stage}",
 
   // === replay page ===
+  "replay.view_preview": "高光",
+  "replay.view_full": "完整",
+  "replay.preview_label": "故事高光 · {count} 个关键时刻",
+  "replay.preview_hint": "5 个最关键的转折,15 秒看完。看完想读完整故事就切换。",
+  "replay.preview_cta_hint": "想读完整 12 段故事？或者自己也玩一局？",
+  "replay.preview_cta_full": "读完整故事 →",
   "replay.skim_full": "全文",
   "replay.skim_compact": "浓缩看",
   "replay.skim_expand": "点开看完整段 ↓",
@@ -600,6 +607,7 @@ export const STRINGS_EN: Record<StringKey, string> = {
   "play.ending_ribbon_early": "Early collapse",
   "play.ending_trigger_prefix": "· Triggered by: {trigger}",
   "play.ending_highlights_title": "{count} pivotal moments from this run",
+  "play.ending_user_bookmark": "Your bookmarked moment",
   "play.ending_branches_title": "{count} paths you didn't take",
   "play.ending_branches_hint": "Pick differently here and the story would likely land on these endings instead. Want another run?",
   "play.ending_branch_turn": "Turn {turn}",
@@ -623,6 +631,12 @@ export const STRINGS_EN: Record<StringKey, string> = {
   "stage_bar.aria": "Turn {turn} of {total}, current stage: {stage}",
 
   // === replay page ===
+  "replay.view_preview": "Highlights",
+  "replay.view_full": "Full read",
+  "replay.preview_label": "Story highlights · {count} key moments",
+  "replay.preview_hint": "The 5 pivotal turns, 15 seconds to skim. Switch to full when something catches your eye.",
+  "replay.preview_cta_hint": "Want the full 12-beat story? Or play it yourself?",
+  "replay.preview_cta_full": "Read the full story →",
   "replay.skim_full": "Full",
   "replay.skim_compact": "Skim",
   "replay.skim_expand": "Tap to read the full beat ↓",

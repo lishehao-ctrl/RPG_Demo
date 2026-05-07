@@ -48,7 +48,11 @@ _LANGUAGE_DIRECTIVE_EN = (
     "advisor/oracle replies. \n"
     "\n"
     "Specific field handling:\n"
-    "- title, opening_passage, options[].label, options[].hint: ENGLISH.\n"
+    "- title, opening_passage, options[].label, options[].hint, "
+    "options[].handle: ENGLISH. The handle is a 2-3 word memory hook "
+    "for the option (e.g. 'show recording', 'push back', 'step away') "
+    "— short enough that a player can later say 'I picked show "
+    "recording that turn.' Don't repeat the [Intent] bracket prefix.\n"
     "- advisor_persona (the entire description of the friend the player "
     "can call): ENGLISH. Pick a plausible English/Western name and write "
     "the persona description in English.\n"
@@ -145,7 +149,7 @@ _OPENING_SYSTEM_PROMPT = """\
   ],
   "opening_passage": "开场叙述，第二人称（'你'），250-400 字。必须包含：① 玩家所在的具体场景 ② 至少 2 个 NPC 的当下反应 ③ 一个**正在发生**的紧张时刻（不是回忆、不是预告）④ 留给玩家一个明确的抉择窗口。**注意：opening_passage 不要预设玩家是哪一个 player_role**——开场要写得让任何一张卡都能套进去。具体角色身份在 turn 1 才会被注入。",
   "options": [
-    {"label": "选项标签，10-20 字，第一人称视角的动作", "hint": "（可选）一句话说明这个选择的语气或代价"}
+    {"label": "选项标签，10-20 字，第一人称视角的动作", "hint": "（可选）一句话说明这个选择的语气或代价", "handle": "动作的 2-6 字记忆名，玩家事后能脱口而出（举例：'亮录音' / '硬刚' / '退一步' / '挑拨'）—— 是这一步的'符号化标签'，不是 [intent tag]，要具体到这一步在做啥"}
     // 恰好 3 个选项
   ]
 }
@@ -170,7 +174,7 @@ _TURN_SYSTEM_PROMPT = """\
 {
   "passage": "续写的叙述。第二人称。必须呼应玩家刚才的动作，写出 NPC 的反应、关系或局势的变化、一个新的紧张点",
   "options": [
-    {"label": "10-20 字的动作（pressure / reversal / climax 阶段必须以中括号 intent tag 开头：[挑拨] / [反将] / [妥协] / [观望] / [试探] / [合作] / [硬刚] / [示弱]）", "hint": "（可选）语气/代价提示"}
+    {"label": "10-20 字的动作（pressure / reversal / climax 阶段必须以中括号 intent tag 开头：[挑拨] / [反将] / [妥协] / [观望] / [试探] / [合作] / [硬刚] / [示弱]）", "hint": "（可选）语气/代价提示", "handle": "动作的 2-6 字记忆名，玩家事后能脱口而出（举例：'亮录音' / '硬刚' / '退一步'）。是这一步在做啥的'符号化标签'，不是 intent tag"}
   ],
   "npc_pulse": [
     {
@@ -2198,7 +2202,7 @@ def _parse_options(raw: Any) -> list[StoryOption]:
             text = item.strip()
             if not text:
                 continue
-            options.append(StoryOption(label=text[:60], hint=""))
+            options.append(StoryOption(label=text[:60], hint="", handle=""))
             continue
         if not isinstance(item, dict):
             continue
@@ -2206,7 +2210,10 @@ def _parse_options(raw: Any) -> list[StoryOption]:
         if not label:
             continue
         hint = str(item.get("hint") or "").strip()
-        options.append(StoryOption(label=label[:60], hint=hint[:120]))
+        handle = str(item.get("handle") or "").strip()
+        options.append(
+            StoryOption(label=label[:60], hint=hint[:120], handle=handle[:12])
+        )
         if len(options) >= 5:
             break
     return options

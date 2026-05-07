@@ -581,6 +581,11 @@ export type NarrativeNPCPulse = {
 export type NarrativeStoryOption = {
   label: string
   hint: string
+  // Short "memory handle" — 2-6 chars distilling the action so a
+  // player can say "I picked X that turn" months later. Mirrors
+  // backend `StoryOption.handle`. May be empty string when LLM
+  // didn't emit one (older templates / failed parse).
+  handle?: string
 }
 
 export type NarrativeStoryRole = "narrator" | "player"

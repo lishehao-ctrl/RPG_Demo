@@ -118,6 +118,16 @@ class StoryOption(BaseModel):
 
     label: str = Field(min_length=1, max_length=60)
     hint: str = Field(default="", max_length=120)
+    # Short "memory handle" for the option — 2-6 characters in the
+    # template's locale, distilling the action to something a player
+    # could recall later ("亮录音" / "show the recording" rather than
+    # the full intent-tag-prefixed label). Frontend uses this in the
+    # picked-state reflection and in the player message echo so the
+    # user can later say "I chose 'show the recording' that turn"
+    # instead of remembering the whole sentence. Optional for backward
+    # compat — older parsers + LLM responses without this field still
+    # work; UI falls back to label.
+    handle: str = Field(default="", max_length=12)
 
 
 class InventoryDelta(BaseModel):

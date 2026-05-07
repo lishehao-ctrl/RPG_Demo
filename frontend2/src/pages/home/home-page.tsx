@@ -89,60 +89,58 @@ export function HomePage({
       <Header onHome={() => {}} onCreate={onOpenCreate} />
 
       <main style={hpStyles.main}>
+        {/* Webtoon-cinematic hero — full-bleed splash background, text
+            left-aligned over a vertical fade. Style brief: like Naver
+            webtoon / Solo Leveling landing — single sustained scene
+            anchored by a serif title. Bullet list moved to a smaller
+            "how it works" rail under plaza so the hero stays as a
+            single dramatic beat. */}
         <motion.section
           style={hpStyles.hero}
           initial="initial"
           animate="animate"
           transition={{ staggerChildren: 0.08, delayChildren: 0.05 }}
         >
-          <motion.div
-            variants={itemVariants}
-            transition={itemTransition}
-            style={hpStyles.heroTagline}
-          >
-            {t("home.hero_tagline")}
-          </motion.div>
-          <motion.h1
-            variants={itemVariants}
-            transition={itemTransition}
-            style={hpStyles.heroTitle}
-          >
-            {t("home.hero_title_l1")}
-            <br />
-            {t("home.hero_title_l2")}
-          </motion.h1>
-          <motion.p
-            variants={itemVariants}
-            transition={itemTransition}
-            style={hpStyles.heroSub}
-          >
-            {t("home.hero_sub")}
-          </motion.p>
-          <motion.ul
-            variants={itemVariants}
-            transition={itemTransition}
-            style={hpStyles.heroBullets}
-          >
-            <li><span style={hpStyles.heroBulletDot}>·</span>{t("home.hero_bullet_1")}</li>
-            <li><span style={hpStyles.heroBulletDot}>·</span>{t("home.hero_bullet_2")}</li>
-            <li><span style={hpStyles.heroBulletDot}>·</span>{t("home.hero_bullet_3")}</li>
-            <li><span style={hpStyles.heroBulletDot}>·</span>{t("home.hero_bullet_4")}</li>
-          </motion.ul>
-          <motion.div
-            variants={itemVariants}
-            transition={itemTransition}
-            style={hpStyles.heroActions}
-          >
-            <motion.button
-              className="ts-btn ts-btn--primary ts-btn--lg"
-              onClick={onOpenCreate}
-              type="button"
-              whileHover={{ scale: 1.03 }}
-              whileTap={tapPress}
+          <div style={hpStyles.heroInner}>
+            <motion.div
+              variants={itemVariants}
+              transition={itemTransition}
+              style={hpStyles.heroTagline}
             >
-              {t("home.cta_create")}
-            </motion.button>
-          </motion.div>
+              {t("home.hero_tagline")}
+            </motion.div>
+            <motion.h1
+              variants={itemVariants}
+              transition={itemTransition}
+              style={hpStyles.heroTitle}
+            >
+              {t("home.hero_title_l1")}
+              <br />
+              {t("home.hero_title_l2")}
+            </motion.h1>
+            <motion.p
+              variants={itemVariants}
+              transition={itemTransition}
+              style={hpStyles.heroSub}
+            >
+              {t("home.hero_sub")}
+            </motion.p>
+            <motion.div
+              variants={itemVariants}
+              transition={itemTransition}
+              style={hpStyles.heroActions}
+            >
+              <motion.button
+                className="ts-btn ts-btn--primary ts-btn--lg"
+                onClick={onOpenCreate}
+                type="button"
+                whileHover={{ scale: 1.03 }}
+                whileTap={tapPress}
+              >
+                {t("home.cta_create")}
+              </motion.button>
+            </motion.div>
+          </div>
         </motion.section>
 
         {/* My sessions split into in-progress + completed groups. Only
@@ -459,7 +457,11 @@ function TemplateCard({
       <div
         style={{
           ...hpStyles.cardCover,
-          backgroundImage: `linear-gradient(180deg, rgba(20,16,12,0) 30%, rgba(20,16,12,0.78) 100%), url(${cover})`,
+          // Stronger 3-stop gradient: top stays clear (let the
+          // illustration breathe), middle drops in, bottom is near-
+          // black so the serif title reads cleanly. Manhwa-panel
+          // convention for title cards.
+          backgroundImage: `linear-gradient(180deg, rgba(12,12,16,0) 0%, rgba(12,12,16,0) 38%, rgba(12,12,16,0.55) 70%, rgba(12,12,16,0.94) 100%), url(${cover})`,
         }}
       >
         <div style={hpStyles.cardCoverFade}>
@@ -510,61 +512,55 @@ const hpStyles: Record<string, CSSProperties> = {
 
   hero: {
     position: "relative",
-    textAlign: "center",
-    padding: "92px 32px 96px",
+    minHeight: 480,
+    padding: 0,
     borderRadius: "var(--radius-lg)",
     overflow: "hidden",
-    backgroundImage: `linear-gradient(180deg, rgba(20,16,12,0.18) 0%, rgba(20,16,12,0.65) 70%, rgba(20,16,12,0.85) 100%), url(${PAGE_BG.splash})`,
+    // Vertical gradient: keep the upper half of the splash visible,
+    // fade to product bg at the bottom so cards slide up underneath
+    // without a hard seam. Horizontal gradient on the left so text
+    // sits on solid darkness regardless of where the figures land
+    // in the source painting.
+    backgroundImage: `linear-gradient(90deg, rgba(12,12,16,0.92) 0%, rgba(12,12,16,0.55) 38%, rgba(12,12,16,0.18) 70%, rgba(12,12,16,0) 100%), linear-gradient(180deg, rgba(12,12,16,0.05) 0%, rgba(12,12,16,0.45) 80%, var(--bg) 100%), url(${PAGE_BG.splash})`,
     backgroundSize: "cover",
     backgroundPosition: "center 30%",
     color: "white",
-    marginBottom: 12,
+    marginBottom: 32,
+    display: "flex",
+    alignItems: "center",
+  },
+  heroInner: {
+    width: "100%",
+    maxWidth: 720,
+    padding: "88px 56px 96px",
+    textAlign: "left" as const,
   },
   heroTagline: {
     display: "inline-block",
-    fontSize: 12,
-    letterSpacing: "0.18em",
-    color: "rgba(255,255,255,0.75)",
-    padding: "5px 14px",
-    border: "1px solid rgba(255,255,255,0.22)",
-    borderRadius: 999,
-    marginBottom: 18,
-    backdropFilter: "blur(6px)",
+    fontSize: 11,
+    letterSpacing: "0.22em",
+    textTransform: "uppercase" as const,
+    color: "var(--accent)",
+    marginBottom: 24,
+    fontWeight: 600,
   },
   heroTitle: {
     fontFamily: "var(--font-narrative)",
-    fontSize: 52,
-    lineHeight: 1.12,
+    fontSize: 56,
+    lineHeight: 1.08,
     fontWeight: 400,
-    margin: "0 0 18px",
+    margin: "0 0 22px",
     color: "white",
-    textShadow: "0 2px 24px rgba(0,0,0,0.4)",
+    textShadow: "0 2px 28px rgba(0,0,0,0.55)",
+    letterSpacing: "-0.01em",
   },
   heroSub: {
-    fontSize: 17,
-    lineHeight: 1.6,
-    color: "rgba(255,255,255,0.92)",
-    maxWidth: 600,
-    margin: "0 auto 28px",
-    fontWeight: 500,
-  },
-  heroBullets: {
-    listStyle: "none",
-    padding: 0,
-    margin: "0 auto 32px",
+    fontSize: 16,
+    lineHeight: 1.65,
+    color: "rgba(244,239,230,0.82)",
     maxWidth: 540,
-    textAlign: "left",
-    display: "inline-flex",
-    flexDirection: "column",
-    gap: 8,
-    fontSize: 14,
-    lineHeight: 1.55,
-    color: "rgba(255,255,255,0.78)",
-  },
-  heroBulletDot: {
-    color: "var(--accent)",
-    marginRight: 8,
-    fontWeight: 600,
+    margin: "0 0 32px",
+    fontWeight: 400,
   },
   heroActions: { display: "flex", justifyContent: "center", gap: 12 },
 
@@ -696,10 +692,14 @@ const hpStyles: Record<string, CSSProperties> = {
     minWidth: 0,
   },
 
+  // Manhwa-panel grid: tighter cards (200-240 wide) so 4-5 fit per
+  // row on a typical desktop, like a webtoon platform's catalog
+  // landing. Cover-dominant aspect (~9:11) reads as a vertical
+  // panel, not a square thumbnail.
   grid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
-    gap: 16,
+    gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
+    gap: 14,
   },
   card: {
     textAlign: "left",
@@ -713,41 +713,51 @@ const hpStyles: Record<string, CSSProperties> = {
     overflow: "hidden",
     padding: 0,
   },
+  // Cover takes the visual majority of the card (240px tall).
+  // Title sits in a strong gradient mask at the bottom, white
+  // serif on near-black — webtoon catalog aesthetic.
   cardCover: {
-    height: 168,
+    height: 240,
     backgroundSize: "cover",
     backgroundPosition: "center",
     display: "flex",
     alignItems: "flex-end",
-    padding: 16,
+    padding: "14px 14px 12px",
+    position: "relative" as const,
   },
   cardCoverFade: {
     width: "100%",
+    position: "relative" as const,
+    zIndex: 1,
   },
   cardBody: {
-    padding: "14px 16px 16px",
+    padding: "10px 14px 12px",
     display: "flex",
     flexDirection: "column",
-    gap: 10,
+    gap: 8,
+    background: "var(--bg-elev)",
   },
   cardTitle: {
     fontFamily: "var(--font-narrative)",
-    fontSize: 18,
-    lineHeight: 1.3,
+    fontSize: 17,
+    lineHeight: 1.25,
+    fontWeight: 500,
     color: "white",
-    textShadow: "0 1px 10px rgba(0,0,0,0.5)",
-    marginBottom: 4,
+    textShadow: "0 2px 14px rgba(0,0,0,0.85), 0 1px 2px rgba(0,0,0,0.6)",
+    marginBottom: 3,
+    letterSpacing: "-0.005em",
   },
   cardSeed: {
-    fontSize: 13,
+    fontSize: 12.5,
     color: "var(--text-muted)",
     fontStyle: "italic",
     lineHeight: 1.5,
   },
   cardCast: {
-    fontSize: 12,
-    color: "rgba(255,255,255,0.78)",
-    textShadow: "0 1px 4px rgba(0,0,0,0.6)",
+    fontSize: 11,
+    color: "rgba(255,255,255,0.72)",
+    textShadow: "0 1px 6px rgba(0,0,0,0.85)",
+    letterSpacing: "0.02em",
   },
   cardFooter: {
     display: "flex",

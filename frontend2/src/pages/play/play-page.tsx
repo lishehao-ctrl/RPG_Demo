@@ -1,4 +1,4 @@
-import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react"
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { AnimatePresence, motion, useReducedMotion, type TargetAndTransition } from "motion/react"
 import type {
   NarrativeAdvisorMessage,
@@ -1217,7 +1217,40 @@ function ActionArea({
     }
   }, [busy])
 
+  // Keyboard shortcuts:
+  //   1 / 2 / 3 ... pick the corresponding option (when not focused
+  //   in a text input / textarea — otherwise the digit just types).
+  // The hint chips on each option button reflect this.
+  useEffect(() => {
+    if (busy || options.length === 0) return
+    const handler = (e: KeyboardEvent) => {
+      const tgt = e.target as HTMLElement | null
+      if (!tgt) return
+      const inEditable =
+        tgt.tagName === "TEXTAREA" ||
+        tgt.tagName === "INPUT" ||
+        tgt.isContentEditable
+      if (inEditable) return
+      if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return
+      if (e.key >= "1" && e.key <= "9") {
+        const idx = parseInt(e.key, 10) - 1
+        if (idx >= 0 && idx < options.length) {
+          e.preventDefault()
+          handleOptionPick(idx)
+        }
+      }
+    }
+    window.addEventListener("keydown", handler)
+    return () => window.removeEventListener("keydown", handler)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [busy, options.length])
+
   const showPickedReflection = pickedIndex !== null || submittedFree
+  // OS-aware "Cmd" vs "Ctrl" for the submit-shortcut hint.
+  const submitModKey = useMemo(() => {
+    if (typeof navigator === "undefined") return "Ctrl"
+    return /Mac|iPhone|iPad/i.test(navigator.platform) ? "⌘" : "Ctrl"
+  }, [])
 
   return (
     <motion.div
@@ -1261,6 +1294,16 @@ function ActionArea({
                 whileTap={busy ? undefined : tapPress}
               >
                 <div style={ppStyles.optionLabel}>
+                  {/* Number key hint — visual cue that pressing the
+                      digit picks this option. Lives on the leading
+                      edge so it reads as "shortcut: 1, then this
+                      action." Hidden on the small handful of options
+                      beyond 9 (we cap at the first 9 for sanity). */}
+                  {i < 9 ? (
+                    <kbd style={ppStyles.optionKbd} aria-label={`Press ${i + 1}`}>
+                      {i + 1}
+                    </kbd>
+                  ) : null}
                   {parsed.tag ? (
                     <span
                       style={{
@@ -1299,98 +1342,142 @@ function ActionArea({
         ) : null}
       </AnimatePresence>
 
-      {showFreeInput || options.length === 0 ? (
-        <div style={ppStyles.freeInputBox}>
-          <textarea
-            style={ppStyles.freeTextarea}
-            value={freeInput}
-            placeholder={t("play.action_free_placeholder")}
-            onChange={(e) => setFreeInput(e.target.value)}
-            disabled={busy}
-            spellCheck={false}
-            rows={3}
-          />
-          <div style={ppStyles.freeInputActions}>
-            <button
-              className="ts-btn ts-btn--primary"
-              style={{
-                opacity: !freeInput.trim() || busy ? 0.5 : 1,
-                pointerEvents: !freeInput.trim() || busy ? "none" : "auto",
+      <AnimatePresence mode="wait" initial={false}>
+        {showFreeInput || options.length === 0 ? (
+          <motion.div
+            key="free-input-open"
+            style={ppStyles.freeInputBox}
+            initial={{ opacity: 0, height: 0, marginTop: 0 }}
+            animate={{ opacity: 1, height: "auto", marginTop: 14 }}
+            exit={{ opacity: 0, height: 0, marginTop: 0 }}
+            transition={transitions.snap}
+          >
+            <textarea
+              style={ppStyles.freeTextarea}
+              value={freeInput}
+              placeholder={t("play.action_free_placeholder")}
+              onChange={(e) => setFreeInput(e.target.value)}
+              onKeyDown={(e) => {
+                // Cmd/Ctrl + Enter submits — the standard "send" pattern
+                // for any modern textarea input. Plain Enter still
+                // line-breaks because the input is multi-line drama.
+                if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                  if (!freeInput.trim() || busy) return
+                  e.preventDefault()
+                  handleSubmitFreeWithReflect()
+                }
               }}
-              onClick={handleSubmitFreeWithReflect}
-              type="button"
-            >
-              {busy ? t("play.action_busy") : t("play.action_submit")}
-            </button>
-            {options.length > 0 ? (
+              disabled={busy}
+              spellCheck={false}
+              rows={3}
+            />
+            <div style={ppStyles.freeInputActions}>
               <button
-                className="ts-btn ts-btn--ghost"
-                onClick={() => {
-                  setShowFreeInput(false)
-                  setFreeInput("")
+                className="ts-btn ts-btn--primary"
+                style={{
+                  opacity: !freeInput.trim() || busy ? 0.5 : 1,
+                  pointerEvents: !freeInput.trim() || busy ? "none" : "auto",
                 }}
-                disabled={busy}
+                onClick={handleSubmitFreeWithReflect}
                 type="button"
               >
-                {t("play.action_cancel")}
+                <span>{busy ? t("play.action_busy") : t("play.action_submit")}</span>
+                {!busy ? (
+                  <span style={ppStyles.kbdInline} aria-hidden>
+                    <kbd>{submitModKey}</kbd>
+                    <kbd>↵</kbd>
+                  </span>
+                ) : null}
               </button>
-            ) : null}
-          </div>
-        </div>
-      ) : (
-        <button
-          style={ppStyles.freeInputToggle}
-          onClick={() => setShowFreeInput(true)}
-          disabled={busy}
-          type="button"
-        >
-          {t("play.action_open_free")}
-        </button>
-      )}
+              {options.length > 0 ? (
+                <button
+                  className="ts-btn ts-btn--ghost"
+                  onClick={() => {
+                    setShowFreeInput(false)
+                    setFreeInput("")
+                  }}
+                  disabled={busy}
+                  type="button"
+                >
+                  {t("play.action_cancel")}
+                </button>
+              ) : null}
+            </div>
+          </motion.div>
+        ) : (
+          <motion.button
+            key="free-input-toggle"
+            style={ppStyles.freeInputToggle}
+            onClick={() => setShowFreeInput(true)}
+            disabled={busy}
+            type="button"
+            initial={{ opacity: 0, height: 0, marginTop: 0 }}
+            animate={{ opacity: 1, height: "auto", marginTop: 12 }}
+            exit={{ opacity: 0, height: 0, marginTop: 0 }}
+            transition={transitions.snap}
+          >
+            {t("play.action_open_free")}
+          </motion.button>
+        )}
+      </AnimatePresence>
 
       {/* Diary input — private inner monologue. Sits alongside the action
           and gets sent with the next submission. NPCs cannot see it. */}
-      {showDiary ? (
-        <div style={ppStyles.diaryBox}>
-          <div style={ppStyles.diaryLabel}>
-            <span style={ppStyles.diaryLabelTag}>{t("play.beat_diary_tag")}</span>
-            <span style={ppStyles.diaryLabelHint}>
-              {t("play.diary_label_hint")}
-            </span>
-          </div>
-          <textarea
-            style={ppStyles.diaryTextarea}
-            value={diary}
-            placeholder={t("play.diary_placeholder")}
-            onChange={(e) => setDiary(e.target.value)}
-            disabled={busy}
-            spellCheck={false}
-            rows={2}
-            maxLength={600}
-          />
-          <button
-            className="ts-btn ts-btn--ghost"
-            onClick={() => {
-              setShowDiary(false)
-              setDiary("")
-            }}
+      <AnimatePresence mode="wait" initial={false}>
+        {showDiary ? (
+          <motion.div
+            key="diary-open"
+            style={ppStyles.diaryBox}
+            initial={{ opacity: 0, height: 0, marginTop: 0 }}
+            animate={{ opacity: 1, height: "auto", marginTop: 14 }}
+            exit={{ opacity: 0, height: 0, marginTop: 0 }}
+            transition={transitions.snap}
+          >
+            <div style={ppStyles.diaryLabel}>
+              <span style={ppStyles.diaryLabelTag}>{t("play.beat_diary_tag")}</span>
+              <span style={ppStyles.diaryLabelHint}>
+                {t("play.diary_label_hint")}
+              </span>
+            </div>
+            <textarea
+              style={ppStyles.diaryTextarea}
+              value={diary}
+              placeholder={t("play.diary_placeholder")}
+              onChange={(e) => setDiary(e.target.value)}
+              disabled={busy}
+              spellCheck={false}
+              rows={2}
+              maxLength={600}
+            />
+            <button
+              className="ts-btn ts-btn--ghost"
+              onClick={() => {
+                setShowDiary(false)
+                setDiary("")
+              }}
+              disabled={busy}
+              type="button"
+              style={{ fontSize: 12, padding: "4px 10px" }}
+            >
+              {t("play.diary_close")}
+            </button>
+          </motion.div>
+        ) : (
+          <motion.button
+            key="diary-toggle"
+            style={ppStyles.diaryToggle}
+            onClick={() => setShowDiary(true)}
             disabled={busy}
             type="button"
-            style={{ fontSize: 12, padding: "4px 10px" }}
+            initial={{ opacity: 0, height: 0, marginTop: 0 }}
+            animate={{ opacity: 1, height: "auto", marginTop: 10 }}
+            exit={{ opacity: 0, height: 0, marginTop: 0 }}
+            transition={transitions.snap}
           >
-            {t("play.diary_close")}
-          </button>
-        </div>
-      ) : (
-        <button
-          style={ppStyles.diaryToggle}
-          onClick={() => setShowDiary(true)}
-          disabled={busy}
-          type="button"
-        >
-          {t("play.diary_open")}
-        </button>
-      )}
+            {t("play.diary_open")}
+          </motion.button>
+        )}
+      </AnimatePresence>
     </motion.div>
   )
 }
@@ -2237,6 +2324,32 @@ const ppStyles: Record<string, CSSProperties> = {
     letterSpacing: "0.04em",
     flexShrink: 0,
     fontFamily: "var(--font-narrative)",
+  },
+  // Number-key shortcut hint chip on the leading edge of each option.
+  // Shares look-and-feel with global `kbd` but is a touch larger so
+  // it's clearly a hit target hint, not just a label.
+  optionKbd: {
+    flexShrink: 0,
+    minWidth: 22,
+    height: 22,
+    fontSize: 11.5,
+    color: "var(--text-muted)",
+    background: "var(--bg-elev-2)",
+    border: "1px solid var(--line-strong)",
+    borderBottomWidth: 2,
+    borderRadius: 5,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontFamily: "var(--font-ui)",
+  },
+  // Inline keyboard hint (e.g. `⌘ ↵` next to the Send button).
+  kbdInline: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 4,
+    marginLeft: 10,
+    opacity: 0.7,
   },
   optionHint: { fontSize: 12.5, color: "var(--text-muted)", marginTop: 5, lineHeight: 1.45 },
   noOptions: { fontSize: 13, color: "var(--text-faint)", fontStyle: "italic" },

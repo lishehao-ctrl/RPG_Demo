@@ -31,6 +31,75 @@ a { color: inherit; }
 
 ::selection { background: var(--accent-soft); color: var(--text); }
 
+/* ------ a11y: keyboard focus ------ */
+/*
+  Only show the focus ring for keyboard users (`:focus-visible`), not
+  on every mouse click. The accent ring at 2px outline + 2px offset
+  is bright enough to spot on the dark background but not so loud it
+  competes with hover states.
+*/
+:focus { outline: none; }
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+button:focus-visible,
+.btn:focus-visible,
+[role="button"]:focus-visible,
+[role="tab"]:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ------ scrollbar (webkit + firefox) ------ */
+* { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover { background: var(--text-faint); background-clip: padding-box; }
+*::-webkit-scrollbar-corner { background: transparent; }
+
+/* ------ kbd (keyboard shortcut hint pills) ------ */
+kbd {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 18px; height: 18px;
+  padding: 0 5px;
+  font-family: var(--font-ui);
+  font-size: 10.5px; font-weight: 600;
+  color: var(--text-muted);
+  background: var(--bg-elev-2);
+  border: 1px solid var(--line-strong);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  letter-spacing: 0;
+  vertical-align: middle;
+}
+
+/* ------ reduced-motion: kill everything that bounces ------ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* ------ primitives ------ */
 .btn {
   display: inline-flex; align-items: center; justify-content: center;

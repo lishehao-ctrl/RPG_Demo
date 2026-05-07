@@ -1,5 +1,5 @@
 import { type CSSProperties, useEffect, useState } from "react"
-import { motion } from "motion/react"
+import { AnimatePresence, motion } from "motion/react"
 import type {
   NarrativeSessionSummary,
   NarrativeTemplateSummary,
@@ -16,7 +16,7 @@ import {
 } from "../../shared/lib/webtoon-assets"
 import { friendlyError } from "../../shared/lib/friendly-error"
 import { ENDING_LABEL_DISPLAY, useLanguage, useT } from "../../shared/lib/i18n"
-import { hoverLift, itemTransition, itemVariants, tapPress } from "../../shared/lib/motion-presets"
+import { hoverLift, itemTransition, itemVariants, tapPress, transitions } from "../../shared/lib/motion-presets"
 
 type Tab = "plaza" | "my-templates"
 
@@ -152,11 +152,13 @@ export function HomePage({
         ) : null}
 
         <section style={hpStyles.section}>
-          <div style={hpStyles.tabs}>
+          <div style={hpStyles.tabs} role="tablist">
             <button
               style={{ ...hpStyles.tab, ...(tab === "plaza" ? hpStyles.tabActive : {}) }}
               onClick={() => setTab("plaza")}
               type="button"
+              role="tab"
+              aria-selected={tab === "plaza"}
             >
               {t("home.tab_plaza")}
             </button>
@@ -168,27 +170,42 @@ export function HomePage({
                 }}
                 onClick={() => setTab("my-templates")}
                 type="button"
+                role="tab"
+                aria-selected={tab === "my-templates"}
               >
                 {t("home.tab_my")}
               </button>
             ) : null}
           </div>
 
-          {tab === "plaza" ? (
-            <TemplateGrid
-              templates={publicTemplates}
-              error={error}
-              emptyText={t("home.empty_plaza")}
-              onOpenTemplate={onOpenTemplate}
-            />
-          ) : (
-            <TemplateGrid
-              templates={myTemplates}
-              error={null}
-              emptyText={t("home.empty_my")}
-              onOpenTemplate={onOpenTemplate}
-            />
-          )}
+          {/* Cross-fade between plaza ↔ my-templates so switching feels
+              like a sibling pivot, not a layout swap. mode="wait"
+              keeps the height stable during the transition. */}
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.div
+              key={tab}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={transitions.snap}
+            >
+              {tab === "plaza" ? (
+                <TemplateGrid
+                  templates={publicTemplates}
+                  error={error}
+                  emptyText={t("home.empty_plaza")}
+                  onOpenTemplate={onOpenTemplate}
+                />
+              ) : (
+                <TemplateGrid
+                  templates={myTemplates}
+                  error={null}
+                  emptyText={t("home.empty_my")}
+                  onOpenTemplate={onOpenTemplate}
+                />
+              )}
+            </motion.div>
+          </AnimatePresence>
         </section>
 
         <footer style={hpStyles.footer}>

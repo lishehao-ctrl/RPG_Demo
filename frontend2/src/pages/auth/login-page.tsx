@@ -1,5 +1,5 @@
-import { type CSSProperties, type FormEvent, useState } from "react"
-import { motion } from "motion/react"
+import { type CSSProperties, type FormEvent, useEffect, useState } from "react"
+import { AnimatePresence, motion, useAnimationControls } from "motion/react"
 import { useAuth } from "../../app/auth-context"
 import { friendlyError } from "../../shared/lib/friendly-error"
 import { useT } from "../../shared/lib/i18n"
@@ -24,6 +24,19 @@ export function LoginPage({
   const [name, setName] = useState("")
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Shake the input row when an error fires, so the user's eye is
+  // drawn to the field that needs fixing without us blocking with a
+  // modal. Triggered each time `error` becomes truthy — even if the
+  // string is identical to the previous one (so spamming the bad
+  // submit re-shakes).
+  const inputControls = useAnimationControls()
+  useEffect(() => {
+    if (!error) return
+    void inputControls.start({
+      x: [0, -7, 6, -4, 3, -1, 0],
+      transition: { duration: 0.42 },
+    })
+  }, [error, inputControls])
 
   const submit = async (e?: FormEvent<HTMLFormElement>) => {
     e?.preventDefault?.()
@@ -77,21 +90,37 @@ export function LoginPage({
           <h1 style={lpStyles.title}>{t("login.title")}</h1>
           <p style={lpStyles.sub}>{t("login.sub")}</p>
 
-          <div style={lpStyles.inputWrap}>
+          <motion.div style={lpStyles.inputWrap} animate={inputControls}>
             <span style={lpStyles.at}>@</span>
             <input
               style={lpStyles.input}
               placeholder={t("login.placeholder")}
               value={name}
-              onChange={(e) => setName(e.target.value.replace(/^@+/, ""))}
+              onChange={(e) => {
+                if (error) setError(null) // clear on retype
+                setName(e.target.value.replace(/^@+/, ""))
+              }}
               autoFocus
               spellCheck={false}
               autoComplete="off"
               disabled={submitting}
             />
-          </div>
+          </motion.div>
 
-          {error ? <div style={lpStyles.error}>{error}</div> : null}
+          <AnimatePresence>
+            {error ? (
+              <motion.div
+                key="login-error"
+                style={lpStyles.error}
+                initial={{ opacity: 0, height: 0, marginTop: 0 }}
+                animate={{ opacity: 1, height: "auto", marginTop: 10 }}
+                exit={{ opacity: 0, height: 0, marginTop: 0 }}
+                transition={itemTransition}
+              >
+                {error}
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
 
           <button
             type="submit"
@@ -168,9 +197,9 @@ const lpStyles: Record<string, CSSProperties> = {
   },
 
   error: {
-    marginTop: 10,
     fontSize: 12,
     color: "var(--warn)",
+    overflow: "hidden",
   },
 
   note: {

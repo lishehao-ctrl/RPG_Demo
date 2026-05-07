@@ -8,6 +8,7 @@ import type {
   NarrativeStoryMessage,
 } from "../../api/contracts"
 import { useApi } from "../../app/api-context"
+import { Hint } from "../../shared/ui/hint"
 import { LoadingShim } from "../../shared/ui/loading-shim"
 import { StageProgressBar } from "../../shared/ui/stage-progress-bar"
 import { Truncated } from "../../shared/ui/truncated"
@@ -51,6 +52,14 @@ export function PlayPage({
   const [ending, setEnding] = useState<NarrativeEnding | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Remember the last action that errored so the inline error banner
+  // can offer a one-tap retry instead of forcing the user to re-type
+  // / re-pick what they just submitted.
+  const lastFailedActionRef = useRef<{
+    chosen_option_index?: number
+    free_input?: string
+    diary?: string
+  } | null>(null)
   const [freeInput, setFreeInput] = useState("")
   const [showFreeInput, setShowFreeInput] = useState(false)
   const [diary, setDiary] = useState("")
@@ -80,7 +89,7 @@ export function PlayPage({
       })
       .catch((err) => {
         if (cancelled) return
-        setError(friendlyError(err, "无法加载故事。"))
+        setError(friendlyError(err, t("play.error_load_story")))
       })
     return () => {
       cancelled = true
@@ -104,6 +113,7 @@ export function PlayPage({
       if (busy) return
       setBusy(true)
       setError(null)
+      lastFailedActionRef.current = null
       try {
         const response = await api.advanceNarrativeTurn(sessionId, action)
         setStory((prev) => {
@@ -139,7 +149,8 @@ export function PlayPage({
         setDiary("")
         setShowDiary(false)
       } catch (err) {
-        setError(friendlyError(err, "续写失败，请稍后再试。"))
+        setError(friendlyError(err, t("play.error_advance")))
+        lastFailedActionRef.current = action
       } finally {
         setBusy(false)
       }
@@ -232,7 +243,10 @@ export function PlayPage({
               cross-reference any time. */}
           {isGauntlet && !isComplete ? (
             <div style={ppStyles.pulseLegend} aria-label={t("play.pulse_legend_aria")}>
-              <span style={ppStyles.pulseLegendLabel}>{t("play.pulse_legend_label")}</span>
+              <span style={ppStyles.pulseLegendLabel}>
+                {t("play.pulse_legend_label")}
+                <Hint text={t("play.hint_pulse")}>{t("play.hint_pulse")}</Hint>
+              </span>
               {[
                 { shift: "warmer", text: t("play.pulse_warmer") },
                 { shift: "colder", text: t("play.pulse_colder") },
@@ -276,12 +290,22 @@ export function PlayPage({
                 {story.session.player_role.public_persona}
               </p>
               <div style={ppStyles.roleBannerSecret}>
-                <span style={ppStyles.roleBannerSecretTag}>{t("play.role_secret_objective")}</span>
+                <span style={ppStyles.roleBannerSecretTag}>
+                  {t("play.role_secret_objective")}
+                  <Hint text={t("play.hint_role_secret")} side="bottom">
+                    {t("play.hint_role_secret")}
+                  </Hint>
+                </span>
                 {story.session.player_role.hidden_objective}
               </div>
               {story.session.player_role.leverages_over_npcs.length > 0 ? (
                 <div style={ppStyles.roleBannerLevSection}>
-                  <span style={ppStyles.roleBannerSecretTag}>{t("play.role_secret_leverage")}</span>
+                  <span style={ppStyles.roleBannerSecretTag}>
+                    {t("play.role_secret_leverage")}
+                    <Hint text={t("play.hint_role_leverage")} side="bottom">
+                      {t("play.hint_role_leverage")}
+                    </Hint>
+                  </span>
                   <ul style={ppStyles.roleBannerLevList}>
                     {story.session.player_role.leverages_over_npcs.map((lev, i) => (
                       <li key={i}>
@@ -366,7 +390,35 @@ export function PlayPage({
             />
           ))}
 
-          {error ? <div style={ppStyles.errorInline}>{error}</div> : null}
+          <AnimatePresence>
+            {error ? (
+              <motion.div
+                key="play-error"
+                style={ppStyles.errorInline}
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={transitions.snap}
+                role="alert"
+              >
+                <span style={ppStyles.errorInlineText}>{error}</span>
+                {lastFailedActionRef.current ? (
+                  <button
+                    type="button"
+                    className="ts-btn ts-btn--secondary"
+                    style={ppStyles.errorInlineRetry}
+                    onClick={() => {
+                      const a = lastFailedActionRef.current
+                      if (!a) return
+                      void handleAdvance(a)
+                    }}
+                  >
+                    {t("action.retry")}
+                  </button>
+                ) : null}
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
 
           {isFinalApproaching && !busy ? (
             <motion.div
@@ -388,6 +440,7 @@ export function PlayPage({
             <EndingScreen
               ending={ending}
               sessionId={sessionId}
+              templateId={story.template.template_id}
               shareCopied={shareCopied}
               onShare={() => {
                 const url = `${window.location.origin}/#/replay/${sessionId}`
@@ -402,6 +455,15 @@ export function PlayPage({
                   },
                 )
               }}
+              onPlayAgain={() => {
+                // Land on the template detail page where the user can
+                // pick a different role and start a fresh session. We
+                // deliberately don't auto-pick a different role for
+                // them — letting them browse the role cards is part
+                // of the replay loop.
+                window.location.hash = `#/template/${story.template.template_id}`
+              }}
+              onBackHome={onBackHome}
             />
           ) : null}
 
@@ -564,14 +626,21 @@ function Header({
 function EndingScreen({
   ending,
   sessionId,
+  templateId,
   shareCopied,
   onShare,
+  onPlayAgain,
+  onBackHome,
 }: {
   ending: NarrativeEnding
   sessionId: string
+  templateId: string
   shareCopied: boolean
   onShare: () => void
+  onPlayAgain: () => void
+  onBackHome: () => void
 }) {
+  void templateId
   const t = useT()
   // Skip the 1.7s choreography in two cases:
   //  1. User prefers reduced motion (a11y system pref)
@@ -828,20 +897,46 @@ function EndingScreen({
           transition={{ delay: delayOr(1.7), ...itemTransition }}
           style={ppStyles.endingActions}
         >
-          <motion.button
-            className="ts-btn ts-btn--primary"
-            onClick={onShare}
-            type="button"
-            style={{ minWidth: 200 }}
-            whileHover={{ scale: 1.02 }}
-            whileTap={tapPress}
-            key={shareCopied ? "copied" : "default"}
-            initial={shareCopied ? { scale: 0.92 } : false}
-            animate={shareCopied ? { scale: [0.92, 1.06, 1] } : { scale: 1 }}
-            transition={transitions.base}
-          >
-            {shareCopied ? t("play.ending_share_copied") : t("play.ending_share")}
-          </motion.button>
+          <div style={ppStyles.endingActionsRow}>
+            <motion.button
+              className="ts-btn ts-btn--primary"
+              onClick={onShare}
+              type="button"
+              style={{ minWidth: 180 }}
+              whileHover={{ scale: 1.02 }}
+              whileTap={tapPress}
+              key={shareCopied ? "copied" : "default"}
+              initial={shareCopied ? { scale: 0.92 } : false}
+              animate={shareCopied ? { scale: [0.92, 1.06, 1] } : { scale: 1 }}
+              transition={transitions.base}
+            >
+              {shareCopied ? t("play.ending_share_copied") : t("play.ending_share")}
+            </motion.button>
+            {/* Replay-with-different-role — closes the loop. Without
+                this, finishing a run was a dead end; user had to nav
+                back home → find template → re-pick role. Now it's
+                one click. We deliberately route through the template
+                detail page rather than auto-picking a new role —
+                seeing the role cards is part of the re-engagement. */}
+            <motion.button
+              className="ts-btn ts-btn--secondary"
+              onClick={onPlayAgain}
+              type="button"
+              whileHover={{ scale: 1.02 }}
+              whileTap={tapPress}
+            >
+              {t("play.ending_replay")}
+            </motion.button>
+            <motion.button
+              className="ts-btn ts-btn--ghost"
+              onClick={onBackHome}
+              type="button"
+              whileHover={{ scale: 1.02 }}
+              whileTap={tapPress}
+            >
+              {t("action.back_home")}
+            </motion.button>
+          </div>
           <p style={ppStyles.endingShareHint}>
             {t("play.ending_share_hint")}
           </p>
@@ -2453,6 +2548,17 @@ const ppStyles: Record<string, CSSProperties> = {
     borderRadius: "var(--radius-sm)",
     fontSize: 13,
     color: "var(--warn)",
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    flexWrap: "wrap" as const,
+  },
+  errorInlineText: { flex: "1 1 0", minWidth: 0 },
+  errorInlineRetry: {
+    flexShrink: 0,
+    fontSize: 12,
+    padding: "5px 12px",
+    minHeight: 28,
   },
 
   approachingFinaleBanner: {
@@ -2730,6 +2836,12 @@ const ppStyles: Record<string, CSSProperties> = {
   },
 
   endingActions: { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 10 },
+  endingActionsRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    flexWrap: "wrap" as const,
+  },
   endingShareHint: {
     fontSize: 12.5,
     color: "var(--text-muted)",

@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from "motion/react"
 import { ApiProvider } from "./api-context"
 import { AuthProvider } from "./auth-context"
 import { LanguageProvider } from "../shared/lib/i18n"
-import { type AppRoute, useAppRoute } from "./routes"
+import { type AppRoute, type NavDirection, useAppRoute } from "./routes"
 import { HomePage } from "../pages/home/home-page"
 import { CreatePage } from "../pages/create/create-page"
 import { PlayPage } from "../pages/play/play-page"
@@ -11,7 +11,7 @@ import { AboutPage } from "../pages/about/about-page"
 import { LoginPage } from "../pages/auth/login-page"
 import { ReplayPage } from "../pages/replay/replay-page"
 import { TemplateDetailPage } from "../pages/world/world-detail-page"
-import { pageTransition, pageVariants } from "../shared/lib/motion-presets"
+import { pageTransition } from "../shared/lib/motion-presets"
 
 function NotFoundRedirect({ navigate }: { navigate: (next: AppRoute) => void }) {
   useEffect(() => {
@@ -96,8 +96,22 @@ function routeKey(route: AppRoute): string {
   }
 }
 
+// Direction-aware page transitions. The router tells us whether
+// the user is going deeper (forward) or coming back (backward) and
+// we slide pages on the y-axis accordingly: forward pushes up out
+// of view (12px → 0 → -12), backward pulls down (-12 → 0 → 12).
+// Subtle but readable spatial cue.
+function pageVariantsFor(direction: NavDirection) {
+  const isForward = direction === "forward"
+  return {
+    initial: { opacity: 0, y: isForward ? 12 : -12 },
+    animate: { opacity: 1, y: 0 },
+    exit: { opacity: 0, y: isForward ? -12 : 12 },
+  }
+}
+
 function Router() {
-  const { route, navigate } = useAppRoute()
+  const { route, navigate, direction } = useAppRoute()
   const key = routeKey(route)
   // Reset scroll on every navigation. AnimatePresence handles the
   // mount/unmount choreography but doesn't touch window scroll, so
@@ -112,10 +126,10 @@ function Router() {
   // exit-then-enter (560ms total). The outgoing element is popped
   // from layout flow immediately so the two don't stack.
   return (
-    <AnimatePresence mode="popLayout">
+    <AnimatePresence mode="popLayout" custom={direction}>
       <motion.div
         key={key}
-        variants={pageVariants}
+        variants={pageVariantsFor(direction)}
         initial="initial"
         animate="animate"
         exit="exit"

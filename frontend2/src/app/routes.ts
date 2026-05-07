@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 export type AppRoute =
   | { name: "home" }
@@ -8,6 +8,27 @@ export type AppRoute =
   | { name: "play"; sessionId: string }
   | { name: "replay"; sessionId: string }
   | { name: "about" }
+
+export type NavDirection = "forward" | "backward"
+
+// Where each route sits in the conceptual depth tree. The router
+// uses this to decide whether a transition is "going deeper" (forward
+// = slide-up) or "going back" (backward = slide-down). Without this,
+// every page transition was the same y: 8 nudge regardless of where
+// the user was heading.
+const ROUTE_DEPTH: Record<AppRoute["name"], number> = {
+  home: 0,
+  about: 1,
+  login: 1,
+  create: 1,
+  replay: 1,
+  template: 1,
+  play: 2,
+}
+
+function depthOf(route: AppRoute): number {
+  return ROUTE_DEPTH[route.name] ?? 0
+}
 
 function parseRoute(hash: string): AppRoute {
   const raw = hash.replace(/^#/, "") || "/"
@@ -65,13 +86,29 @@ export function buildHash(route: AppRoute): string {
 
 export function useAppRoute() {
   const [route, setRoute] = useState<AppRoute>(() => parseRoute(window.location.hash))
+  const [direction, setDirection] = useState<NavDirection>("forward")
+  const prevRouteRef = useRef<AppRoute>(route)
 
   useEffect(() => {
-    const onChange = () => setRoute(parseRoute(window.location.hash))
+    const onChange = () => {
+      const next = parseRoute(window.location.hash)
+      const prev = prevRouteRef.current
+      // Same-name navigation (e.g. play/A → play/B) reads as
+      // "forward" — switching sessions feels like a step into a
+      // new run, not a step back.
+      if (depthOf(next) >= depthOf(prev)) {
+        setDirection("forward")
+      } else {
+        setDirection("backward")
+      }
+      prevRouteRef.current = next
+      setRoute(next)
+    }
     window.addEventListener("hashchange", onChange)
     if (!window.location.hash) {
       window.history.replaceState(null, "", buildHash({ name: "home" }))
       setRoute({ name: "home" })
+      prevRouteRef.current = { name: "home" }
     }
     return () => window.removeEventListener("hashchange", onChange)
   }, [])
@@ -85,5 +122,5 @@ export function useAppRoute() {
     window.location.hash = nextHash
   }
 
-  return { route, navigate }
+  return { route, navigate, direction }
 }

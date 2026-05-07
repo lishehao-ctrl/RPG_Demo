@@ -208,6 +208,11 @@ export const STRINGS_ZH = {
   // Play page — shared / generic
   "play.input_action_placeholder": "你做了什么…",
   "play.input_diary_placeholder": "你心里在想什么(NPC 看不到)",
+  "play.hint_pulse": "每个 NPC 在每回合结束时给出一个'情绪读数'：是更亲近、更冷淡、起疑、还是关系崩了。看 NPC 的 pulse 可以判断你刚才那一步打中了 TA 哪根神经。",
+  "play.hint_role_secret": "这是只有你自己（和叙述者）看得到的内心算盘。NPC 看不到。每回合系统会基于这个目标推动剧情。",
+  "play.hint_role_leverage": "你手里捏着的、可以反将这些 NPC 一军的牌。关键时刻亮出来可以扭转局势。",
+  "play.hint_oracle": "顾问平时只是陪你聊。用 1 回合把 TA 切换成 'oracle' 模式 — TA 会拿到只有 TA 才看得到的局势线索（NPC 真实意图、隐藏把柄），给你一段模糊但有用的提示。代价是少 1 回合时间。",
+  "play.hint_intent_tag": "选项前的方括号是动作意图标签。亮色（红/金）= 主动出招，紫色 = 试探，灰色 = 退让/观望。可以快速判断每个选项的姿态。",
   "play.option_pick_prefix": "选项",
   "play.advisor_open": "找朋友聊聊",
   "play.advisor_oracle": "🔮 用 1 回合换情报",
@@ -324,6 +329,9 @@ export const STRINGS_ZH = {
   "stage_bar.aria": "第 {turn} 回合，共 {total} 回合，当前阶段：{stage}",
 
   // === replay page ===
+  "replay.skim_full": "全文",
+  "replay.skim_compact": "浓缩看",
+  "replay.skim_expand": "点开看完整段 ↓",
   "replay.error_load_failed": "回放加载失败。",
   "replay.error_title": "这一局看不见了",
   "replay.error_back_plaza": "回广场",
@@ -502,6 +510,11 @@ export const STRINGS_EN: Record<StringKey, string> = {
 
   "play.input_action_placeholder": "What you do…",
   "play.input_diary_placeholder": "What you're really thinking (NPCs can't see this)",
+  "play.hint_pulse": "Each NPC ends every turn with a quick emotional read — warming, cooling, wary, broken. Watching the pulse tells you which nerve your last move hit.",
+  "play.hint_role_secret": "Only you (and the narrator) see this — your hidden agenda. NPCs don't know it. The story bends toward it every turn.",
+  "play.hint_role_leverage": "Cards you hold over specific NPCs. Play one at the right moment to flip a scene.",
+  "play.hint_oracle": "Your friend is normally just chatting. Spend 1 turn to switch them into 'oracle' mode — they get to see what's really going on (NPC motives, hidden leverage) and give you a vague-but-useful read. Costs you 1 turn.",
+  "play.hint_intent_tag": "Brackets on each option signal its stance. Hot colors (red/gold) = aggressive moves, purple = probing, neutral = yielding or watching. Quick read for what each choice is.",
   "play.option_pick_prefix": "Option",
   "play.advisor_open": "Call your friend",
   "play.advisor_oracle": "🔮 Trade 1 turn for a hint",
@@ -606,6 +619,9 @@ export const STRINGS_EN: Record<StringKey, string> = {
   "stage_bar.aria": "Turn {turn} of {total}, current stage: {stage}",
 
   // === replay page ===
+  "replay.skim_full": "Full",
+  "replay.skim_compact": "Skim",
+  "replay.skim_expand": "Tap to read the full beat ↓",
   "replay.error_load_failed": "Couldn't load this replay.",
   "replay.error_title": "This run isn't viewable",
   "replay.error_back_plaza": "Back to plaza",

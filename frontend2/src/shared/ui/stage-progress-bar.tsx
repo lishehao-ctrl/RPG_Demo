@@ -129,8 +129,8 @@ const styles: Record<string, CSSProperties> = {
   row: {
     display: "flex",
     flexDirection: "column",
-    gap: 8,
-    marginBottom: 24,
+    gap: 10,
+    marginBottom: 26,
   },
   label: {
     display: "flex",
@@ -140,22 +140,31 @@ const styles: Record<string, CSSProperties> = {
   },
   stageName: {
     fontFamily: "var(--font-narrative)",
-    fontSize: 14,
+    fontSize: 15,
     color: "var(--text)",
     letterSpacing: "0.04em",
+    fontWeight: 500,
   },
+  // Turn count rendered tabular-nums so the digits don't shift width
+  // as the count climbs. Larger + brighter than before — was 11/faint,
+  // hard to spot.
   turnCount: {
-    color: "var(--text-faint)",
-    fontSize: 11,
-    letterSpacing: "0.06em",
+    color: "var(--text-muted)",
+    fontSize: 13,
+    letterSpacing: "0.04em",
+    fontVariantNumeric: "tabular-nums",
+    fontWeight: 500,
   },
+  // 28px bar (was 22) — enough for the segment label glyphs to read
+  // without squinting. Slight bg lift so empty future segments aren't
+  // invisible against the page background.
   bar: {
     display: "flex",
     width: "100%",
-    height: 22,
-    background: "rgba(255,255,255,0.02)",
+    height: 28,
+    background: "rgba(255,255,255,0.025)",
     border: "1px solid var(--line)",
-    borderRadius: 4,
+    borderRadius: 6,
     overflow: "hidden",
   },
   segment: {
@@ -172,9 +181,11 @@ const styles: Record<string, CSSProperties> = {
     color: "rgba(245,210,140,0.96)",
     fontWeight: 600,
   },
+  // Past stages — read as "completed". Brighter than the previous
+  // 0.10 fill so finished stages are clearly visible at a glance.
   segPast: {
-    background: "rgba(140,100,200,0.10)",
-    color: "rgba(180,150,230,0.7)",
+    background: "rgba(140,100,200,0.18)",
+    color: "rgba(200,170,235,0.82)",
   },
   segFuture: {
     background: "transparent",

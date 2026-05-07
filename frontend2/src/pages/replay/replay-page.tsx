@@ -35,6 +35,20 @@ export function ReplayPage({
   const [replay, setReplay] = useState<NarrativePublicReplayResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [showAdvisor, setShowAdvisor] = useState(true)
+  // Skim mode: collapse narrator beats to a 3-line preview by default.
+  // Friends opening a 12-turn replay link don't necessarily want to
+  // read all 4000 words — they want to see the shape, then expand
+  // the bits that catch their eye. Click a beat to expand it.
+  const [skimMode, setSkimMode] = useState(true)
+  const [expandedOrds, setExpandedOrds] = useState<Set<number>>(new Set())
+  const toggleBeat = (ord: number) => {
+    setExpandedOrds((prev) => {
+      const next = new Set(prev)
+      if (next.has(ord)) next.delete(ord)
+      else next.add(ord)
+      return next
+    })
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -189,7 +203,37 @@ export function ReplayPage({
 
         {/* Story column with optional inline advisor messages */}
         <section style={rpStyles.storyColumn}>
-          {renderInterleavedStream(replay, showAdvisor, advisorAvatar, t)}
+          {/* Skim toggle — friends landing on a shared replay don't
+              necessarily want to read all 12 narrator beats top to
+              bottom. Skim mode collapses each beat to a 3-line
+              preview; click any beat to expand. Default is "skim"
+              because that matches the entry behavior of someone
+              who just opened a link. */}
+          <div style={rpStyles.skimToggleRow}>
+            <button
+              type="button"
+              style={{
+                ...rpStyles.skimToggle,
+                ...(skimMode ? null : rpStyles.skimToggleActive),
+              }}
+              onClick={() => setSkimMode(false)}
+              aria-pressed={!skimMode}
+            >
+              {t("replay.skim_full")}
+            </button>
+            <button
+              type="button"
+              style={{
+                ...rpStyles.skimToggle,
+                ...(skimMode ? rpStyles.skimToggleActive : null),
+              }}
+              onClick={() => setSkimMode(true)}
+              aria-pressed={skimMode}
+            >
+              {t("replay.skim_compact")}
+            </button>
+          </div>
+          {renderInterleavedStream(replay, showAdvisor, advisorAvatar, t, skimMode, expandedOrds, toggleBeat)}
 
           {/* Ending block at the very bottom */}
           {replay.ending ? (
@@ -235,22 +279,56 @@ function renderInterleavedStream(
   showAdvisor: boolean,
   advisorAvatar: string,
   t: ReturnType<typeof useT>,
+  skimMode: boolean,
+  expandedOrds: Set<number>,
+  toggleBeat: (ord: number) => void,
 ) {
   return (
     <>
       {replay.messages.map((m) =>
         m.role === "narrator" ? (
-          <article key={`n-${m.ord}`} style={rpStyles.narratorBeat}>
-            <div style={rpStyles.narratorText}>{m.content}</div>
-            {m.chosen_option_index != null && m.options.length > 0 ? (
-              <div style={rpStyles.chosenChip}>
-                <span style={rpStyles.chosenLabel}>{t("replay.chosen_label")}</span>
-                <span style={rpStyles.chosenText}>
-                  {m.options[m.chosen_option_index]?.label ?? "?"}
-                </span>
-              </div>
-            ) : null}
-          </article>
+          (() => {
+            const isExpanded = !skimMode || expandedOrds.has(m.ord)
+            return (
+              <article
+                key={`n-${m.ord}`}
+                style={{
+                  ...rpStyles.narratorBeat,
+                  ...(skimMode ? { cursor: "pointer" } : null),
+                }}
+                onClick={() => skimMode && toggleBeat(m.ord)}
+                role={skimMode ? "button" : undefined}
+                tabIndex={skimMode ? 0 : undefined}
+                aria-expanded={skimMode ? isExpanded : undefined}
+                onKeyDown={(e) => {
+                  if (skimMode && (e.key === "Enter" || e.key === " ")) {
+                    e.preventDefault()
+                    toggleBeat(m.ord)
+                  }
+                }}
+              >
+                <div
+                  style={{
+                    ...rpStyles.narratorText,
+                    ...(isExpanded ? null : rpStyles.narratorTextSkim),
+                  }}
+                >
+                  {m.content}
+                </div>
+                {!isExpanded ? (
+                  <div style={rpStyles.skimMore}>{t("replay.skim_expand")}</div>
+                ) : null}
+                {m.chosen_option_index != null && m.options.length > 0 ? (
+                  <div style={rpStyles.chosenChip}>
+                    <span style={rpStyles.chosenLabel}>{t("replay.chosen_label")}</span>
+                    <span style={rpStyles.chosenText}>
+                      {m.options[m.chosen_option_index]?.label ?? "?"}
+                    </span>
+                  </div>
+                ) : null}
+              </article>
+            )
+          })()
         ) : (
           <article key={`p-${m.ord}`} style={rpStyles.playerBeat}>
             <div style={rpStyles.playerLabel}>{t("replay.player_label")}</div>
@@ -438,6 +516,31 @@ const rpStyles: Record<string, CSSProperties> = {
   advisorToggleArrow: { color: "var(--text-faint)", fontSize: 12 },
 
   storyColumn: {},
+  // Skim toggle row pinned at the top of the story column.
+  skimToggleRow: {
+    display: "inline-flex",
+    gap: 0,
+    marginBottom: 24,
+    padding: 2,
+    background: "var(--bg-elev)",
+    border: "1px solid var(--line)",
+    borderRadius: 999,
+  },
+  skimToggle: {
+    background: "transparent",
+    border: "none",
+    color: "var(--text-muted)",
+    fontSize: 12,
+    padding: "5px 14px",
+    borderRadius: 999,
+    letterSpacing: "0.04em",
+    cursor: "pointer",
+    transition: "background 160ms, color 160ms",
+  },
+  skimToggleActive: {
+    background: "var(--accent-soft)",
+    color: "var(--accent)",
+  },
   narratorBeat: { marginBottom: 28 },
   narratorText: {
     fontFamily: "var(--font-narrative)",
@@ -445,6 +548,23 @@ const rpStyles: Record<string, CSSProperties> = {
     lineHeight: 1.85,
     color: "var(--text)",
     whiteSpace: "pre-wrap",
+  },
+  // Skim mode: clamp narrator content to 3 lines with a soft fade
+  // at the bottom so it reads as "more below" rather than a hard cut.
+  narratorTextSkim: {
+    display: "-webkit-box",
+    WebkitLineClamp: 3,
+    WebkitBoxOrient: "vertical" as const,
+    overflow: "hidden",
+    maskImage: "linear-gradient(180deg, var(--text) 60%, transparent)",
+    WebkitMaskImage: "linear-gradient(180deg, var(--text) 60%, transparent)",
+  },
+  skimMore: {
+    fontSize: 11.5,
+    color: "var(--accent)",
+    marginTop: 8,
+    letterSpacing: "0.04em",
+    cursor: "pointer",
   },
   chosenChip: {
     marginTop: 12,

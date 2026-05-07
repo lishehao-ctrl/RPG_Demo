@@ -22,6 +22,7 @@ from rpg_backend.narrative.contracts import (
     PlayerRole,
     StoryMessage,
     StoryOption,
+    TemplateLanguage,
     TemplateVisibility,
 )
 
@@ -108,6 +109,10 @@ class NarrativeRepository:
             ("player_goals_json", "ALTER TABLE narrative_templates ADD COLUMN player_goals_json TEXT NOT NULL DEFAULT '[]'"),
             ("failure_conditions_json", "ALTER TABLE narrative_templates ADD COLUMN failure_conditions_json TEXT NOT NULL DEFAULT '[]'"),
             ("player_role_options_json", "ALTER TABLE narrative_templates ADD COLUMN player_role_options_json TEXT NOT NULL DEFAULT '[]'"),
+            # Pre-i18n templates default to "zh"; this matches the
+            # historic behavior where every template was generated in
+            # Chinese.
+            ("language", "ALTER TABLE narrative_templates ADD COLUMN language TEXT NOT NULL DEFAULT 'zh'"),
         ):
             if col not in existing_template_cols:
                 connection.execute(ddl)
@@ -188,6 +193,7 @@ class NarrativeRepository:
         failure_conditions: list[FailureCondition],
         player_role_options: list[PlayerRole],
         visibility: TemplateVisibility,
+        language: TemplateLanguage = "zh",
     ) -> NarrativeTemplate:
         created_at = _utc_now()
         with self._connect() as conn:
@@ -198,8 +204,8 @@ class NarrativeRepository:
                  advisor_persona, opening_passage, opening_options_json,
                  player_goals_json, failure_conditions_json,
                  player_role_options_json,
-                 visibility, play_count, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+                 visibility, language, play_count, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
                 """,
                 (
                     template_id,
@@ -214,6 +220,7 @@ class NarrativeRepository:
                     json.dumps([f.model_dump() for f in failure_conditions], ensure_ascii=False),
                     json.dumps([r.model_dump() for r in player_role_options], ensure_ascii=False),
                     visibility,
+                    language,
                     created_at,
                 ),
             )
@@ -231,6 +238,7 @@ class NarrativeRepository:
             failure_conditions=failure_conditions,
             player_role_options=player_role_options,
             visibility=visibility,
+            language=language,
             play_count=0,
             created_at=created_at,
         )
@@ -685,6 +693,8 @@ def _row_to_template(row: sqlite3.Row) -> NarrativeTemplate:
                         continue
         except Exception:  # noqa: BLE001
             pass
+    raw_lang = row["language"] if "language" in keys else "zh"
+    language: TemplateLanguage = "en" if raw_lang == "en" else "zh"
     return NarrativeTemplate(
         template_id=row["template_id"],
         owner_user_id=row["owner_user_id"],
@@ -698,6 +708,7 @@ def _row_to_template(row: sqlite3.Row) -> NarrativeTemplate:
         failure_conditions=conds,
         player_role_options=roles,
         visibility=row["visibility"],
+        language=language,
         play_count=int(row["play_count"]),
         created_at=row["created_at"],
     )

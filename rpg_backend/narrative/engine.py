@@ -16,8 +16,52 @@ from rpg_backend.narrative.contracts import (
     PlayerRole,
     StoryMessage,
     StoryOption,
+    TemplateLanguage,
 )
 from rpg_backend.narrative.gateway import NarrativeGatewayError, NarrativeLLMGateway
+
+
+# ---------------------------------------------------------------------------
+# Language directives.
+#
+# The system prompts are written in Chinese — that's the canonical voice the
+# LLM was tuned against during development. To support English templates, we
+# inject a directive into the per-call user_payload telling the LLM to render
+# all output in the target language. The directive overrides the implicit
+# Chinese register from the system prompt.
+#
+# Adding a new locale: extend TemplateLanguage in contracts.py, add a clause
+# below, and update the create-page LANGUAGE_OPTIONS in i18n.ts.
+# ---------------------------------------------------------------------------
+
+_LANGUAGE_DIRECTIVE_ZH = (
+    "All narration, NPC dialogue, options labels, and free-form text MUST be "
+    "written in 简体中文. Field schema (key names) stays as defined."
+)
+
+_LANGUAGE_DIRECTIVE_EN = (
+    "All narration, NPC dialogue, options labels, npc_pulse.state, "
+    "npc_pulse.reason, ending passages, highlights, branches, advisor "
+    "replies, and any other free-form prose MUST be written in fluent, "
+    "natural English. Do NOT include any Chinese characters anywhere in "
+    "the output. Field schema (key names like 'passage', 'options', "
+    "'npc_pulse', 'character_id', 'role_id') stays as defined — only the "
+    "VALUES change language. Cast character_id and player_role role_id "
+    "stay as lowercase_underscore identifiers (English-friendly slugs). "
+    "display_name should be a plausible English given/full name; role and "
+    "relation_to_protagonist describe the character in English. The "
+    "ending_label however is still selected from the closed pool of "
+    "Chinese tokens (复仇 / 和解 / 自由 / 救赎 / 回归 / 夺回 / 孤狼 / "
+    "共谋 / 牺牲 / 同谋 / 决裂 / 沉沦 / 失控 / 反噬 / 破碎) — these are "
+    "canonical IDs the UI maps to localized display strings; do NOT "
+    "translate the label itself."
+)
+
+
+def _language_directive(language: TemplateLanguage | None) -> str:
+    if language == "en":
+        return _LANGUAGE_DIRECTIVE_EN
+    return _LANGUAGE_DIRECTIVE_ZH
 
 
 _OPENING_SYSTEM_PROMPT = """\
@@ -642,16 +686,23 @@ def generate_opening(
     *,
     gateway: NarrativeLLMGateway,
     seed: str,
+    language: TemplateLanguage = "zh",
 ) -> OpeningResult:
     """Generate world opening. Retries on JSON / shape failure or sparse
     inter-NPC leverage network (LLM is consistently conservative on
-    density even with the prompt's hard rule, so we enforce via retry)."""
+    density even with the prompt's hard rule, so we enforce via retry).
+
+    `language` controls the locale of generated narration. Schema field
+    names stay constant; only the prose values change. See
+    `_language_directive()` for the per-locale rule injected into the
+    user_payload.
+    """
     last_error: Exception | None = None
     feedback: str | None = None
     last_result: OpeningResult | None = None
     for attempt in range(3):
         try:
-            result = _generate_opening_once(gateway, seed, retry_feedback=feedback)
+            result = _generate_opening_once(gateway, seed, retry_feedback=feedback, language=language)
             # Density check — count inter-NPC leverages across cast.
             edges = sum(len(c.leverages_over_other_npcs) for c in result.cast)
             required = _required_inter_leverage_edges(len(result.cast))
@@ -716,8 +767,13 @@ def _generate_opening_once(
     seed: str,
     *,
     retry_feedback: str | None,
+    language: TemplateLanguage = "zh",
 ) -> OpeningResult:
-    user_payload: dict[str, Any] = {"seed": seed}
+    user_payload: dict[str, Any] = {
+        "seed": seed,
+        "language": language,
+        "language_directive": _language_directive(language),
+    }
     if retry_feedback:
         user_payload["retry_feedback"] = retry_feedback
     response = gateway.invoke_json(
@@ -791,6 +847,7 @@ def advance_turn(
     player_role: PlayerRole | None = None,
     current_inventory: list[str] | None = None,
     player_diary: str | None = None,
+    language: TemplateLanguage = "zh",
 ) -> TurnResult:
     """Advance one turn."""
     stage_phase = _stage_for(turn_index, turn_budget)
@@ -805,6 +862,8 @@ def advance_turn(
         "turn_budget": turn_budget,
         "stage_phase": stage_phase,
         "difficulty": difficulty,
+        "language": language,
+        "language_directive": _language_directive(language),
     }
     if player_goals:
         user_payload["player_goals"] = [g.model_dump() for g in player_goals]
@@ -938,6 +997,7 @@ def synthesize_early_ending(
     failure_trigger: str,
     failure_reason: str,
     player_role: PlayerRole | None = None,
+    language: TemplateLanguage = "zh",
 ) -> EndingResult:
     """Generate a 'collapsed' ending when judge_failure flagged a trigger.
     Result label is constrained to {失控, 反噬, 破碎, 沉沦}."""
@@ -948,6 +1008,8 @@ def synthesize_early_ending(
         "story_so_far": [{"role": m.role, "content": m.content} for m in history],
         "failure_trigger": failure_trigger,
         "failure_reason": failure_reason,
+        "language": language,
+        "language_directive": _language_directive(language),
     }
     if player_role is not None:
         user_payload["player_role"] = player_role.model_dump()
@@ -1320,6 +1382,7 @@ def synthesize_ending(
     history: list[StoryMessage],
     turn_count: int,
     player_role: PlayerRole | None = None,
+    language: TemplateLanguage = "zh",
 ) -> EndingResult:
     """Generate a 400-600 word ending + label + first-person subtitle.
 
@@ -1334,7 +1397,11 @@ def synthesize_ending(
         # Full history matters here — the ending must call back to early
         # choices, so we deliberately don't use the sliding-window render.
         "story_so_far": [{"role": m.role, "content": m.content} for m in history],
-        "instruction": "请基于上面所有历史，写下这一局完整故事的结局。",
+        "instruction": "请基于上面所有历史，写下这一局完整故事的结局。"
+        if language == "zh"
+        else "Based on the full history above, write the closing passage of this run.",
+        "language": language,
+        "language_directive": _language_directive(language),
     }
     if player_role is not None:
         user_payload["player_role"] = player_role.model_dump()
@@ -1419,6 +1486,7 @@ def synthesize_highlights(
     ending_label: str,
     ending_subtitle: str,
     player_role: PlayerRole | None = None,
+    language: TemplateLanguage = "zh",
 ) -> list[Highlight]:
     """Pick up to 5 pivotal narrator beats from a finished session and
     return them as a chronological highlight reel.
@@ -1461,6 +1529,8 @@ def synthesize_highlights(
         "narrator_beats": narrator_beats,
         "ending_label": ending_label,
         "ending_subtitle": ending_subtitle,
+        "language": language,
+        "language_directive": _language_directive(language),
     }
     if player_role is not None:
         user_payload["player_role"] = {
@@ -1534,6 +1604,7 @@ def synthesize_branches(
     ending_tier: str,
     ending_passage: str,
     player_role: PlayerRole | None = None,
+    language: TemplateLanguage = "zh",
 ) -> list[BranchHypothetical]:
     """Generate 2-3 hypothetical fork-point cards: 'if you'd done Y at
     turn N instead of X, you would likely have hit ending label Z'.
@@ -1576,6 +1647,8 @@ def synthesize_branches(
             "tier": ending_tier,
             "passage_excerpt": ending_passage[:400],
         },
+        "language": language,
+        "language_directive": _language_directive(language),
     }
     if player_role is not None:
         user_payload["player_role"] = {
@@ -1720,12 +1793,17 @@ def ask_advisor(
     story_history: list[StoryMessage],
     advisor_history: list[AdvisorMessage],
     question: str,
+    language: TemplateLanguage = "zh",
 ) -> AdvisorReply:
     # IMPORTANT: put player_question first so the model's attention lands on it
     # before drifting into the long story_history block. The previous version
     # buried the question after the history and the LLM consistently ignored it.
     user_payload: dict[str, Any] = {
-        "instruction": "请直接回答 player_question 里这一次玩家的具体问题；不要忽略问题、不要只输出剧情泛评。",
+        "instruction": (
+            "请直接回答 player_question 里这一次玩家的具体问题；不要忽略问题、不要只输出剧情泛评。"
+            if language == "zh"
+            else "Reply directly to the player_question. Don't ignore the question or output generic story commentary."
+        ),
         "player_question": question,
         "advisor_persona": advisor_persona,
         "advisor_history": [
@@ -1737,6 +1815,8 @@ def ask_advisor(
             "seed": seed,
             "cast": [c.model_dump() for c in cast],
         },
+        "language": language,
+        "language_directive": _language_directive(language),
     }
     response = gateway.invoke_json(
         system_prompt=_ADVISOR_SYSTEM_PROMPT,
@@ -1762,6 +1842,7 @@ def ask_advisor_oracle(
     player_role: PlayerRole | None,
     failure_conditions: list[FailureCondition] | None,
     current_inventory: list[str] | None,
+    language: TemplateLanguage = "zh",
 ) -> AdvisorReply:
     """Oracle variant of ask_advisor. The advisor sees privileged info
     (NPC hidden_objectives + leverages, player hidden_objective + assets,
@@ -1784,6 +1865,8 @@ def ask_advisor_oracle(
         # Privileged info — only oracle mode sees these structured fields.
         "cast": [c.model_dump() for c in cast],
         "recent_pulse_trend": pulse_trend,
+        "language": language,
+        "language_directive": _language_directive(language),
     }
     if player_role is not None:
         user_payload["player_role"] = player_role.model_dump()

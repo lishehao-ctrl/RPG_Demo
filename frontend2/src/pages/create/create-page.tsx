@@ -1,9 +1,14 @@
 import { type CSSProperties, useEffect, useRef, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
-import type { NarrativeDifficulty, NarrativeTemplateVisibility } from "../../api/contracts"
+import type {
+  NarrativeDifficulty,
+  NarrativeTemplateLanguage,
+  NarrativeTemplateVisibility,
+} from "../../api/contracts"
 import { useApi } from "../../app/api-context"
 import { useAuth } from "../../app/auth-context"
 import { friendlyError } from "../../shared/lib/friendly-error"
+import { useLanguage } from "../../shared/lib/i18n"
 import { itemTransition } from "../../shared/lib/motion-presets"
 import { PAGE_BG } from "../../shared/lib/webtoon-assets"
 
@@ -62,6 +67,19 @@ const DIFFICULTY_OPTIONS: Array<{
   },
 ]
 
+// Story-language options — controls the locale of generated narration
+// and NPC dialogue. Immutable per template once created. The label /
+// desc copy is bilingual itself: each row shows both versions so the
+// user can pick regardless of UI language.
+const STORY_LANGUAGE_OPTIONS: Array<{
+  id: NarrativeTemplateLanguage
+  label: string
+  desc: string
+}> = [
+  { id: "zh", label: "中文 / Chinese", desc: "NPC 对白和叙述都用简体中文" },
+  { id: "en", label: "English / 英文", desc: "Narration and NPC dialogue in English" },
+]
+
 export function CreatePage({
   onBackHome,
   onSessionStarted,
@@ -71,10 +89,15 @@ export function CreatePage({
 }) {
   const api = useApi()
   const auth = useAuth()
+  const { lang: uiLang } = useLanguage()
   const [seed, setSeed] = useState("")
   const [visibility, setVisibility] = useState<NarrativeTemplateVisibility>("private")
   const [turnBudget, setTurnBudget] = useState<number>(12)
   const [difficulty, setDifficulty] = useState<NarrativeDifficulty>("story")
+  // Default the story language to whatever the UI is in. The user can
+  // override — the field is independent of UI language once chosen
+  // (you can browse in English but write a Chinese story, etc.).
+  const [storyLanguage, setStoryLanguage] = useState<NarrativeTemplateLanguage>(uiLang)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // Synchronous lock to prevent duplicate creates if the user manages to
@@ -107,6 +130,7 @@ export function CreatePage({
         visibility,
         turn_budget: turnBudget,
         difficulty,
+        language: storyLanguage,
       })
       onSessionStarted(response.session.session_id)
     } catch (err) {
@@ -225,6 +249,25 @@ export function CreatePage({
                   <span style={cpStyles.difficultyBtnTagline}> · {o.tagline}</span>
                 </div>
                 <div style={cpStyles.difficultyBtnDesc}>{o.desc}</div>
+              </button>
+            ))}
+          </div>
+
+          <div style={cpStyles.fieldLabel}>故事语言 / Story language</div>
+          <div style={cpStyles.visibility}>
+            {STORY_LANGUAGE_OPTIONS.map((o) => (
+              <button
+                key={o.id}
+                style={{
+                  ...cpStyles.visBtn,
+                  ...(storyLanguage === o.id ? cpStyles.visBtnActive : {}),
+                }}
+                onClick={() => setStoryLanguage(o.id)}
+                disabled={busy}
+                type="button"
+              >
+                <div style={cpStyles.visBtnLabel}>{o.label}</div>
+                <div style={cpStyles.visBtnDesc}>{o.desc}</div>
               </button>
             ))}
           </div>

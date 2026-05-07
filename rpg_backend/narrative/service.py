@@ -133,7 +133,7 @@ class NarrativeService:
                 code="seed_required", message="Seed must not be empty.", status_code=422
             )
         try:
-            opening = generate_opening(gateway=self.gateway, seed=seed)
+            opening = generate_opening(gateway=self.gateway, seed=seed, language=request.language)
         except NarrativeGatewayError as exc:
             raise NarrativeServiceError(
                 code=exc.code, message=exc.message, status_code=exc.status_code
@@ -159,6 +159,7 @@ class NarrativeService:
             failure_conditions=opening.failure_conditions,
             player_role_options=opening.player_role_options,
             visibility=request.visibility,
+            language=request.language,
         )
 
         # Auto-create the creator's session with the requested difficulty.
@@ -173,6 +174,7 @@ class NarrativeService:
             template_id=template_id,
             owner=owner_user_id,
             visibility=request.visibility,
+            language=request.language,
             turn_budget=request.turn_budget,
             difficulty=request.difficulty,
             seed_chars=len(seed),
@@ -375,6 +377,7 @@ class NarrativeService:
                 player_role=active_role,
                 current_inventory=current_inventory or None,
                 player_diary=diary_text,
+                language=template.language,
             )
         except NarrativeGatewayError as exc:
             raise NarrativeServiceError(
@@ -466,6 +469,7 @@ class NarrativeService:
                 history=full_history,
                 turn_count=len([m for m in full_history if m.role == "narrator"]) - 1,
                 player_role=player_role,
+                language=template.language,
             )
         except (NarrativeGatewayError, ValueError) as exc:
             print(
@@ -489,6 +493,7 @@ class NarrativeService:
                 ending_label=result.label,
                 ending_subtitle=result.subtitle,
                 player_role=player_role,
+                language=template.language,
             )
             br_future = pool.submit(
                 synthesize_branches,
@@ -501,6 +506,7 @@ class NarrativeService:
                 ending_tier=tier,
                 ending_passage=result.passage,
                 player_role=player_role,
+                language=template.language,
             )
             highlights = hl_future.result()
             branches = br_future.result()
@@ -559,6 +565,7 @@ class NarrativeService:
                 failure_trigger=failure_trigger,
                 failure_reason=failure_reason,
                 player_role=player_role,
+                language=template.language,
             )
         except (NarrativeGatewayError, ValueError) as exc:
             print(
@@ -583,6 +590,7 @@ class NarrativeService:
                 ending_label=result.label,
                 ending_subtitle=result.subtitle,
                 player_role=player_role,
+                language=template.language,
             )
             br_future = pool.submit(
                 synthesize_branches,
@@ -595,6 +603,7 @@ class NarrativeService:
                 ending_tier=tier,
                 ending_passage=result.passage,
                 player_role=player_role,
+                language=template.language,
             )
             highlights = hl_future.result()
             branches = br_future.result()
@@ -781,6 +790,7 @@ class NarrativeService:
                     player_role=active_role,
                     failure_conditions=template.failure_conditions or None,
                     current_inventory=current_inventory or None,
+                    language=template.language,
                 )
             else:
                 reply = ask_advisor(
@@ -792,6 +802,7 @@ class NarrativeService:
                     story_history=story_history,
                     advisor_history=advisor_history,
                     question=question,
+                    language=template.language,
                 )
             reply_text = reply.reply_text
         except NarrativeGatewayError as exc:
@@ -996,6 +1007,7 @@ def _summarize_template(
         failure_conditions=template.failure_conditions,
         player_role_options=template.player_role_options,
         visibility=template.visibility,
+        language=template.language,
         play_count=template.play_count,
         created_at=template.created_at,
         is_owner=(template.owner_user_id == viewer_user_id),

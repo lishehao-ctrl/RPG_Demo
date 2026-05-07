@@ -171,6 +171,13 @@ class AdvisorMessage(BaseModel):
 TemplateVisibility = Literal["private", "unlisted", "public"]
 Difficulty = Literal["story", "gauntlet"]
 EndingTier = Literal["victory", "compromised", "collapsed"]
+# Locale a template's narration / NPC dialogue is generated in. The
+# field is set at template creation and is immutable thereafter — every
+# session forking the same template inherits the same language. Adding
+# a new locale requires extending this Literal AND adding a prompt-
+# language branch in `engine.py`.
+TemplateLanguage = Literal["zh", "en"]
+DEFAULT_TEMPLATE_LANGUAGE: TemplateLanguage = "zh"
 
 
 class NarrativeTemplate(BaseModel):
@@ -195,6 +202,9 @@ class NarrativeTemplate(BaseModel):
     # start. Empty list on legacy templates created before this feature.
     player_role_options: list[PlayerRole] = Field(default_factory=list, max_length=6)
     visibility: TemplateVisibility = "private"
+    # The locale narration / NPC dialogue is generated in. Pre-i18n
+    # templates default to "zh" via the migration backfill.
+    language: TemplateLanguage = DEFAULT_TEMPLATE_LANGUAGE
     play_count: int = Field(default=0, ge=0)
     created_at: str = Field(min_length=1)
 
@@ -214,6 +224,7 @@ class NarrativeTemplateSummary(BaseModel):
     failure_conditions: list[FailureCondition] = Field(default_factory=list)
     player_role_options: list[PlayerRole] = Field(default_factory=list)
     visibility: TemplateVisibility
+    language: TemplateLanguage = DEFAULT_TEMPLATE_LANGUAGE
     play_count: int
     created_at: str
     is_owner: bool = False
@@ -396,6 +407,9 @@ class CreateTemplateRequest(BaseModel):
     visibility: TemplateVisibility = "private"
     turn_budget: int = Field(default=12, ge=4, le=40)
     difficulty: Difficulty = "story"
+    # Narration / NPC dialogue locale. Immutable after creation —
+    # all sessions forking this template share the same language.
+    language: TemplateLanguage = DEFAULT_TEMPLATE_LANGUAGE
 
 
 class CreateTemplateResponse(BaseModel):

@@ -615,6 +615,11 @@ export type NarrativeAdvisorMessage = {
 
 export type NarrativeTemplateVisibility = "private" | "unlisted" | "public"
 
+// Locale a template's narration / NPC dialogue is generated in. Set at
+// template creation, immutable thereafter. Mirrors the backend
+// `TemplateLanguage` literal in `rpg_backend/narrative/contracts.py`.
+export type NarrativeTemplateLanguage = "zh" | "en"
+
 export type NarrativeTemplateSummary = {
   template_id: string
   owner_user_id: string
@@ -626,6 +631,7 @@ export type NarrativeTemplateSummary = {
   failure_conditions?: NarrativeFailureCondition[]
   player_role_options?: NarrativePlayerRole[]
   visibility: NarrativeTemplateVisibility
+  language?: NarrativeTemplateLanguage
   play_count: number
   created_at: string
   is_owner: boolean
@@ -710,6 +716,7 @@ export type NarrativeCreateTemplateRequest = {
   visibility?: NarrativeTemplateVisibility
   turn_budget?: number
   difficulty?: NarrativeDifficulty
+  language?: NarrativeTemplateLanguage
 }
 
 export type NarrativeStartSessionRequest = {

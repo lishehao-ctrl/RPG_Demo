@@ -107,8 +107,12 @@ function Router() {
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: "auto" })
   }, [key])
+  // mode="popLayout" lets the new page enter while the outgoing page
+  // is still fading — overlapping ~280ms instead of waiting through
+  // exit-then-enter (560ms total). The outgoing element is popped
+  // from layout flow immediately so the two don't stack.
   return (
-    <AnimatePresence mode="wait">
+    <AnimatePresence mode="popLayout">
       <motion.div
         key={key}
         variants={pageVariants}

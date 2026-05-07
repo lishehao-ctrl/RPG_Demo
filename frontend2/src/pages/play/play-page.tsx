@@ -1,5 +1,5 @@
 import { type CSSProperties, useCallback, useEffect, useRef, useState } from "react"
-import { AnimatePresence, motion } from "motion/react"
+import { AnimatePresence, motion, useReducedMotion, type TargetAndTransition } from "motion/react"
 import type {
   NarrativeAdvisorMessage,
   NarrativeEnding,
@@ -399,6 +399,12 @@ export function PlayPage({
               Hidden when the session is complete. */}
           {!isComplete && isLastNarratorPending && lastNarrator ? (
             <ActionArea
+              // Key on the narrator beat ord so the entire ActionArea
+              // remounts each turn — option cascade re-fires from
+              // {opacity: 0, x: -6} every advance, instead of only on
+              // first paint. Free-input / diary text lives in parent
+              // state, so remount doesn't drop user typing.
+              key={`actions-${lastNarrator.ord}`}
               options={lastNarrator.options}
               showFreeInput={showFreeInput}
               freeInput={freeInput}
@@ -424,7 +430,7 @@ export function PlayPage({
               }}
             />
           ) : !isComplete && busy ? (
-            <div style={ppStyles.busyShim}>{t("play.busy_shim")}</div>
+            <LoadingShim variant="inline" label={t("play.busy_shim")} />
           ) : null}
         </div>
       </main>
@@ -553,8 +559,45 @@ function EndingScreen({
   shareCopied: boolean
   onShare: () => void
 }) {
-  void sessionId
   const t = useT()
+  // Skip the 1.7s choreography in two cases:
+  //  1. User prefers reduced motion (a11y system pref)
+  //  2. They've already seen this exact ending in this browser session
+  //     — re-opening the run page (back/forward, refresh) shouldn't
+  //     replay the splash; it's the first view that earns the
+  //     ceremony.
+  const reducedMotion = useReducedMotion()
+  const [hasSeenBefore] = useState(() => {
+    if (typeof window === "undefined") return false
+    try {
+      return window.sessionStorage.getItem(
+        `tiny-stories-ending-seen-${sessionId}`,
+      ) === "1"
+    } catch {
+      return false
+    }
+  })
+  useEffect(() => {
+    try {
+      window.sessionStorage.setItem(
+        `tiny-stories-ending-seen-${sessionId}`,
+        "1",
+      )
+    } catch {
+      // sessionStorage unavailable (private mode) — fail silently;
+      // worst case the splash plays again on refresh.
+    }
+  }, [sessionId])
+  const skipChoreography = Boolean(reducedMotion) || hasSeenBefore
+
+  // Helper: collapse `initial` state to `false` (= start at animate
+  // target, no entrance) and zero out staggered delays when skipping.
+  const initialOr = (
+    full: TargetAndTransition,
+  ): TargetAndTransition | false => (skipChoreography ? false : full)
+  const delayOr = (delay: number): number =>
+    skipChoreography ? 0 : delay
+
   const illustration = getEndingIllustration(ending.label)
   const tier = ending.tier ?? "compromised"
   const tierSplash = getTierSplash(tier)
@@ -585,9 +628,12 @@ function EndingScreen({
   return (
     <motion.section
       style={ppStyles.endingSection}
-      initial="initial"
+      initial={skipChoreography ? "animate" : "initial"}
       animate="animate"
-      transition={{ staggerChildren: 0.18, delayChildren: 0.1 }}
+      transition={{
+        staggerChildren: skipChoreography ? 0 : 0.18,
+        delayChildren: delayOr(0.1),
+      }}
     >
       <motion.div
         variants={itemVariants}
@@ -604,7 +650,7 @@ function EndingScreen({
         {/* Illustrated banner — the visual punctuation that makes the
             ending feel like a closed object the player can screenshot. */}
         <motion.div
-          initial={{ opacity: 0, scale: 1.06 }}
+          initial={initialOr({ opacity: 0, scale: 1.06 })}
           animate={{ opacity: 1, scale: 1 }}
           transition={transitions.slow}
           style={{
@@ -614,9 +660,9 @@ function EndingScreen({
         >
           {tierSplash ? (
             <motion.div
-              initial={{ opacity: 0, scale: 1.12 }}
+              initial={initialOr({ opacity: 0, scale: 1.12 })}
               animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: 0.25, ...transitions.ceremony }}
+              transition={{ delay: delayOr(0.25), ...transitions.ceremony }}
               style={{
                 ...ppStyles.endingSplashOverlay,
                 backgroundImage: `url(${tierSplash})`,
@@ -634,25 +680,29 @@ function EndingScreen({
         </motion.div>
         <div style={ppStyles.endingCardInner}>
         <motion.div
-          initial={{ opacity: 0, scale: 0.6 }}
+          initial={initialOr({ opacity: 0, scale: 0.6 })}
           animate={{ opacity: 1, scale: 1 }}
-          transition={labelChipSpring}
+          transition={
+            skipChoreography
+              ? transitions.snap
+              : labelChipSpring
+          }
           style={{ ...ppStyles.endingLabelChip, background: tv.chipBg, color: tv.chipColor }}
         >
           {ending.label}
         </motion.div>
         <motion.h2
-          initial={{ opacity: 0, y: 14 }}
+          initial={initialOr({ opacity: 0, y: 14 })}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.6, ...itemTransition }}
+          transition={{ delay: delayOr(0.6), ...itemTransition }}
           style={ppStyles.endingSubtitle}
         >
           「{ending.subtitle}」
         </motion.h2>
         <motion.div
-          initial={{ opacity: 0 }}
+          initial={initialOr({ opacity: 0 })}
           animate={{ opacity: 1 }}
-          transition={{ delay: 0.85, ...transitions.slow }}
+          transition={{ delay: delayOr(0.85), ...transitions.slow }}
           style={ppStyles.endingPassage}
         >
           {ending.passage}
@@ -661,9 +711,9 @@ function EndingScreen({
         {/* Highlight reel — 5 pivotal moments LLM picked from the run. */}
         {ending.highlights && ending.highlights.length > 0 ? (
           <motion.section
-            initial={{ opacity: 0, y: 12 }}
+            initial={initialOr({ opacity: 0, y: 12 })}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 1.0, ...itemTransition }}
+            transition={{ delay: delayOr(1.0), ...itemTransition }}
             style={ppStyles.highlightReel}
           >
             <div style={ppStyles.highlightReelLabel}>
@@ -673,14 +723,14 @@ function EndingScreen({
               {ending.highlights.map((h, i) => (
                 <motion.div
                   key={`${h.beat_ord}-${i}`}
-                  initial={{ opacity: 0, x: -8 }}
+                  initial={initialOr({ opacity: 0, x: -8 })}
                   animate={{ opacity: 1, x: 0 }}
                   whileHover={{
                     y: -2,
                     borderColor: "rgba(245,200,120,0.45)",
                     transition: transitions.snap,
                   }}
-                  transition={{ delay: 1.05 + i * 0.08, ...itemTransition }}
+                  transition={{ delay: delayOr(1.05 + cascadeDelay(i, 0.08)), ...itemTransition }}
                   style={ppStyles.highlightCard}
                 >
                   <div style={ppStyles.highlightHeader}>
@@ -700,9 +750,9 @@ function EndingScreen({
             chose vs alternate, and tier-color-graded predicted ending. */}
         {ending.branches && ending.branches.length > 0 ? (
           <motion.section
-            initial={{ opacity: 0, y: 12 }}
+            initial={initialOr({ opacity: 0, y: 12 })}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 1.25, ...itemTransition }}
+            transition={{ delay: delayOr(1.25), ...itemTransition }}
             style={ppStyles.branchesSection}
           >
             <div style={ppStyles.branchesLabel}>
@@ -722,14 +772,14 @@ function EndingScreen({
                 return (
                   <motion.div
                     key={`${b.pivot_beat_ord}-${i}`}
-                    initial={{ opacity: 0, x: -8 }}
+                    initial={initialOr({ opacity: 0, x: -8 })}
                     animate={{ opacity: 1, x: 0 }}
                     whileHover={{
                       y: -2,
                       borderColor: "rgba(140,100,200,0.45)",
                       transition: transitions.snap,
                     }}
-                    transition={{ delay: 1.3 + cascadeDelay(i, 0.08), ...itemTransition }}
+                    transition={{ delay: delayOr(1.3 + cascadeDelay(i, 0.08)), ...itemTransition }}
                     style={ppStyles.branchCard}
                   >
                     <div style={ppStyles.branchTurnBadge}>
@@ -760,9 +810,9 @@ function EndingScreen({
         ) : null}
 
         <motion.div
-          initial={{ opacity: 0, y: 8 }}
+          initial={initialOr({ opacity: 0, y: 8 })}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 1.7, ...itemTransition }}
+          transition={{ delay: delayOr(1.7), ...itemTransition }}
           style={ppStyles.endingActions}
         >
           <motion.button
@@ -1124,6 +1174,38 @@ function ActionArea({
   onSubmitFree: () => void
 }) {
   const t = useT()
+  // Local "I picked option N this turn" so we can immediately reflect
+  // the choice — instead of just dimming everything to 50% opacity
+  // and waiting 5-8s for the LLM. State resets every turn because
+  // the parent gives us key={beat.ord}, remounting ActionArea.
+  const [pickedIndex, setPickedIndex] = useState<number | null>(null)
+  const [submittedFree, setSubmittedFree] = useState(false)
+
+  const handleOptionPick = (i: number) => {
+    if (busy) return
+    setPickedIndex(i)
+    onPickOption(i)
+  }
+
+  const handleSubmitFreeWithReflect = () => {
+    if (!freeInput.trim() || busy) return
+    setSubmittedFree(true)
+    onSubmitFree()
+  }
+
+  // Once the parent flips busy=false (turn settled, narrator beat
+  // arrived), the parent will remount us via key change anyway. But
+  // if the request fails and busy goes false without remount, clear
+  // the picked state so the user can retry.
+  useEffect(() => {
+    if (!busy) {
+      setPickedIndex(null)
+      setSubmittedFree(false)
+    }
+  }, [busy])
+
+  const showPickedReflection = pickedIndex !== null || submittedFree
+
   return (
     <motion.div
       style={ppStyles.actionArea}
@@ -1139,20 +1221,29 @@ function ActionArea({
         ) : (
           options.map((opt, i) => {
             const parsed = parseOptionLabel(opt.label)
+            const isPicked = pickedIndex === i
+            const isUnpicked = pickedIndex !== null && pickedIndex !== i
             return (
               <motion.button
                 key={i}
                 style={{
                   ...ppStyles.optionBtn,
-                  opacity: busy ? 0.5 : 1,
+                  // While picked: highlight the chosen one (gold border),
+                  // fade the unchosen ones harder than busy default.
+                  ...(isPicked ? ppStyles.optionBtnPicked : null),
+                  opacity: isUnpicked ? 0.28 : busy && !isPicked ? 0.5 : 1,
                   pointerEvents: busy ? "none" : "auto",
                 }}
-                onClick={() => onPickOption(i)}
+                onClick={() => handleOptionPick(i)}
                 disabled={busy}
                 type="button"
                 initial={{ opacity: 0, x: -6 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.05 * i + 0.1, ...itemTransition }}
+                animate={{
+                  opacity: isUnpicked ? 0.28 : busy && !isPicked ? 0.5 : 1,
+                  x: 0,
+                  scale: isPicked ? 1.015 : 1,
+                }}
+                transition={{ delay: cascadeDelay(i, 0.05, 0.1), ...itemTransition }}
                 whileHover={busy ? undefined : hoverNudge}
                 whileTap={busy ? undefined : tapPress}
               >
@@ -1176,6 +1267,25 @@ function ActionArea({
         )}
       </div>
 
+      {/* Reflective banner — confirms the just-submitted move while
+          the LLM composes the next beat. Slips in right after the
+          tap; disappears when the new beat arrives (parent remounts). */}
+      <AnimatePresence>
+        {showPickedReflection && busy ? (
+          <motion.div
+            key="picked-reflect"
+            style={ppStyles.pickedReflect}
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={transitions.snap}
+          >
+            <span style={ppStyles.pickedReflectIcon}>✓</span>
+            <span>{t("play.action_busy")}</span>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+
       {showFreeInput || options.length === 0 ? (
         <div style={ppStyles.freeInputBox}>
           <textarea
@@ -1194,7 +1304,7 @@ function ActionArea({
                 opacity: !freeInput.trim() || busy ? 0.5 : 1,
                 pointerEvents: !freeInput.trim() || busy ? "none" : "auto",
               }}
-              onClick={onSubmitFree}
+              onClick={handleSubmitFreeWithReflect}
               type="button"
             >
               {busy ? t("play.action_busy") : t("play.action_submit")}
@@ -2059,6 +2169,35 @@ const ppStyles: Record<string, CSSProperties> = {
     color: "var(--text)",
     cursor: "pointer",
     transition: "all 160ms",
+  },
+  // Picked-state highlight — gold accent border + soft shadow.
+  // Stacked over `optionBtn` via spread.
+  optionBtnPicked: {
+    borderColor: "var(--accent)",
+    background: "linear-gradient(180deg, rgba(212,168,83,0.16), rgba(212,168,83,0.06))",
+    boxShadow: "0 8px 28px -12px rgba(212,168,83,0.6)",
+  },
+  // Reflective banner shown right under the options after the user
+  // picks one — bridges the 5-8s LLM wait with a "yes, we got it"
+  // visual signal.
+  pickedReflect: {
+    marginTop: 12,
+    padding: "10px 14px",
+    background: "rgba(212,168,83,0.08)",
+    border: "1px solid rgba(212,168,83,0.32)",
+    borderRadius: "var(--radius-md)",
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    fontSize: 13,
+    color: "var(--accent)",
+    letterSpacing: "0.02em",
+    fontStyle: "italic" as const,
+  },
+  pickedReflectIcon: {
+    fontSize: 14,
+    fontWeight: 600,
+    fontStyle: "normal" as const,
   },
   optionLabel: {
     fontSize: 15,

@@ -2,6 +2,8 @@
 
 > 这是 [Tiny Stories](https://github.com/...) 的设计文档,讲我为什么这样设计这个引擎,**不是技术教程**.如果你只想读代码,跳到 [ARCHITECTURE.md](../../ARCHITECTURE.md).
 
+> Language: 本文是中文版 · English mirror at [2026-05-tiny-stories-9-mechanisms.en.md](./2026-05-tiny-stories-9-mechanisms.en.md)
+
 ---
 
 ## 核心矛盾

@@ -1,152 +1,133 @@
 # Good first issues
 
-A curated list of well-scoped tasks for new contributors. Each one is
-small enough to land in 1-3 hours and does not require deep familiarity
-with the prompt-driven engine.
+> Language: 本文是中文版 · English mirror at [GOOD_FIRST_ISSUES.en.md](./GOOD_FIRST_ISSUES.en.md)
 
-When you start one, **comment on its tracking issue first** so we don't
-double-up. If there's no issue yet, please open one referencing this
-doc.
+为新贡献者准备的小任务清单.每条都拆得足够小,1-3 小时能落地,不需要
+深入理解 prompt-driven 引擎的内在.
 
----
-
-## Backend (Python)
-
-### 1. Unit tests for `_pick_npc_agenda`
-**File:** `tests/test_narrative_schedulers.py` (new)
-**Estimated time:** 2h
-
-Write deterministic tests covering the agenda scheduler's stage logic:
-
-- `hook` stage → empty list
-- `pressure` stage on `turn_index % 2 == 0` → 1 NPC with `intent="probe"`
-- `pressure` on odd turn_index → empty
-- `reversal` → 2 NPCs with intents `leverage` + `pressure`
-- `climax` → 2 NPCs with leverage / reveal alternation
-- `pre_finale` → 2 NPCs with leverage / reveal
-- Story mode → always empty
-
-Use synthetic CastMember objects from `narrative/contracts.py`. No LLM.
-
-### 2. Unit tests for `compute_current_inventory`
-**File:** `tests/test_narrative_inventory.py` (new)
-**Estimated time:** 1h
-
-Verify the walk-on-read behavior:
-
-- Empty history + non-empty `starting_assets` → returns starting_assets
-- History with one narrator beat that has `inventory_delta.added` → starting + added
-- Removed item via case-insensitive substring match → dropped
-- Repeated `removed` of the same item → no double-drop crash
-
-### 3. Unit tests for `_parse_branches` label normalization
-**File:** `tests/test_narrative_branches_parser.py` (new)
-**Estimated time:** 1h
-
-Verify:
-- Off-pool labels get snapped via `_normalize_ending_label`
-- Branches with `alternate_ending_label == actual_ending_label` get filtered
-- Duplicate `pivot_beat_ord` get deduped (only first wins)
-- Output is sorted by `pivot_beat_ord` ascending
-- More than 4 input branches get capped at 4
-
-### 4. Add a `--dry-run` flag to `tools/http_product_smoke.py`
-**File:** `tools/http_product_smoke.py`
-**Estimated time:** 1h
-
-Currently the smoke runs end-to-end against a live server with real
-LLM calls (cost money). Add `--dry-run` that exercises the HTTP
-contract by running through routes but stubs out LLM calls so CI
-can use it. Useful for OSS contributors without API keys.
+开始做的时候,**先在对应 tracking issue 下留言**避免撞车.如果还没有
+issue,请新开一个引用本文.
 
 ---
 
-## Frontend (TypeScript / React)
+## 后端(Python)
 
-### 5. Extract hardcoded Chinese strings into a shared constants file
-**File:** `frontend2/src/shared/lib/strings.ts` (new)
-**Estimated time:** 2h
+### 1. `_pick_npc_agenda` 单测
+**文件**:`tests/test_narrative_schedulers.py`(新建)
+**预计耗时**:2h
 
-Search-and-replace step toward future i18n. **Do not introduce a real
-i18n library yet** (that's a separate larger PR). Just collect strings
-into one file:
+写确定性测试覆盖 agenda scheduler 的 stage 逻辑:
 
-```ts
-// shared/lib/strings.ts
-export const STRINGS = {
-  loading: "加载中…",
-  loadingStory: "故事正在加载…",
-  failedTryAgain: "续写失败，请稍后再试。",
-  // ... etc
-} as const
-```
+- `hook` 阶段 → 空 list
+- `pressure` 阶段 + `turn_index % 2 == 0` → 1 个 NPC,intent="probe"
+- `pressure` 阶段 + 奇数 turn_index → 空
+- `reversal` → 2 个 NPC,intent 含 `leverage` + `pressure`
+- `climax` → 2 个 NPC,leverage / reveal 交替
+- `pre_finale` → 2 个 NPC,leverage / reveal
+- story 模式 → 永远空
 
-Then update the call sites to import from this. Aim for 80% coverage
-of the pages directory; perfectionism not required.
+用 `narrative/contracts.py` 里的 CastMember 合成对象.无 LLM.
 
-### 6. Improve `LoadingShim` keyboard accessibility
-**File:** `frontend2/src/shared/ui/loading-shim.tsx`
-**Estimated time:** 30 min
+### 2. `compute_current_inventory` 单测
+**文件**:`tests/test_narrative_inventory.py`(新建)
+**预计耗时**:1h
 
-Currently the loading shim has `role="status"` and `aria-live="polite"`
-but the dot animation has no fallback for users with `prefers-reduced-
-motion`. Add a media query that reduces the y-bounce animation when
-the user prefers reduced motion.
+验证 walk-on-read 行为:
 
-### 7. Cap player diary character counter
-**File:** `frontend2/src/pages/play/play-page.tsx`
-**Estimated time:** 30 min
+- 空 history + 非空 `starting_assets` → 返回 starting_assets
+- history 含一个 narrator beat 有 `inventory_delta.added` → starting + added
+- 大小写不敏感 substring 匹配 removed → drop
+- 重复 `removed` 同一个 item → 不会 double-drop crash
 
-The diary textarea has `maxLength={600}` but no visible counter. Add
-a small `{N} / 600` chip below the textarea that turns warm when
-`N > 540`. Mirror what the create page does for the seed input.
+### 3. `_parse_branches` label normalize 单测
+**文件**:`tests/test_narrative_branches_parser.py`(新建)
+**预计耗时**:1h
 
-### 8. Add a "回顾这局" button in EndingScreen
-**File:** `frontend2/src/pages/play/play-page.tsx`
-**Estimated time:** 1h
+验证:
+- off-pool label 通过 `_normalize_ending_label` snap 到合法 label
+- `alternate_ending_label == actual_ending_label` 的 branch 被过滤
+- 重复 `pivot_beat_ord` 去重(只保留第一个)
+- 输出按 `pivot_beat_ord` 升序
+- 输入超过 4 条会被 cap 在 4 条
 
-Currently the ending screen shows passage + highlights + branches +
-share button, but there's no way to scroll back through the full
-12-turn story. Add a button that scrolls the page back to the cast
-strip / first turn so the player can re-read.
+### 4. `tools/http_product_smoke.py` 加 `--dry-run` 标志
+**文件**:`tools/http_product_smoke.py`
+**预计耗时**:1h
 
----
-
-## Docs / community
-
-### 9. Translate README.md to English
-**File:** `README.en.md` (new)
-**Estimated time:** 2h
-
-Mostly mechanical translation of the new README.md. Keep section
-structure identical. Frontmatter link from main README should land
-this in either-or `[中文](./README.md) · [English](./README.en.md)`.
-
-### 10. Add architecture diagram to ARCHITECTURE.md
-**File:** `ARCHITECTURE.md` + a `docs/diagrams/architecture.svg` (or
-`.mermaid` block inside the markdown — GitHub renders mermaid
-natively)
-**Estimated time:** 2h
-
-Visualize the per-turn pipeline:
-```
-opening → cast + roles + leverage network
-        ↓
-each turn:
-  scheduler signals → LLM call → npc_pulse + options + delta
-        ↓
-finalize:
-  ending → highlights → branches
-```
-
-Mermaid diagram is the easiest path. Aim for one diagram per section.
+目前 smoke 端到端跑真实服务器 + 真实 LLM(花钱).加 `--dry-run`,跑
+完整 HTTP 路由但 stub 掉 LLM 调用,这样 CI 能用,没有 API key 的 OSS
+贡献者也能跑.
 
 ---
 
-## How to claim
+## 前端(TypeScript / React)
 
-1. Pick a task above.
-2. Open a GitHub issue titled `[GFI N] <task description>` (e.g.
-   `[GFI 1] Unit tests for _pick_npc_agenda`).
-3. Comment "I'm working on this" so others know.
-4. Send the PR within 7 days; otherwise we'll un-assign.
+### 5. 给新增页面扩展 i18n string bundle
+**文件**:`frontend2/src/shared/lib/i18n.ts`
+**预计耗时**:1-2h
+
+zh/en string bundle 已有.新页面 / 新组件加硬编码文案时,在
+`STRINGS_ZH` / `STRINGS_EN` 加 key,把字面量替换成 `useT('your.key')`.
+两个 bundle 保持同步 — 如果 key 只有 zh,en bundle 应该 graceful fallback.
+
+### 6. 给 `LoadingShim` 加键盘可访问性
+**文件**:`frontend2/src/shared/ui/loading-shim.tsx`
+**预计耗时**:30 min
+
+loading shim 已有 `role="status"` 和 `aria-live="polite"`,但 dot 动画
+没有 `prefers-reduced-motion` fallback.加 media query,在用户偏好减少
+动画时降低 y-bounce 动画.
+
+### 7. player diary 字数计数器
+**文件**:`frontend2/src/pages/play/play-page.tsx`
+**预计耗时**:30 min
+
+diary textarea 有 `maxLength={600}` 但没有可见计数器.在 textarea 下面
+加一个 `{N} / 600` 的小 chip,`N > 540` 时变暖色.参考 create page 的
+seed 输入计数实现.
+
+### 8. EndingScreen 加 "回顾这局" 按钮
+**文件**:`frontend2/src/pages/play/play-page.tsx`
+**预计耗时**:1h
+
+ending screen 现在显示 passage + highlights + branches + share 按钮,
+但没法滚回 12 回合的完整故事.加一个按钮把页面滚回 cast strip / 第一
+turn 让玩家重读.确保 `zh` 和 `en` bundle 都有按钮文案.
+
+---
+
+## 文档 / 社区
+
+### 9. 加第三个 locale(例如 `ja` 或 `es`)
+**文件**:`frontend2/src/shared/lib/i18n.ts` + `rpg_backend/narrative/engine.py`
+**预计耗时**:3-4h
+
+扩现有 zh/en scaffold:
+
+- 加 `STRINGS_JA`(或你的 locale)bundle,镜像所有 key
+- 在 create page 的 `LANGUAGE_OPTIONS` 加该 locale
+- `_OPENING_SYSTEM_PROMPT` / `_TURN_SYSTEM_PROMPT` 加 prompt 语言分支
+- ending label 规范 ID 保留中文,只需翻译 display map
+
+开始前请开 issue 说你想加哪个 locale,我们好对齐用词选择.
+
+### 10. 加更多架构图
+**文件**:`ARCHITECTURE.md` + `ARCHITECTURE.en.md`
+**预计耗时**:2h
+
+doc 已有 per-turn pipeline + session lifecycle 两个 mermaid block.
+价值最高的下一个图:**4-NPC 样本 cast 的 inter-NPC leverage graph**.
+帮新读者理解为什么 `leverages_over_other_npcs` 是 N×N 而不只是
+leverage_over_player.
+
+mermaid 图最简单.zh 和 en 两份内容保持一致(mermaid 与语言无关).
+
+---
+
+## 怎么 claim
+
+1. 选一个上面的任务.
+2. 开 GitHub issue,标题 `[GFI N] <task description>`(例如
+   `[GFI 1] _pick_npc_agenda 单测`).
+3. 留言 "I'm working on this" 让别人知道.
+4. 7 天内提 PR; 否则我们会 un-assign.

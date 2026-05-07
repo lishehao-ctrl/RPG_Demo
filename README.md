@@ -13,6 +13,7 @@
 </p>
 
 <p align="center">
+  <strong>中文</strong> · <a href="./README.en.md">English</a> ·
   <a href="./ARCHITECTURE.md">Architecture deep-dive</a> ·
   <a href="./CONTRIBUTING.md">Contributing</a> ·
   <a href="./docs/devlog/2026-05-tiny-stories-9-mechanisms.md">Design devlog</a> ·

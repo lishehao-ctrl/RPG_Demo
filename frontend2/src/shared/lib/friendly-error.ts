@@ -24,13 +24,18 @@ type Lang = "zh" | "en"
 
 const LANG_STORAGE_KEY = "tiny-stories-lang"
 
+// OSS default is English. Mirrors `DEFAULT_LANG` in i18n.ts — kept
+// in sync by hand because friendly-error must stay a pure function
+// without React imports.
 function readLang(): Lang {
-  if (typeof window === "undefined") return "zh"
+  if (typeof window === "undefined") return "en"
   try {
     const raw = window.localStorage.getItem(LANG_STORAGE_KEY)
-    return raw === "en" ? "en" : "zh"
+    if (raw === "zh") return "zh"
+    if (raw === "en") return "en"
+    return "en"
   } catch {
-    return "zh"
+    return "en"
   }
 }
 

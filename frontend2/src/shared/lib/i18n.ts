@@ -28,7 +28,10 @@ export const LANGUAGE_OPTIONS: ReadonlyArray<{ value: Lang; label: string }> = [
 ]
 
 const STORAGE_KEY = "tiny-stories-lang"
-const DEFAULT_LANG: Lang = "zh"
+// OSS default is English — most readers landing on this repo are
+// non-Chinese-speaking. Existing users keep whatever they last set
+// via localStorage; only first-paint visitors see the change.
+const DEFAULT_LANG: Lang = "en"
 
 // ---------------------------------------------------------------------------
 // String bundles. Keep keys in dot.notation, grouped by surface.
@@ -736,12 +739,16 @@ export function useLanguage(): LanguageContextValue {
   const ctx = useContext(LanguageContext)
   if (!ctx) {
     // Fallback so non-wrapped trees don't crash. Used in tests and
-    // legacy components that haven't been wired yet.
+    // legacy components that haven't been wired yet. Falls through
+    // the same lookup chain as the wrapped path: DEFAULT_LANG bundle
+    // → zh bundle → literal key.
     const t: TFn = (key, paramsOrFallback, fallback) => {
       const params = typeof paramsOrFallback === "object" ? paramsOrFallback : undefined
       const stringFallback = typeof paramsOrFallback === "string" ? paramsOrFallback : fallback
-      const value = STRINGS_ZH[key]
-      if (typeof value === "string" && value.length > 0) return applyParams(value, params)
+      const primary = BUNDLES[DEFAULT_LANG]?.[key]
+      if (typeof primary === "string" && primary.length > 0) return applyParams(primary, params)
+      const zhValue = STRINGS_ZH[key]
+      if (typeof zhValue === "string" && zhValue.length > 0) return applyParams(zhValue, params)
       return stringFallback ?? String(key)
     }
     return { lang: DEFAULT_LANG, setLang: () => undefined, t }

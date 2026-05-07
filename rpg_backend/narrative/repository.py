@@ -193,7 +193,7 @@ class NarrativeRepository:
         failure_conditions: list[FailureCondition],
         player_role_options: list[PlayerRole],
         visibility: TemplateVisibility,
-        language: TemplateLanguage = "zh",
+        language: TemplateLanguage = "en",
     ) -> NarrativeTemplate:
         created_at = _utc_now()
         with self._connect() as conn:

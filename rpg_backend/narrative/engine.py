@@ -714,7 +714,7 @@ def generate_opening(
     *,
     gateway: NarrativeLLMGateway,
     seed: str,
-    language: TemplateLanguage = "zh",
+    language: TemplateLanguage = "en",
 ) -> OpeningResult:
     """Generate world opening. Retries on JSON / shape failure or sparse
     inter-NPC leverage network (LLM is consistently conservative on
@@ -795,7 +795,7 @@ def _generate_opening_once(
     seed: str,
     *,
     retry_feedback: str | None,
-    language: TemplateLanguage = "zh",
+    language: TemplateLanguage = "en",
 ) -> OpeningResult:
     user_payload: dict[str, Any] = {
         "seed": seed,
@@ -875,7 +875,7 @@ def advance_turn(
     player_role: PlayerRole | None = None,
     current_inventory: list[str] | None = None,
     player_diary: str | None = None,
-    language: TemplateLanguage = "zh",
+    language: TemplateLanguage = "en",
 ) -> TurnResult:
     """Advance one turn."""
     stage_phase = _stage_for(turn_index, turn_budget)
@@ -1025,7 +1025,7 @@ def synthesize_early_ending(
     failure_trigger: str,
     failure_reason: str,
     player_role: PlayerRole | None = None,
-    language: TemplateLanguage = "zh",
+    language: TemplateLanguage = "en",
 ) -> EndingResult:
     """Generate a 'collapsed' ending when judge_failure flagged a trigger.
     Result label is constrained to {失控, 反噬, 破碎, 沉沦}."""
@@ -1410,7 +1410,7 @@ def synthesize_ending(
     history: list[StoryMessage],
     turn_count: int,
     player_role: PlayerRole | None = None,
-    language: TemplateLanguage = "zh",
+    language: TemplateLanguage = "en",
 ) -> EndingResult:
     """Generate a 400-600 word ending + label + first-person subtitle.
 
@@ -1514,7 +1514,7 @@ def synthesize_highlights(
     ending_label: str,
     ending_subtitle: str,
     player_role: PlayerRole | None = None,
-    language: TemplateLanguage = "zh",
+    language: TemplateLanguage = "en",
 ) -> list[Highlight]:
     """Pick up to 5 pivotal narrator beats from a finished session and
     return them as a chronological highlight reel.
@@ -1632,7 +1632,7 @@ def synthesize_branches(
     ending_tier: str,
     ending_passage: str,
     player_role: PlayerRole | None = None,
-    language: TemplateLanguage = "zh",
+    language: TemplateLanguage = "en",
 ) -> list[BranchHypothetical]:
     """Generate 2-3 hypothetical fork-point cards: 'if you'd done Y at
     turn N instead of X, you would likely have hit ending label Z'.
@@ -1821,7 +1821,7 @@ def ask_advisor(
     story_history: list[StoryMessage],
     advisor_history: list[AdvisorMessage],
     question: str,
-    language: TemplateLanguage = "zh",
+    language: TemplateLanguage = "en",
 ) -> AdvisorReply:
     # IMPORTANT: put player_question first so the model's attention lands on it
     # before drifting into the long story_history block. The previous version
@@ -1870,7 +1870,7 @@ def ask_advisor_oracle(
     player_role: PlayerRole | None,
     failure_conditions: list[FailureCondition] | None,
     current_inventory: list[str] | None,
-    language: TemplateLanguage = "zh",
+    language: TemplateLanguage = "en",
 ) -> AdvisorReply:
     """Oracle variant of ask_advisor. The advisor sees privileged info
     (NPC hidden_objectives + leverages, player hidden_objective + assets,

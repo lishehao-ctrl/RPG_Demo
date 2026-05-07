@@ -177,7 +177,12 @@ EndingTier = Literal["victory", "compromised", "collapsed"]
 # a new locale requires extending this Literal AND adding a prompt-
 # language branch in `engine.py`.
 TemplateLanguage = Literal["zh", "en"]
-DEFAULT_TEMPLATE_LANGUAGE: TemplateLanguage = "zh"
+# OSS default is English — most readers landing on this repo are
+# non-Chinese-speaking. New templates created without an explicit
+# `language` field generate English narration. The `language` column
+# migration in repository._ensure_schema still backfills pre-i18n
+# rows with 'zh' so historic templates keep their original locale.
+DEFAULT_TEMPLATE_LANGUAGE: TemplateLanguage = "en"
 
 
 class NarrativeTemplate(BaseModel):

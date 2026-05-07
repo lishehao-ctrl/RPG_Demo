@@ -8,6 +8,63 @@ The reference for every claim here is `rpg_backend/narrative/engine.py`.
 If a behavior in this doc disagrees with the prompt strings or scheduler
 functions in that file, **the file is the truth** — file an issue.
 
+## At a glance — the per-turn pipeline
+
+```mermaid
+flowchart LR
+    A[Player input<br/>action + free + diary] --> B{advance_turn}
+
+    subgraph Schedulers["⚙ Deterministic schedulers (Python, no LLM)"]
+        S1["_pick_npc_agenda<br/>which NPCs push their agenda"]
+        S2["_pick_twist_directive<br/>reversal-stage forced inflection"]
+        S3["compute_current_inventory<br/>walk-on-read, no caching"]
+        S4["_summarize_recent_consequences<br/>last action + pulse trend"]
+    end
+
+    B --> S1
+    B --> S2
+    B --> S3
+    B --> S4
+
+    S1 --> P[user_payload]
+    S2 --> P
+    S3 --> P
+    S4 --> P
+
+    P --> L[🤖 LLM call<br/>_TURN_SYSTEM_PROMPT]
+
+    L --> O["Structured output<br/>passage + options[3] with intent tags<br/>+ npc_pulse[shift+reason]<br/>+ inventory_delta?"]
+
+    O --> J{judge_failure<br/>gauntlet only}
+    J -->|triggered| EE[synthesize_early_ending<br/>collapsed tier]
+    J -->|safe| N[Next turn]
+
+    classDef llm fill:#7e58c8,stroke:#fff,color:#fff
+    classDef sched fill:#1d1f27,stroke:#d4a853,color:#d4a853
+    class L,EE llm
+    class S1,S2,S3,S4 sched
+```
+
+## Session lifecycle
+
+```mermaid
+flowchart TB
+    T[Template creation] -->|1 LLM call| OG[generate_opening<br/>cast + roles + leverage network<br/>+ failure conditions]
+    OG --> SS[Session starts]
+    SS --> RP[Player picks role]
+    RP --> AT[advance_turn loop<br/>up to 12 turns]
+    AT --> AT
+    AT -->|judge_failure trips| EARLY[early collapsed ending]
+    AT -->|reaches turn_budget| FIN[_finalize_session]
+    FIN -->|3 LLM calls| F1[synthesize_ending]
+    F1 --> F2[synthesize_highlights<br/>5 pivotal beats]
+    F2 --> F3[synthesize_branches<br/>2-3 alternate paths]
+    F3 --> END[EndingScreen<br/>splash + reel + branches + share]
+    EARLY --> F1
+```
+
+---
+
 ---
 
 ## 0. Two-stage architecture

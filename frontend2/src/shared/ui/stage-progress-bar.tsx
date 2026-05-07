@@ -12,13 +12,14 @@
 
 import type { CSSProperties } from "react"
 import { motion } from "motion/react"
+import { useT } from "../lib/i18n"
 
 const STAGES = [
-  { key: "hook", label: "序幕" },
-  { key: "pressure", label: "升压" },
-  { key: "reversal", label: "转折" },
-  { key: "climax", label: "高潮" },
-  { key: "pre_finale", label: "收束" },
+  { key: "hook", labelKey: "stage_bar.hook" },
+  { key: "pressure", labelKey: "stage_bar.pressure" },
+  { key: "reversal", labelKey: "stage_bar.reversal" },
+  { key: "climax", labelKey: "stage_bar.climax" },
+  { key: "pre_finale", labelKey: "stage_bar.pre_finale" },
 ] as const
 
 type StageKey = (typeof STAGES)[number]["key"]
@@ -61,22 +62,33 @@ export function StageProgressBar({
   // (i.e. session.turn_count). Mark the current stage as the one for
   // (turn_count + 1) — the upcoming turn — so the bar reads as "where
   // the story is heading next" rather than "where it just was".
+  const t = useT()
   const upcoming = Math.min(turnBudget - 1, turnIndex + 1)
   const currentStage = stageForTurn(upcoming, turnBudget)
   const spans = segmentSpans(turnBudget)
   const totalSpan = Object.values(spans).reduce((a, b) => a + b, 0)
   const stageOrder = STAGES.map((s) => s.key)
   const currentIdx = stageOrder.indexOf(currentStage)
+  const currentLabel = STAGES[currentIdx]
+    ? t(STAGES[currentIdx].labelKey as Parameters<typeof t>[0])
+    : ""
 
   return (
     <div style={styles.row}>
       <div style={styles.label}>
-        <span style={styles.stageName}>{STAGES[currentIdx]?.label ?? ""}</span>
+        <span style={styles.stageName}>{currentLabel}</span>
         <span style={styles.turnCount}>
           {Math.min(turnIndex, turnBudget)}/{turnBudget}
         </span>
       </div>
-      <div style={styles.bar} aria-label={`第 ${turnIndex} 回合，共 ${turnBudget} 回合，当前阶段：${STAGES[currentIdx]?.label}`}>
+      <div
+        style={styles.bar}
+        aria-label={t("stage_bar.aria", {
+          turn: turnIndex,
+          total: turnBudget,
+          stage: currentLabel,
+        })}
+      >
         {STAGES.map((stage, idx) => {
           const span = spans[stage.key]
           const widthPct = (span / totalSpan) * 100
@@ -104,7 +116,7 @@ export function StageProgressBar({
                   transition={{ duration: 2.4, repeat: Infinity, ease: "easeInOut" }}
                 />
               ) : null}
-              <span style={styles.segLabel}>{stage.label}</span>
+              <span style={styles.segLabel}>{t(stage.labelKey as Parameters<typeof t>[0])}</span>
             </div>
           )
         })}

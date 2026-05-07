@@ -47,6 +47,8 @@ export const STRINGS_ZH = {
   "header.write_story": "写一个故事",
   "header.login": "登录",
   "header.logout": "退出登录",
+  "header.signout": "退出",
+  "header.my_worlds": "我的故事",
   "header.lang_label": "语言",
 
   // Generic actions
@@ -131,12 +133,20 @@ export const STRINGS_ZH = {
   "play.highlights_title": "5 个关键时刻",
   "play.branches_title": "你没走过的路",
 
-  // Stage labels
+  // Stage labels (textual descriptions)
   "stage.hook": "开场",
   "stage.pressure": "施压",
   "stage.reversal": "翻转",
   "stage.climax": "高潮",
   "stage.pre_finale": "终局前",
+
+  // Stage progress bar — short visual labels
+  "stage_bar.hook": "序幕",
+  "stage_bar.pressure": "升压",
+  "stage_bar.reversal": "转折",
+  "stage_bar.climax": "高潮",
+  "stage_bar.pre_finale": "收束",
+  "stage_bar.aria": "第 {turn} 回合，共 {total} 回合，当前阶段：{stage}",
 } as const
 
 type StringKey = keyof typeof STRINGS_ZH
@@ -145,6 +155,8 @@ export const STRINGS_EN: Record<StringKey, string> = {
   "header.write_story": "Write a story",
   "header.login": "Sign in",
   "header.logout": "Sign out",
+  "header.signout": "Sign out",
+  "header.my_worlds": "My stories",
   "header.lang_label": "Language",
 
   "action.back_home": "Back to home",
@@ -228,6 +240,13 @@ export const STRINGS_EN: Record<StringKey, string> = {
   "stage.reversal": "Reversal",
   "stage.climax": "Climax",
   "stage.pre_finale": "Pre-finale",
+
+  "stage_bar.hook": "Prelude",
+  "stage_bar.pressure": "Build",
+  "stage_bar.reversal": "Turn",
+  "stage_bar.climax": "Climax",
+  "stage_bar.pre_finale": "Coda",
+  "stage_bar.aria": "Turn {turn} of {total}, current stage: {stage}",
 }
 
 const BUNDLES: Record<Lang, Record<StringKey, string>> = {

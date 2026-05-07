@@ -1,5 +1,6 @@
 import { type CSSProperties, useEffect, useRef, useState } from "react"
 import { useAuth } from "../../app/auth-context"
+import { useT } from "../lib/i18n"
 
 type HeaderUser = {
   name: string
@@ -18,6 +19,7 @@ export function HeaderUserMenu({
   onLogout?: () => void
 }) {
   const auth = useAuth()
+  const t = useT()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement | null>(null)
 
@@ -57,7 +59,7 @@ export function HeaderUserMenu({
   if (!user) {
     return (
       <button className="ts-btn ts-btn--ghost" onClick={handleLogin}>
-        登录
+        {t("header.login")}
       </button>
     )
   }
@@ -96,7 +98,7 @@ export function HeaderUserMenu({
               handleMyWorlds()
             }}
           >
-            <span>我的 worlds</span>
+            <span>{t("header.my_worlds")}</span>
             <span style={humStyles.itemMeta}>{user.world_count ?? 0}</span>
           </button>
           <div style={humStyles.divider} />
@@ -107,7 +109,7 @@ export function HeaderUserMenu({
               void handleLogout()
             }}
           >
-            <span style={{ color: "var(--text-muted)" }}>退出</span>
+            <span style={{ color: "var(--text-muted)" }}>{t("header.signout")}</span>
           </button>
         </div>
       )}

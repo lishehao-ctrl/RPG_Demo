@@ -5,6 +5,7 @@ import { friendlyError } from "../../shared/lib/friendly-error"
 import { ENDING_LABEL_DISPLAY, useLanguage, useT } from "../../shared/lib/i18n"
 import { LoadingShim } from "../../shared/ui/loading-shim"
 import { EmptyState } from "../../shared/ui/empty-state"
+import { Truncated } from "../../shared/ui/truncated"
 import {
   getAdvisorAvatar,
   getAvatarForCastMember,
@@ -144,9 +145,9 @@ export function ReplayPage({
                   style={rpStyles.castAvatar}
                   loading="lazy"
                 />
-                <div>
-                  <div style={rpStyles.castName}>{c.display_name}</div>
-                  <div style={rpStyles.castRole}>{c.role}</div>
+                <div style={{ minWidth: 0, maxWidth: 140 }}>
+                  <Truncated style={rpStyles.castName}>{c.display_name}</Truncated>
+                  <Truncated style={rpStyles.castRole}>{c.role}</Truncated>
                 </div>
               </div>
             ))}

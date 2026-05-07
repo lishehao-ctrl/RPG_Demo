@@ -10,6 +10,7 @@ import type {
 import { useApi } from "../../app/api-context"
 import { LoadingShim } from "../../shared/ui/loading-shim"
 import { StageProgressBar } from "../../shared/ui/stage-progress-bar"
+import { Truncated } from "../../shared/ui/truncated"
 import { friendlyError } from "../../shared/lib/friendly-error"
 import { useT } from "../../shared/lib/i18n"
 import {
@@ -212,8 +213,8 @@ export function PlayPage({
                   loading="lazy"
                 />
                 <div style={ppStyles.castChipText}>
-                  <div style={ppStyles.castChipName}>{c.display_name}</div>
-                  <div style={ppStyles.castChipRole}>{c.role}</div>
+                  <Truncated style={ppStyles.castChipName}>{c.display_name}</Truncated>
+                  <Truncated style={ppStyles.castChipRole}>{c.role}</Truncated>
                 </div>
               </div>
             ))}
@@ -267,7 +268,9 @@ export function PlayPage({
             >
               <div style={ppStyles.roleBannerHeader}>
                 <span style={ppStyles.roleBannerYou}>{t("play.role_you_tag")}</span>
-                <span style={ppStyles.roleBannerLabel}>{story.session.player_role.label}</span>
+                <Truncated style={ppStyles.roleBannerLabel}>
+                  {story.session.player_role.label}
+                </Truncated>
               </div>
               <p style={ppStyles.roleBannerPersona}>
                 {story.session.player_role.public_persona}
@@ -282,9 +285,9 @@ export function PlayPage({
                   <ul style={ppStyles.roleBannerLevList}>
                     {story.session.player_role.leverages_over_npcs.map((lev, i) => (
                       <li key={i}>
-                        <span style={ppStyles.roleBannerLevNpc}>
+                        <Truncated style={ppStyles.roleBannerLevNpc}>
                           {castNameById[lev.npc_id] ?? lev.npc_id}
-                        </span>
+                        </Truncated>
                         {lev.leverage}
                       </li>
                     ))}
@@ -306,11 +309,18 @@ export function PlayPage({
                           animate={{ opacity: 1, x: 0 }}
                           transition={itemTransition}
                           style={{
+                            display: "flex",
+                            gap: 4,
+                            alignItems: "baseline",
                             ...(isAcquired ? ppStyles.roleInvAcquired : {}),
                           }}
                         >
-                          {isAcquired ? "+ " : "· "}
-                          {item}
+                          <span style={{ flexShrink: 0 }}>
+                            {isAcquired ? "+ " : "· "}
+                          </span>
+                          <Truncated style={{ flex: "1 1 0", minWidth: 0 }}>
+                            {item}
+                          </Truncated>
                         </motion.li>
                       )
                     })}
@@ -512,9 +522,11 @@ function Header({
           {t("play.back_home")}
         </button>
         <div style={ppStyles.headerTitle}>
-          <div style={coverUrl ? { ...ppStyles.headerTitleLine, color: "white" } : ppStyles.headerTitleLine}>
+          <Truncated
+            style={coverUrl ? { ...ppStyles.headerTitleLine, color: "white" } : ppStyles.headerTitleLine}
+          >
             {title}
-          </div>
+          </Truncated>
           {cast && cast.length ? (
             <div
               style={
@@ -522,6 +534,7 @@ function Header({
                   ? { ...ppStyles.headerCast, color: "rgba(255,255,255,0.78)" }
                   : ppStyles.headerCast
               }
+              title={cast.join(" · ")}
             >
               {cast.join(" · ")}
               {showProgress ? (
@@ -1782,7 +1795,15 @@ const ppStyles: Record<string, CSSProperties> = {
     borderRadius: "50%",
     objectFit: "cover",
   },
-  castChipText: { display: "flex", flexDirection: "column", lineHeight: 1.2 },
+  castChipText: {
+    display: "flex",
+    flexDirection: "column",
+    lineHeight: 1.2,
+    // Cap the chip text column so long names truncate instead of
+    // bloating the cast strip and pushing later chips off screen.
+    maxWidth: 140,
+    minWidth: 0,
+  },
   castChipName: { fontSize: 12.5, fontWeight: 500, color: "var(--text)" },
   castChipRole: { fontSize: 10.5, color: "var(--text-faint)", marginTop: 2 },
 

@@ -8,6 +8,7 @@ import { useApi } from "../../app/api-context"
 import { useAuth } from "../../app/auth-context"
 import { Header } from "../../shared/ui/header"
 import { LoadingShim } from "../../shared/ui/loading-shim"
+import { Truncated } from "../../shared/ui/truncated"
 import {
   PAGE_BG,
   getCoverForTemplate,
@@ -297,14 +298,14 @@ function SessionCard({
       whileHover={hoverLift}
       whileTap={tapPress}
     >
-      <div style={hpStyles.sessionTitle}>{session.template_title}</div>
+      <Truncated style={hpStyles.sessionTitle}>{session.template_title}</Truncated>
       {completed ? (
         <>
           <div style={hpStyles.sessionEndingLine}>
             <span style={hpStyles.sessionEndingLabel}>{endingLabelDisplay}</span>
-            <span style={hpStyles.sessionEndingSubtitle}>
-              「{session.ending_subtitle}」
-            </span>
+            <Truncated style={hpStyles.sessionEndingSubtitle}>
+              {`「${session.ending_subtitle ?? ""}」`}
+            </Truncated>
           </div>
           <div style={hpStyles.sessionMeta}>
             {t("home.session_completed_meta")} · {formatRelative(session.last_active_at, t)}
@@ -401,14 +402,16 @@ function TemplateCard({
         }}
       >
         <div style={hpStyles.cardCoverFade}>
-          <div style={hpStyles.cardTitle}>{template.title}</div>
-          <div style={hpStyles.cardCast}>
+          <Truncated lines={2} style={hpStyles.cardTitle}>
+            {template.title}
+          </Truncated>
+          <Truncated style={hpStyles.cardCast}>
             {template.cast.map((c) => c.display_name).join(" · ")}
-          </div>
+          </Truncated>
         </div>
       </div>
       <div style={hpStyles.cardBody}>
-        <div style={hpStyles.cardSeed}>"{template.seed}"</div>
+        <Truncated lines={2} style={hpStyles.cardSeed}>{`"${template.seed}"`}</Truncated>
         <div style={hpStyles.cardFooter}>
           <span style={hpStyles.cardBadge}>{visibilityLabel(template.visibility, t)}</span>
           <span style={hpStyles.cardPlays}>{t("home.played_count", { count: template.play_count })}</span>
@@ -552,11 +555,6 @@ const hpStyles: Record<string, CSSProperties> = {
     fontSize: 14.5,
     fontWeight: 500,
     color: "var(--text)",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    display: "-webkit-box",
-    WebkitLineClamp: 1,
-    WebkitBoxOrient: "vertical",
   },
   sessionMeta: { fontSize: 12, color: "var(--text-faint)", marginTop: 6 },
   sessionEndingLine: {
@@ -580,11 +578,8 @@ const hpStyles: Record<string, CSSProperties> = {
     color: "var(--text-muted)",
     fontFamily: "var(--font-narrative)",
     fontStyle: "italic",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    display: "-webkit-box",
-    WebkitLineClamp: 1,
-    WebkitBoxOrient: "vertical",
+    flex: "1 1 0",
+    minWidth: 0,
   },
 
   grid: {
@@ -627,10 +622,6 @@ const hpStyles: Record<string, CSSProperties> = {
     lineHeight: 1.3,
     color: "white",
     textShadow: "0 1px 10px rgba(0,0,0,0.5)",
-    overflow: "hidden",
-    display: "-webkit-box",
-    WebkitLineClamp: 2,
-    WebkitBoxOrient: "vertical",
     marginBottom: 4,
   },
   cardSeed: {
@@ -638,17 +629,10 @@ const hpStyles: Record<string, CSSProperties> = {
     color: "var(--text-muted)",
     fontStyle: "italic",
     lineHeight: 1.5,
-    overflow: "hidden",
-    display: "-webkit-box",
-    WebkitLineClamp: 2,
-    WebkitBoxOrient: "vertical",
   },
   cardCast: {
     fontSize: 12,
     color: "rgba(255,255,255,0.78)",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
     textShadow: "0 1px 4px rgba(0,0,0,0.6)",
   },
   cardFooter: {

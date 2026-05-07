@@ -12,6 +12,7 @@ import { useAuth } from "../../app/auth-context"
 import { Header } from "../../shared/ui/header"
 import { friendlyError } from "../../shared/lib/friendly-error"
 import { LoadingShim } from "../../shared/ui/loading-shim"
+import { Truncated } from "../../shared/ui/truncated"
 import { EmptyState } from "../../shared/ui/empty-state"
 import { ENDING_LABEL_DISPLAY, useLanguage, useT } from "../../shared/lib/i18n"
 import { cascadeDelay, hoverLift, itemTransition, tapPress, transitions } from "../../shared/lib/motion-presets"
@@ -185,9 +186,9 @@ export function TemplateDetailPage({
                     loading="lazy"
                   />
                   <div style={tdStyles.castInfo}>
-                    <div style={tdStyles.castName}>{c.display_name}</div>
-                    <div style={tdStyles.castRole}>{c.role}</div>
-                    <div style={tdStyles.castRelation}>{c.relation_to_protagonist}</div>
+                    <Truncated style={tdStyles.castName}>{c.display_name}</Truncated>
+                    <Truncated style={tdStyles.castRole}>{c.role}</Truncated>
+                    <Truncated lines={2} style={tdStyles.castRelation}>{c.relation_to_protagonist}</Truncated>
                     {interLevs.length > 0 ? (
                       <div style={tdStyles.castLevChip}>
                         {t("world.cast_holds_leverage", { count: interLevs.length })}
@@ -224,11 +225,11 @@ export function TemplateDetailPage({
                 <ul style={tdStyles.networkList}>
                   {edges.map((e, i) => (
                     <li key={i} style={tdStyles.networkRow}>
-                      <span style={tdStyles.networkHolder}>{e.holder}</span>
+                      <Truncated style={tdStyles.networkHolder}>{e.holder}</Truncated>
                       <span style={tdStyles.networkArrow}>→</span>
-                      <span style={tdStyles.networkTarget}>{e.target}</span>
+                      <Truncated style={tdStyles.networkTarget}>{e.target}</Truncated>
                       <span style={tdStyles.networkColon}>：</span>
-                      <span style={tdStyles.networkLeverage}>{e.leverage}</span>
+                      <Truncated lines={2} style={tdStyles.networkLeverage}>{e.leverage}</Truncated>
                     </li>
                   ))}
                 </ul>
@@ -246,8 +247,8 @@ export function TemplateDetailPage({
             <ul style={tdStyles.failureList}>
               {template.failure_conditions.map((fc, i) => (
                 <li key={i} style={tdStyles.failureRow}>
-                  <span style={tdStyles.failureLabel}>⚠ {fc.label}</span>
-                  <span style={tdStyles.failureDesc}>{fc.description}</span>
+                  <Truncated style={tdStyles.failureLabel}>{`⚠ ${fc.label}`}</Truncated>
+                  <Truncated lines={3} style={tdStyles.failureDesc}>{fc.description}</Truncated>
                 </li>
               ))}
             </ul>
@@ -409,7 +410,7 @@ function PlayerRoleCard({
       transition={{ delay: index * 0.06, ...itemTransition }}
     >
       <div style={tdStyles.roleCardHeader}>
-        <span style={tdStyles.roleCardLabel}>{role.label}</span>
+        <Truncated style={tdStyles.roleCardLabel}>{role.label}</Truncated>
         <span style={tdStyles.roleCardTagPersona}>{t("world.role_tag_persona")}</span>
       </div>
 
@@ -420,9 +421,11 @@ function PlayerRoleCard({
         <span style={tdStyles.roleSummaryChip}>
           {t("world.role_summary_assets", { count: role.starting_assets.length })}
         </span>
-        <span style={{ ...tdStyles.roleSummaryChip, ...tdStyles.roleSummaryHidden }}>
-          🎯 {role.hidden_objective.slice(0, 18)}{role.hidden_objective.length > 18 ? "…" : ""}
-        </span>
+        <Truncated
+          style={{ ...tdStyles.roleSummaryChip, ...tdStyles.roleSummaryHidden }}
+        >
+          {`🎯 ${role.hidden_objective}`}
+        </Truncated>
       </div>
 
       <p style={tdStyles.rolePersona}>{role.public_persona}</p>

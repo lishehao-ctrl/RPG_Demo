@@ -1062,10 +1062,14 @@ function optionTagStyle(tag: string): CSSProperties {
     color: "var(--text-muted)",
     border: "1px solid var(--line)",
   }
-  if (tag === "挑拨" || tag === "硬刚") return ACTIVE_HOT
-  if (tag === "反将" || tag === "合作") return ACTIVE_GOLD
-  if (tag === "试探") return ACTIVE_PURPLE
-  // 妥协 / 观望 / 示弱 / unknown
+  // Chinese tag set (legacy) and English mirror (used when template
+  // language=en). Unknown tags fall through to PASSIVE — the directive
+  // in engine.py keeps both sets stable, so this list rarely needs
+  // updating.
+  if (tag === "挑拨" || tag === "硬刚" || tag === "Provoke" || tag === "Confront") return ACTIVE_HOT
+  if (tag === "反将" || tag === "合作" || tag === "Counter" || tag === "Ally") return ACTIVE_GOLD
+  if (tag === "试探" || tag === "Probe") return ACTIVE_PURPLE
+  // 妥协 / 观望 / 示弱 / Yield / Watch / Submit / unknown → PASSIVE
   return PASSIVE
 }
 

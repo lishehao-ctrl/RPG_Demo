@@ -14,7 +14,7 @@ import { friendlyError } from "../../shared/lib/friendly-error"
 import { LoadingShim } from "../../shared/ui/loading-shim"
 import { EmptyState } from "../../shared/ui/empty-state"
 import { ENDING_LABEL_DISPLAY, useLanguage, useT } from "../../shared/lib/i18n"
-import { hoverLift, itemTransition, tapPress } from "../../shared/lib/motion-presets"
+import { cascadeDelay, hoverLift, itemTransition, tapPress, transitions } from "../../shared/lib/motion-presets"
 import {
   getAdvisorAvatar,
   getAvatarForCastMember,
@@ -286,7 +286,7 @@ export function TemplateDetailPage({
                         style={tdStyles.distributionBarFill}
                         initial={{ width: 0 }}
                         animate={{ width: `${pct}%` }}
-                        transition={{ delay: 0.05 * idx + 0.25, duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
+                        transition={{ delay: cascadeDelay(idx, 0.05, 0.25), ...transitions.slow }}
                       />
                     </div>
                     <div style={tdStyles.distributionCount}>×{entry.count}</div>

@@ -1,5 +1,6 @@
 import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode } from "react"
 import { AnimatePresence, motion } from "motion/react"
+import { transitions } from "../lib/motion-presets"
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: "primary" | "secondary" | "ghost"
@@ -63,7 +64,7 @@ export function Drawer({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.18 }}
+            transition={transitions.snap}
             onClick={onClose}
           />
           <motion.aside

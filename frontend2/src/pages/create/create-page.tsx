@@ -9,7 +9,7 @@ import { useApi } from "../../app/api-context"
 import { useAuth } from "../../app/auth-context"
 import { friendlyError } from "../../shared/lib/friendly-error"
 import { useLanguage, useT, type StringKey } from "../../shared/lib/i18n"
-import { itemTransition } from "../../shared/lib/motion-presets"
+import { itemTransition, transitions } from "../../shared/lib/motion-presets"
 import { PAGE_BG } from "../../shared/lib/webtoon-assets"
 
 const SEED_EXAMPLE_KEYS: StringKey[] = [
@@ -401,7 +401,7 @@ function BusyTip() {
         initial={{ opacity: 0, y: 4 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -4 }}
-        transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
+        transition={transitions.base}
       >
         {t(BUSY_TIP_KEYS[idx])}
       </motion.div>

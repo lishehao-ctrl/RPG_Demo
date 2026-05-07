@@ -13,16 +13,19 @@ import { StageProgressBar } from "../../shared/ui/stage-progress-bar"
 import { friendlyError } from "../../shared/lib/friendly-error"
 import { useT } from "../../shared/lib/i18n"
 import {
+  cascadeDelay,
   fadeTransition,
   fadeVariants,
   hoverLift,
   hoverNudge,
   itemTransition,
   itemVariants,
+  labelChipSpring,
   pulseVariants,
   slideInRightTransition,
   slideInRightVariants,
   tapPress,
+  transitions,
 } from "../../shared/lib/motion-presets"
 import {
   getAdvisorAvatar,
@@ -603,7 +606,7 @@ function EndingScreen({
         <motion.div
           initial={{ opacity: 0, scale: 1.06 }}
           animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
+          transition={transitions.slow}
           style={{
             ...ppStyles.endingHero,
             backgroundImage: `${tv.gradient}, url(${illustration})`,
@@ -613,7 +616,7 @@ function EndingScreen({
             <motion.div
               initial={{ opacity: 0, scale: 1.12 }}
               animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: 0.25, duration: 0.95, ease: [0.16, 1, 0.3, 1] }}
+              transition={{ delay: 0.25, ...transitions.ceremony }}
               style={{
                 ...ppStyles.endingSplashOverlay,
                 backgroundImage: `url(${tierSplash})`,
@@ -633,7 +636,7 @@ function EndingScreen({
         <motion.div
           initial={{ opacity: 0, scale: 0.6 }}
           animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.45, type: "spring", stiffness: 320, damping: 18 }}
+          transition={labelChipSpring}
           style={{ ...ppStyles.endingLabelChip, background: tv.chipBg, color: tv.chipColor }}
         >
           {ending.label}
@@ -649,7 +652,7 @@ function EndingScreen({
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          transition={{ delay: 0.85, duration: 0.6 }}
+          transition={{ delay: 0.85, ...transitions.slow }}
           style={ppStyles.endingPassage}
         >
           {ending.passage}
@@ -675,7 +678,7 @@ function EndingScreen({
                   whileHover={{
                     y: -2,
                     borderColor: "rgba(245,200,120,0.45)",
-                    transition: { duration: 0.18, ease: [0.16, 1, 0.3, 1] },
+                    transition: transitions.snap,
                   }}
                   transition={{ delay: 1.05 + i * 0.08, ...itemTransition }}
                   style={ppStyles.highlightCard}
@@ -724,9 +727,9 @@ function EndingScreen({
                     whileHover={{
                       y: -2,
                       borderColor: "rgba(140,100,200,0.45)",
-                      transition: { duration: 0.18, ease: [0.16, 1, 0.3, 1] },
+                      transition: transitions.snap,
                     }}
-                    transition={{ delay: 1.3 + i * 0.08, ...itemTransition }}
+                    transition={{ delay: 1.3 + cascadeDelay(i, 0.08), ...itemTransition }}
                     style={ppStyles.branchCard}
                   >
                     <div style={ppStyles.branchTurnBadge}>
@@ -772,7 +775,7 @@ function EndingScreen({
             key={shareCopied ? "copied" : "default"}
             initial={shareCopied ? { scale: 0.92 } : false}
             animate={shareCopied ? { scale: [0.92, 1.06, 1] } : { scale: 1 }}
-            transition={{ duration: 0.32 }}
+            transition={transitions.base}
           >
             {shareCopied ? t("play.ending_share_copied") : t("play.ending_share")}
           </motion.button>
@@ -833,7 +836,7 @@ function StoryBeat({
           <motion.div
             initial={{ opacity: 0, scale: 1.05 }}
             animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
+            transition={transitions.slow}
             style={{
               ...ppStyles.beatSceneBanner,
               backgroundImage: `linear-gradient(180deg, rgba(20,16,12,0.15) 0%, rgba(20,16,12,0.85) 90%, var(--bg) 100%), url(${sceneUrl})`,
@@ -1431,7 +1434,7 @@ function AdvisorSidechat({
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              transition={{ delay: 0.2, duration: 0.4 }}
+              transition={{ delay: 0.2, ...transitions.medium }}
               style={ppStyles.advisorIntro}
             >
               {t("play.advisor_intro")}

@@ -13,11 +13,20 @@
 import type { CSSProperties } from "react"
 import { motion } from "motion/react"
 
+// Bouncing dots use ease-in-out, not the project-standard ease-out:
+// the dot needs to slow at BOTH the apex and the floor, not just the
+// apex. This is the one place where deviating from EASE_OUT_CURVE is
+// correct — kept as a named constant so it's clearly a deliberate
+// choice, not a copy-paste mistake.
+const BOUNCE_EASE = [0.4, 0, 0.6, 1] as const
+const BOUNCE_DURATION_S = 0.96
+const STAGGER_PER_DOT_S = 0.16
+
 const DOT_TRANSITION = (idx: number) => ({
-  duration: 0.96,
-  ease: [0.4, 0, 0.6, 1] as const,
+  duration: BOUNCE_DURATION_S,
+  ease: BOUNCE_EASE,
   repeat: Infinity,
-  delay: idx * 0.16,
+  delay: idx * STAGGER_PER_DOT_S,
 })
 
 export function LoadingShim({

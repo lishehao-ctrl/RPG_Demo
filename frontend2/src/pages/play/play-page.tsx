@@ -11,6 +11,7 @@ import { useApi } from "../../app/api-context"
 import { LoadingShim } from "../../shared/ui/loading-shim"
 import { StageProgressBar } from "../../shared/ui/stage-progress-bar"
 import { friendlyError } from "../../shared/lib/friendly-error"
+import { useT } from "../../shared/lib/i18n"
 import {
   fadeTransition,
   fadeVariants,
@@ -41,6 +42,7 @@ export function PlayPage({
   onBackHome: () => void
 }) {
   const api = useApi()
+  const t = useT()
   const [story, setStory] = useState<NarrativeStoryHistoryResponse | null>(null)
   const [ending, setEnding] = useState<NarrativeEnding | null>(null)
   const [busy, setBusy] = useState(false)
@@ -152,9 +154,9 @@ export function PlayPage({
       <div style={ppStyles.page}>
         <Header onBackHome={onBackHome} title="" />
         {error ? (
-          <div style={ppStyles.centerNote}>加载失败：{error}</div>
+          <div style={ppStyles.centerNote}>{t("play.load_failed", { error })}</div>
         ) : (
-          <LoadingShim label="故事正在加载…" />
+          <LoadingShim label={t("play.loading_story")} />
         )}
       </div>
     )
@@ -225,14 +227,14 @@ export function PlayPage({
               symbols. Always visible in gauntlet mode so players can
               cross-reference any time. */}
           {isGauntlet && !isComplete ? (
-            <div style={ppStyles.pulseLegend} aria-label="NPC 情绪图例">
-              <span style={ppStyles.pulseLegendLabel}>NPC 情绪</span>
+            <div style={ppStyles.pulseLegend} aria-label={t("play.pulse_legend_aria")}>
+              <span style={ppStyles.pulseLegendLabel}>{t("play.pulse_legend_label")}</span>
               {[
-                { shift: "warmer", text: "倾向你" },
-                { shift: "colder", text: "冷下来" },
-                { shift: "wary", text: "起疑" },
-                { shift: "broken", text: "崩塌" },
-                { shift: "steady", text: "未变" },
+                { shift: "warmer", text: t("play.pulse_warmer") },
+                { shift: "colder", text: t("play.pulse_colder") },
+                { shift: "wary", text: t("play.pulse_wary") },
+                { shift: "broken", text: t("play.pulse_broken") },
+                { shift: "steady", text: t("play.pulse_steady") },
               ].map((s) => {
                 const shiftStyle =
                   ppStyles[("pulseShift_" + s.shift) as keyof typeof ppStyles] as
@@ -261,19 +263,19 @@ export function PlayPage({
               style={ppStyles.roleBanner}
             >
               <div style={ppStyles.roleBannerHeader}>
-                <span style={ppStyles.roleBannerYou}>这一局的你</span>
+                <span style={ppStyles.roleBannerYou}>{t("play.role_you_tag")}</span>
                 <span style={ppStyles.roleBannerLabel}>{story.session.player_role.label}</span>
               </div>
               <p style={ppStyles.roleBannerPersona}>
                 {story.session.player_role.public_persona}
               </p>
               <div style={ppStyles.roleBannerSecret}>
-                <span style={ppStyles.roleBannerSecretTag}>心里真正想要的</span>
+                <span style={ppStyles.roleBannerSecretTag}>{t("play.role_secret_objective")}</span>
                 {story.session.player_role.hidden_objective}
               </div>
               {story.session.player_role.leverages_over_npcs.length > 0 ? (
                 <div style={ppStyles.roleBannerLevSection}>
-                  <span style={ppStyles.roleBannerSecretTag}>你手里的反将牌</span>
+                  <span style={ppStyles.roleBannerSecretTag}>{t("play.role_secret_leverage")}</span>
                   <ul style={ppStyles.roleBannerLevList}>
                     {story.session.player_role.leverages_over_npcs.map((lev, i) => (
                       <li key={i}>
@@ -289,7 +291,7 @@ export function PlayPage({
               {liveInventory.length > 0 ? (
                 <div style={ppStyles.roleBannerLevSection}>
                   <span style={ppStyles.roleBannerSecretTag}>
-                    手里的牌（{liveInventory.length}）
+                    {t("play.role_inventory", { count: liveInventory.length })}
                   </span>
                   <ul style={ppStyles.roleBannerLevList}>
                     {liveInventory.map((item, i) => {
@@ -325,13 +327,13 @@ export function PlayPage({
               style={ppStyles.goalsCard}
             >
               <div style={ppStyles.goalsHeader}>
-                <span style={ppStyles.gauntletBadge}>博弈模式</span>
-                <span style={ppStyles.goalsTitle}>你这一局想要的：</span>
+                <span style={ppStyles.gauntletBadge}>{t("play.gauntlet_badge")}</span>
+                <span style={ppStyles.goalsTitle}>{t("play.gauntlet_goals_title")}</span>
               </div>
               {story.template.player_goals.map((g, idx) => (
                 <div key={idx} style={ppStyles.goalRow}>
                   <div style={ppStyles.goalText}>·  {g.goal}</div>
-                  <div style={ppStyles.goalStakes}>失败：{g.stakes}</div>
+                  <div style={ppStyles.goalStakes}>{t("play.gauntlet_goal_stakes", { stakes: g.stakes })}</div>
                 </div>
               ))}
             </motion.div>
@@ -361,10 +363,10 @@ export function PlayPage({
               animate="animate"
             >
               {turnsRemaining === 0
-                ? "故事正在收尾…"
+                ? t("play.finale_wrapping")
                 : turnsRemaining === 1
-                  ? "下一段就是结局——慎选。"
-                  : "还有 2 段就到结局——开始往那个方向收吧。"}
+                  ? t("play.finale_one_left")
+                  : t("play.finale_two_left")}
             </motion.div>
           ) : null}
 
@@ -383,7 +385,7 @@ export function PlayPage({
                   },
                   () => {
                     // Fallback: show URL in an alert if clipboard fails
-                    window.prompt("复制这个链接发给朋友：", url)
+                    window.prompt(t("play.share_prompt"), url)
                   },
                 )
               }}
@@ -419,7 +421,7 @@ export function PlayPage({
               }}
             />
           ) : !isComplete && busy ? (
-            <div style={ppStyles.busyShim}>故事在续写中…</div>
+            <div style={ppStyles.busyShim}>{t("play.busy_shim")}</div>
           ) : null}
         </div>
       </main>
@@ -478,6 +480,7 @@ function Header({
   turnBudget?: number
   coverUrl?: string
 }) {
+  const t = useT()
   const headerStyle: CSSProperties = coverUrl
     ? {
         ...ppStyles.header,
@@ -497,7 +500,7 @@ function Header({
           onClick={onBackHome}
           type="button"
         >
-          ← 回到首页
+          {t("play.back_home")}
         </button>
         <div style={ppStyles.headerTitle}>
           <div style={coverUrl ? { ...ppStyles.headerTitleLine, color: "white" } : ppStyles.headerTitleLine}>
@@ -514,7 +517,7 @@ function Header({
               {cast.join(" · ")}
               {showProgress ? (
                 <span style={ppStyles.headerTurns}>
-                  · 第 {turnCount} / 共 {turnBudget} 段
+                  {t("play.header_turn_count", { current: turnCount!, total: turnBudget! })}
                 </span>
               ) : null}
             </div>
@@ -548,26 +551,27 @@ function EndingScreen({
   onShare: () => void
 }) {
   void sessionId
+  const t = useT()
   const illustration = getEndingIllustration(ending.label)
   const tier = ending.tier ?? "compromised"
   const tierSplash = getTierSplash(tier)
   const tierVisuals: Record<string, { ribbon: string; chipBg: string; chipColor: string; gradient: string; badgeText: string }> = {
     victory: {
-      ribbon: "胜利结局",
+      ribbon: t("play.ending_ribbon_victory"),
       badgeText: "VICTORY",
       chipBg: "linear-gradient(90deg, #d4af37, #f7d97a)",
       chipColor: "#1a1108",
       gradient: "linear-gradient(180deg, rgba(180,140,40,0.0) 0%, rgba(60,40,15,0.55) 75%, var(--bg-elev) 100%)",
     },
     compromised: {
-      ribbon: "妥协结局",
+      ribbon: t("play.ending_ribbon_compromised"),
       badgeText: "COMPROMISED",
       chipBg: "rgba(255,255,255,0.12)",
       chipColor: "var(--text)",
       gradient: "linear-gradient(180deg, rgba(20,16,12,0.15) 0%, rgba(20,16,12,0.6) 75%, var(--bg-elev) 100%)",
     },
     collapsed: {
-      ribbon: ending.early_terminated ? "提前崩盘" : "崩盘结局",
+      ribbon: ending.early_terminated ? t("play.ending_ribbon_early") : t("play.ending_ribbon_collapsed"),
       badgeText: "GAME OVER",
       chipBg: "linear-gradient(90deg, #8a1a1a, #c33b3b)",
       chipColor: "white",
@@ -620,7 +624,7 @@ function EndingScreen({
             <span style={ppStyles.endingTierBadgeText}>{tv.badgeText}</span>
             {ending.early_terminated && ending.failure_trigger ? (
               <span style={ppStyles.endingTierTrigger}>
-                · 触发：{ending.failure_trigger}
+                {t("play.ending_trigger_prefix", { trigger: ending.failure_trigger })}
               </span>
             ) : null}
           </div>
@@ -660,7 +664,7 @@ function EndingScreen({
             style={ppStyles.highlightReel}
           >
             <div style={ppStyles.highlightReelLabel}>
-              这一局的关键 {ending.highlights.length} 个时刻
+              {t("play.ending_highlights_title", { count: ending.highlights.length })}
             </div>
             <div style={ppStyles.highlightList}>
               {ending.highlights.map((h, i) => (
@@ -699,10 +703,10 @@ function EndingScreen({
             style={ppStyles.branchesSection}
           >
             <div style={ppStyles.branchesLabel}>
-              你没走的另外 {ending.branches.length} 条路
+              {t("play.ending_branches_title", { count: ending.branches.length })}
             </div>
             <p style={ppStyles.branchesHint}>
-              如果当时换个选择，故事大概率会走向这些结局。再玩一次试试？
+              {t("play.ending_branches_hint")}
             </p>
             <div style={ppStyles.branchList}>
               {ending.branches.map((b, i) => {
@@ -726,16 +730,16 @@ function EndingScreen({
                     style={ppStyles.branchCard}
                   >
                     <div style={ppStyles.branchTurnBadge}>
-                      第 {Math.floor(b.pivot_beat_ord / 2)} 回合
+                      {t("play.ending_branch_turn", { turn: Math.floor(b.pivot_beat_ord / 2) })}
                     </div>
                     <div style={ppStyles.branchPaths}>
                       <div style={ppStyles.branchChosen}>
-                        <span style={ppStyles.branchPathTag}>你那回合选了</span>
+                        <span style={ppStyles.branchPathTag}>{t("play.ending_branch_chosen_tag")}</span>
                         <span style={ppStyles.branchPathText}>{b.chosen_path_summary}</span>
                       </div>
-                      <div style={ppStyles.branchArrow}>↓ 但如果选了 ↓</div>
+                      <div style={ppStyles.branchArrow}>{t("play.ending_branch_arrow")}</div>
                       <div style={ppStyles.branchAlternate}>
-                        <span style={ppStyles.branchPathTag}>另一条路</span>
+                        <span style={ppStyles.branchPathTag}>{t("play.ending_branch_alt_tag")}</span>
                         <span style={ppStyles.branchPathText}>{b.alternate_path_summary}</span>
                       </div>
                     </div>
@@ -770,10 +774,10 @@ function EndingScreen({
             animate={shareCopied ? { scale: [0.92, 1.06, 1] } : { scale: 1 }}
             transition={{ duration: 0.32 }}
           >
-            {shareCopied ? "✓ 链接已复制" : "复制分享链接"}
+            {shareCopied ? t("play.ending_share_copied") : t("play.ending_share")}
           </motion.button>
           <p style={ppStyles.endingShareHint}>
-            把链接发给朋友 — 他们能玩同一个开场，看自己会走出什么结局。
+            {t("play.ending_share_hint")}
           </p>
         </motion.div>
         </div>
@@ -797,6 +801,7 @@ function StoryBeat({
   intensity?: "calm" | "rising" | "peak"
   sceneUrl?: string
 }) {
+  const t = useT()
   if (message.role === "narrator") {
     const pulses = message.npc_pulse ?? []
     const delta = message.inventory_delta
@@ -855,13 +860,13 @@ function StoryBeat({
             {delta.added.map((item, i) => (
               <div key={`add-${i}`} style={ppStyles.invToastAdded}>
                 <span style={ppStyles.invToastIcon}>＋</span>
-                你拿到：{item}
+                {t("play.beat_inv_added", { item })}
               </div>
             ))}
             {delta.removed.map((item, i) => (
               <div key={`rm-${i}`} style={ppStyles.invToastRemoved}>
                 <span style={ppStyles.invToastIcon}>－</span>
-                你失去了：{item}
+                {t("play.beat_inv_removed", { item })}
               </div>
             ))}
             {delta.reason ? (
@@ -876,7 +881,7 @@ function StoryBeat({
             transition={{ delay: 0.12, ...itemTransition }}
             style={ppStyles.chosenChip}
           >
-            <span style={ppStyles.chosenLabel}>你选了</span>
+            <span style={ppStyles.chosenLabel}>{t("play.beat_chosen_label")}</span>
             <span style={ppStyles.chosenText}>
               {message.options[message.chosen_option_index]?.label ?? "?"}
             </span>
@@ -924,7 +929,7 @@ function StoryBeat({
                     <span style={ppStyles.pulseChipArrow}>{shiftArrow(p.shift)}</span>
                   </motion.span>
                   {hasReason ? (
-                    <span style={ppStyles.pulseReason}>因为：{p.reason}</span>
+                    <span style={ppStyles.pulseReason}>{t("play.pulse_reason_prefix", { reason: p.reason ?? "" })}</span>
                   ) : null}
                 </div>
               )
@@ -944,11 +949,11 @@ function StoryBeat({
       transition={itemTransition}
       style={ppStyles.playerBeat}
     >
-      <div style={ppStyles.playerLabel}>你</div>
+      <div style={ppStyles.playerLabel}>{t("play.beat_player_label")}</div>
       <div style={ppStyles.playerText}>{message.content}</div>
       {message.diary ? (
         <div style={ppStyles.playerDiary}>
-          <span style={ppStyles.playerDiaryTag}>内心独白</span>
+          <span style={ppStyles.playerDiaryTag}>{t("play.beat_diary_tag")}</span>
           <span style={ppStyles.playerDiaryText}>{message.diary}</span>
         </div>
       ) : null}
@@ -1115,6 +1120,7 @@ function ActionArea({
   onPickOption: (idx: number) => void
   onSubmitFree: () => void
 }) {
+  const t = useT()
   return (
     <motion.div
       style={ppStyles.actionArea}
@@ -1125,7 +1131,7 @@ function ActionArea({
       <div style={ppStyles.optionsList}>
         {options.length === 0 ? (
           <div style={ppStyles.noOptions}>
-            （这一段没给选项，写下你想做的事）
+            {t("play.action_no_options")}
           </div>
         ) : (
           options.map((opt, i) => {
@@ -1172,7 +1178,7 @@ function ActionArea({
           <textarea
             style={ppStyles.freeTextarea}
             value={freeInput}
-            placeholder="写下你想做的事——可以是动作、对话、或者一个决定。"
+            placeholder={t("play.action_free_placeholder")}
             onChange={(e) => setFreeInput(e.target.value)}
             disabled={busy}
             spellCheck={false}
@@ -1188,7 +1194,7 @@ function ActionArea({
               onClick={onSubmitFree}
               type="button"
             >
-              {busy ? "续写中…" : "就这么做 →"}
+              {busy ? t("play.action_busy") : t("play.action_submit")}
             </button>
             {options.length > 0 ? (
               <button
@@ -1200,7 +1206,7 @@ function ActionArea({
                 disabled={busy}
                 type="button"
               >
-                取消
+                {t("play.action_cancel")}
               </button>
             ) : null}
           </div>
@@ -1212,7 +1218,7 @@ function ActionArea({
           disabled={busy}
           type="button"
         >
-          + 我想自己写一个动作
+          {t("play.action_open_free")}
         </button>
       )}
 
@@ -1221,15 +1227,15 @@ function ActionArea({
       {showDiary ? (
         <div style={ppStyles.diaryBox}>
           <div style={ppStyles.diaryLabel}>
-            <span style={ppStyles.diaryLabelTag}>内心独白</span>
+            <span style={ppStyles.diaryLabelTag}>{t("play.beat_diary_tag")}</span>
             <span style={ppStyles.diaryLabelHint}>
-              只有你和叙述者看得到 · NPC 听不到 · 跟下一个动作一起提交
+              {t("play.diary_label_hint")}
             </span>
           </div>
           <textarea
             style={ppStyles.diaryTextarea}
             value={diary}
-            placeholder="你心里真正在想什么？（30-200 字最佳，留空就是不写）"
+            placeholder={t("play.diary_placeholder")}
             onChange={(e) => setDiary(e.target.value)}
             disabled={busy}
             spellCheck={false}
@@ -1246,7 +1252,7 @@ function ActionArea({
             type="button"
             style={{ fontSize: 12, padding: "4px 10px" }}
           >
-            取消独白
+            {t("play.diary_close")}
           </button>
         </div>
       ) : (
@@ -1256,7 +1262,7 @@ function ActionArea({
           disabled={busy}
           type="button"
         >
-          + 写一句内心独白（NPC 看不到）
+          {t("play.diary_open")}
         </button>
       )}
     </motion.div>
@@ -1276,6 +1282,7 @@ function AdvisorFab({
   avatarUrl: string
   persona: string
 }) {
+  const t = useT()
   return (
     <motion.button
       style={ppStyles.fab}
@@ -1289,7 +1296,7 @@ function AdvisorFab({
       whileTap={tapPress}
     >
       <img src={avatarUrl} alt="" style={ppStyles.fabAvatarImg} loading="lazy" />
-      <span style={ppStyles.fabLabel}>聊聊</span>
+      <span style={ppStyles.fabLabel}>{t("play.fab_label")}</span>
     </motion.button>
   )
 }
@@ -1316,6 +1323,7 @@ function AdvisorSidechat({
   onOracleConsumed: (newBudget: number) => void
 }) {
   const api = useApi()
+  const t = useT()
   const [messages, setMessages] = useState<NarrativeAdvisorMessage[]>([])
   const [oracleOrds, setOracleOrds] = useState<Set<number>>(new Set())
   const [draft, setDraft] = useState("")
@@ -1350,12 +1358,15 @@ function AdvisorSidechat({
     const question = draft.trim()
     if (!question || busy) return
     if (oracle && isComplete) {
-      setError("这一局已经走完了，不能再消耗回合换情报。")
+      setError(t("play.oracle_completed_error"))
       return
     }
     if (oracle) {
       const ok = window.confirm(
-        `用 1 回合换 advisor 的"看穿"提示？\n\n• 这会让你少 1 回合时间（剩余 ${turnsRemaining} → ${Math.max(1, turnsRemaining - 1)}）\n• advisor 会拿到只有 TA 才能看到的局势线索\n• 但 advisor 还是不会替你做决定\n\n继续？`,
+        t("play.oracle_confirm", {
+          before: turnsRemaining,
+          after: Math.max(1, turnsRemaining - 1),
+        }),
       )
       if (!ok) return
     }
@@ -1407,7 +1418,7 @@ function AdvisorSidechat({
         <header style={ppStyles.advisorHeader}>
           <img src={avatarUrl} alt="" style={ppStyles.advisorHeaderAvatar} loading="lazy" />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={ppStyles.advisorTitle}>跟你的局外人朋友聊</div>
+            <div style={ppStyles.advisorTitle}>{t("play.advisor_title")}</div>
             <div style={ppStyles.advisorPersona}>{persona}</div>
           </div>
           <button style={ppStyles.advisorClose} onClick={onClose} type="button">
@@ -1423,8 +1434,7 @@ function AdvisorSidechat({
               transition={{ delay: 0.2, duration: 0.4 }}
               style={ppStyles.advisorIntro}
             >
-              问 TA 任何事——你和谁的关系到了哪一步、那句话什么意思、你是不是太冲动了。
-              TA 不会替你做决定，但会陪你想清楚。
+              {t("play.advisor_intro")}
             </motion.div>
           ) : (
             messages.map((m) => {
@@ -1439,7 +1449,7 @@ function AdvisorSidechat({
                   style={m.role === "player" ? ppStyles.advisorRowPlayer : ppStyles.advisorRowAdvisor}
                 >
                   {isOracle ? (
-                    <div style={ppStyles.oracleBadge}>🔮 情报 · 消耗了 1 回合</div>
+                    <div style={ppStyles.oracleBadge}>{t("play.oracle_badge")}</div>
                   ) : null}
                   {isOracle ? (
                     <div style={ppStyles.oracleBubbleWrap}>
@@ -1480,7 +1490,7 @@ function AdvisorSidechat({
           <textarea
             style={ppStyles.advisorTextarea}
             value={draft}
-            placeholder="想问什么？按 ⌘/Ctrl + Enter 发送"
+            placeholder={t("play.advisor_textarea_placeholder")}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
               if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
@@ -1498,7 +1508,7 @@ function AdvisorSidechat({
               disabled={busy || !draft.trim()}
               type="button"
             >
-              发送
+              {t("play.advisor_send")}
             </button>
             <button
               style={ppStyles.oracleBtn}
@@ -1507,13 +1517,13 @@ function AdvisorSidechat({
               type="button"
               title={
                 isComplete
-                  ? "故事已结束"
+                  ? t("play.oracle_tip_complete")
                   : turnsRemaining <= 1
-                    ? "回合不足，无法换情报"
-                    : `用 1 回合换 advisor 的看穿（剩 ${turnsRemaining} 回合）`
+                    ? t("play.oracle_tip_no_turns")
+                    : t("play.oracle_tip_active", { turns: turnsRemaining })
               }
             >
-              🔮 用 1 回合换情报
+              {t("play.oracle_button")}
             </button>
           </div>
         </div>

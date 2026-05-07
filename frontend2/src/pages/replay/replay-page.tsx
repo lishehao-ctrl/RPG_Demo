@@ -2,6 +2,7 @@ import { type CSSProperties, useEffect, useState } from "react"
 import type { NarrativePublicReplayResponse } from "../../api/contracts"
 import { useApi } from "../../app/api-context"
 import { friendlyError } from "../../shared/lib/friendly-error"
+import { ENDING_LABEL_DISPLAY, useLanguage, useT } from "../../shared/lib/i18n"
 import { LoadingShim } from "../../shared/ui/loading-shim"
 import { EmptyState } from "../../shared/ui/empty-state"
 import {
@@ -28,6 +29,8 @@ export function ReplayPage({
   onOpenTemplate: (templateId: string) => void
 }) {
   const api = useApi()
+  const t = useT()
+  const { lang } = useLanguage()
   const [replay, setReplay] = useState<NarrativePublicReplayResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [showAdvisor, setShowAdvisor] = useState(true)
@@ -43,19 +46,19 @@ export function ReplayPage({
       })
       .catch((err) => {
         if (cancelled) return
-        setError(friendlyError(err, "回放加载失败。"))
+        setError(friendlyError(err, t("replay.error_load_failed")))
       })
     return () => {
       cancelled = true
     }
-  }, [api, sessionId])
+  }, [api, sessionId, t])
 
   if (!replay) {
     return (
       <div style={rpStyles.page}>
         {error ? (
           <EmptyState
-            title="这一局看不见了"
+            title={t("replay.error_title")}
             hint={error}
             action={
               <button
@@ -63,12 +66,12 @@ export function ReplayPage({
                 type="button"
                 onClick={onBackHome}
               >
-                回广场
+                {t("replay.error_back_plaza")}
               </button>
             }
           />
         ) : (
-          <LoadingShim label="正在还原这一局…" />
+          <LoadingShim label={t("replay.loading_label")} />
         )}
       </div>
     )
@@ -105,19 +108,24 @@ export function ReplayPage({
       >
         <div style={rpStyles.heroInner}>
           <button style={rpStyles.crumb} onClick={onBackHome} type="button">
-            ← 回到首页
+            {t("replay.crumb_back_home")}
           </button>
-          <div style={rpStyles.replayBadge}>回放</div>
+          <div style={rpStyles.replayBadge}>{t("replay.badge")}</div>
           <h1 style={rpStyles.title}>{replay.template_title}</h1>
           <p style={rpStyles.heroSeed}>"{replay.template_seed}"</p>
           {replay.completed && replay.ending ? (
             <div style={rpStyles.heroEnding}>
-              <div style={rpStyles.heroEndingLabel}>{replay.ending.label}</div>
+              <div style={rpStyles.heroEndingLabel}>
+                {ENDING_LABEL_DISPLAY[lang][replay.ending.label] ?? replay.ending.label}
+              </div>
               <div style={rpStyles.heroEndingSubtitle}>「{replay.ending.subtitle}」</div>
             </div>
           ) : (
             <div style={rpStyles.heroIncomplete}>
-              进行中 · 已玩 {replay.turn_count} / {replay.turn_budget} 段
+              {t("replay.in_progress_meta", {
+                current: replay.turn_count,
+                total: replay.turn_budget,
+              })}
             </div>
           )}
         </div>
@@ -126,7 +134,7 @@ export function ReplayPage({
       <main style={rpStyles.main}>
         {/* Cast row */}
         <section style={rpStyles.section}>
-          <div style={rpStyles.sectionLabel}>出场人物</div>
+          <div style={rpStyles.sectionLabel}>{t("replay.cast_label")}</div>
           <div style={rpStyles.castRow}>
             {replay.cast.map((c) => (
               <div key={c.character_id} style={rpStyles.castChip}>
@@ -161,9 +169,15 @@ export function ReplayPage({
               />
               <div style={{ flex: 1 }}>
                 <div style={rpStyles.advisorToggleTitle}>
-                  {showAdvisor ? "正在显示" : "查看"}与{" "}
-                  <span style={{ color: "var(--accent)" }}>顾问</span>{" "}
-                  的私下对话（{replay.advisor_messages.length / 2} 次）
+                  {showAdvisor
+                    ? t("replay.advisor_toggle_prefix_showing")
+                    : t("replay.advisor_toggle_prefix_view")}
+                  <span style={{ color: "var(--accent)" }}>
+                    {t("replay.advisor_toggle_advisor_word")}
+                  </span>
+                  {t("replay.advisor_toggle_suffix", {
+                    count: replay.advisor_messages.length / 2,
+                  })}
                 </div>
                 <div style={rpStyles.advisorTogglePersona}>{replay.advisor_persona}</div>
               </div>
@@ -174,17 +188,19 @@ export function ReplayPage({
 
         {/* Story column with optional inline advisor messages */}
         <section style={rpStyles.storyColumn}>
-          {renderInterleavedStream(replay, showAdvisor, advisorAvatar)}
+          {renderInterleavedStream(replay, showAdvisor, advisorAvatar, t)}
 
           {/* Ending block at the very bottom */}
           {replay.ending ? (
             <div style={rpStyles.endingDivider}>
-              <span style={rpStyles.endingDividerLabel}>故事到这里</span>
+              <span style={rpStyles.endingDividerLabel}>{t("replay.ending_divider")}</span>
             </div>
           ) : null}
           {replay.ending ? (
             <div style={rpStyles.endingCard}>
-              <div style={rpStyles.endingLabelChip}>{replay.ending.label}</div>
+              <div style={rpStyles.endingLabelChip}>
+                {ENDING_LABEL_DISPLAY[lang][replay.ending.label] ?? replay.ending.label}
+              </div>
               <h2 style={rpStyles.endingSubtitle}>「{replay.ending.subtitle}」</h2>
               <div style={rpStyles.endingPassage}>{replay.ending.passage}</div>
             </div>
@@ -192,15 +208,13 @@ export function ReplayPage({
         </section>
 
         <div style={rpStyles.cta}>
-          <p style={rpStyles.ctaHint}>
-            想看自己能玩出什么结局？回到首页找广场上的同一个故事开个新一局。
-          </p>
+          <p style={rpStyles.ctaHint}>{t("replay.cta_hint")}</p>
           <button
             className="ts-btn ts-btn--primary ts-btn--lg"
             onClick={onBackHome}
             type="button"
           >
-            回到广场
+            {t("replay.cta_back_plaza")}
           </button>
         </div>
       </main>
@@ -219,6 +233,7 @@ function renderInterleavedStream(
   replay: NarrativePublicReplayResponse,
   showAdvisor: boolean,
   advisorAvatar: string,
+  t: ReturnType<typeof useT>,
 ) {
   return (
     <>
@@ -228,7 +243,7 @@ function renderInterleavedStream(
             <div style={rpStyles.narratorText}>{m.content}</div>
             {m.chosen_option_index != null && m.options.length > 0 ? (
               <div style={rpStyles.chosenChip}>
-                <span style={rpStyles.chosenLabel}>TA 选了</span>
+                <span style={rpStyles.chosenLabel}>{t("replay.chosen_label")}</span>
                 <span style={rpStyles.chosenText}>
                   {m.options[m.chosen_option_index]?.label ?? "?"}
                 </span>
@@ -237,7 +252,7 @@ function renderInterleavedStream(
           </article>
         ) : (
           <article key={`p-${m.ord}`} style={rpStyles.playerBeat}>
-            <div style={rpStyles.playerLabel}>TA</div>
+            <div style={rpStyles.playerLabel}>{t("replay.player_label")}</div>
             <div style={rpStyles.playerText}>{m.content}</div>
           </article>
         ),
@@ -255,7 +270,7 @@ function renderInterleavedStream(
               style={rpStyles.advisorTrackAvatar}
               loading="lazy"
             />
-            <div style={rpStyles.advisorTrackTitle}>玩家与顾问的私聊</div>
+            <div style={rpStyles.advisorTrackTitle}>{t("replay.advisor_track_title")}</div>
           </div>
           {replay.advisor_messages.map((m) => (
             <div

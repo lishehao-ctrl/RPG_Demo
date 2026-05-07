@@ -13,6 +13,7 @@ import { Header } from "../../shared/ui/header"
 import { friendlyError } from "../../shared/lib/friendly-error"
 import { LoadingShim } from "../../shared/ui/loading-shim"
 import { EmptyState } from "../../shared/ui/empty-state"
+import { ENDING_LABEL_DISPLAY, useLanguage, useT } from "../../shared/lib/i18n"
 import { hoverLift, itemTransition, tapPress } from "../../shared/lib/motion-presets"
 import {
   getAdvisorAvatar,
@@ -33,6 +34,8 @@ export function TemplateDetailPage({
 }) {
   const api = useApi()
   const auth = useAuth()
+  const t = useT()
+  const { lang } = useLanguage()
   const [template, setTemplate] = useState<NarrativeTemplateSummary | null>(null)
   const [distribution, setDistribution] = useState<NarrativeEndingDistributionResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -51,7 +54,7 @@ export function TemplateDetailPage({
       })
       .catch((err) => {
         if (cancelled) return
-        setError(friendlyError(err, "故事不见了。"))
+        setError(friendlyError(err, t("world.error_template_missing")))
       })
     api
       .getNarrativeEndingDistribution(templateId)
@@ -65,7 +68,7 @@ export function TemplateDetailPage({
     return () => {
       cancelled = true
     }
-  }, [api, templateId])
+  }, [api, templateId, t])
 
   const handleStart = async (roleIndex?: number) => {
     if (startInflightRef.current || !template) return
@@ -83,7 +86,7 @@ export function TemplateDetailPage({
       )
       onSessionStarted(res.session.session_id)
     } catch (err) {
-      setError(friendlyError(err, "开始游戏失败，请重试。"))
+      setError(friendlyError(err, t("world.error_start_failed")))
       setBusy(false)
       startInflightRef.current = false
     }
@@ -98,7 +101,7 @@ export function TemplateDetailPage({
       })
       setTemplate(updated)
     } catch (err) {
-      setError(friendlyError(err, "可见性修改失败。"))
+      setError(friendlyError(err, t("world.error_visibility_failed")))
     } finally {
       setVisBusy(false)
     }
@@ -110,7 +113,7 @@ export function TemplateDetailPage({
         <Header onHome={onBackHome} onCreate={onOpenCreate} />
         {error ? (
           <EmptyState
-            title="找不到这个故事"
+            title={t("world.empty_title")}
             hint={error}
             action={
               <button
@@ -118,12 +121,12 @@ export function TemplateDetailPage({
                 type="button"
                 onClick={onBackHome}
               >
-                回广场
+                {t("world.empty_back")}
               </button>
             }
           />
         ) : (
-          <LoadingShim label="正在拉取这个故事…" />
+          <LoadingShim label={t("world.loading")} />
         )}
       </div>
     )
@@ -145,14 +148,18 @@ export function TemplateDetailPage({
       >
         <div style={tdStyles.heroInner}>
           <button style={tdStyles.crumb} onClick={onBackHome} type="button">
-            ← 回到首页
+            {t("world.crumb_back_home")}
           </button>
           <h1 style={tdStyles.title}>{template.title}</h1>
           <div style={tdStyles.metaRow}>
-            <span style={tdStyles.badge}>{visibilityLabel(template.visibility)}</span>
-            <span style={tdStyles.metaItem}>已被玩 {template.play_count} 局</span>
+            <span style={tdStyles.badge}>{visibilityLabel(template.visibility, t)}</span>
+            <span style={tdStyles.metaItem}>
+              {t("world.played_count", { count: template.play_count })}
+            </span>
             {template.is_owner ? (
-              <span style={{ ...tdStyles.badge, ...tdStyles.ownerBadge }}>我创建的</span>
+              <span style={{ ...tdStyles.badge, ...tdStyles.ownerBadge }}>
+                {t("world.is_owner")}
+              </span>
             ) : null}
           </div>
         </div>
@@ -160,12 +167,12 @@ export function TemplateDetailPage({
 
       <main style={tdStyles.main}>
         <section style={tdStyles.section}>
-          <div style={tdStyles.sectionLabel}>原始种子</div>
+          <div style={tdStyles.sectionLabel}>{t("world.section_seed")}</div>
           <div style={tdStyles.seedQuote}>"{template.seed}"</div>
         </section>
 
         <section style={tdStyles.section}>
-          <div style={tdStyles.sectionLabel}>出场人物</div>
+          <div style={tdStyles.sectionLabel}>{t("world.section_cast")}</div>
           <div style={tdStyles.castList}>
             {template.cast.map((c) => {
               const interLevs = c.leverages_over_other_npcs ?? []
@@ -183,7 +190,7 @@ export function TemplateDetailPage({
                     <div style={tdStyles.castRelation}>{c.relation_to_protagonist}</div>
                     {interLevs.length > 0 ? (
                       <div style={tdStyles.castLevChip}>
-                        握着 {interLevs.length} 张别人的把柄
+                        {t("world.cast_holds_leverage", { count: interLevs.length })}
                       </div>
                     ) : null}
                   </div>
@@ -210,9 +217,9 @@ export function TemplateDetailPage({
             if (edges.length === 0) return null
             return (
               <div style={tdStyles.networkBox}>
-                <div style={tdStyles.networkLabel}>暗藏的把柄网络</div>
+                <div style={tdStyles.networkLabel}>{t("world.network_label")}</div>
                 <p style={tdStyles.networkHint}>
-                  整局戏里 NPC 之间相互捏着把柄。看清这张网，你就能挑拨他们互撕。
+                  {t("world.network_hint")}
                 </p>
                 <ul style={tdStyles.networkList}>
                   {edges.map((e, i) => (
@@ -232,9 +239,9 @@ export function TemplateDetailPage({
 
         {template.failure_conditions && template.failure_conditions.length > 0 ? (
           <section style={tdStyles.section}>
-            <div style={tdStyles.sectionLabel}>红线 · 这一局可能让你提前出局</div>
+            <div style={tdStyles.sectionLabel}>{t("world.section_failure")}</div>
             <p style={tdStyles.failureHint}>
-              触碰任意一条会触发 GAME OVER（崩盘结局）。事先看一眼，玩的时候才知道哪些动作不能轻易做。
+              {t("world.failure_hint")}
             </p>
             <ul style={tdStyles.failureList}>
               {template.failure_conditions.map((fc, i) => (
@@ -248,7 +255,7 @@ export function TemplateDetailPage({
         ) : null}
 
         <section style={tdStyles.section}>
-          <div style={tdStyles.sectionLabel}>你的局外人朋友</div>
+          <div style={tdStyles.sectionLabel}>{t("world.section_advisor")}</div>
           <div style={tdStyles.advisorBlock}>
             <img src={advisorAvatar} alt="" style={tdStyles.advisorAvatar} loading="lazy" />
             <div style={tdStyles.advisorText}>{template.advisor_persona}</div>
@@ -258,7 +265,7 @@ export function TemplateDetailPage({
         {distribution && distribution.total_completed > 0 ? (
           <section style={tdStyles.section}>
             <div style={tdStyles.sectionLabel}>
-              玩家走出来的结局 · 共 {distribution.total_completed} 局完结
+              {t("world.section_endings", { count: distribution.total_completed })}
             </div>
             <div style={tdStyles.distributionList}>
               {distribution.entries.map((entry, idx) => {
@@ -271,7 +278,9 @@ export function TemplateDetailPage({
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: 0.05 * idx + 0.15, ...itemTransition }}
                   >
-                    <div style={tdStyles.distributionLabel}>{entry.label}</div>
+                    <div style={tdStyles.distributionLabel}>
+                      {ENDING_LABEL_DISPLAY[lang][entry.label] ?? entry.label}
+                    </div>
                     <div style={tdStyles.distributionBarTrack}>
                       <motion.div
                         style={tdStyles.distributionBarFill}
@@ -286,7 +295,7 @@ export function TemplateDetailPage({
               })}
             </div>
             <p style={tdStyles.distributionHint}>
-              你能玩出哪个？或者一个还没人走过的？
+              {t("world.endings_hint")}
             </p>
           </section>
         ) : null}
@@ -295,9 +304,9 @@ export function TemplateDetailPage({
 
         {template.player_role_options && template.player_role_options.length > 0 ? (
           <section style={tdStyles.roleSection}>
-            <div style={tdStyles.sectionLabel}>选你的身份</div>
+            <div style={tdStyles.sectionLabel}>{t("world.section_roles")}</div>
             <p style={tdStyles.roleHint}>
-              同一个故事，不同的"你"。处境、目的、手里的牌都不同——选哪张走哪条路。
+              {t("world.roles_hint")}
             </p>
             <div style={tdStyles.roleGrid}>
               {template.player_role_options.map((role, idx) => (
@@ -327,10 +336,10 @@ export function TemplateDetailPage({
               whileHover={busy ? undefined : hoverLift}
               whileTap={busy ? undefined : tapPress}
             >
-              {busy ? "开始中…" : "开始一局新故事 →"}
+              {busy ? t("world.start_busy") : t("world.start_cta")}
             </motion.button>
             <p style={tdStyles.actionHint}>
-              每个人的玩法都不同，开局相同，剧情走向取决于你。
+              {t("world.start_hint")}
             </p>
           </div>
         )}
@@ -338,7 +347,7 @@ export function TemplateDetailPage({
         {/* Owner-only: visibility controls */}
         {template.is_owner ? (
           <section style={tdStyles.ownerSection}>
-            <div style={tdStyles.sectionLabel}>谁能玩</div>
+            <div style={tdStyles.sectionLabel}>{t("world.section_visibility")}</div>
             <div style={tdStyles.visControls}>
               {(["private", "unlisted", "public"] as NarrativeTemplateVisibility[]).map((v) => (
                 <button
@@ -351,7 +360,7 @@ export function TemplateDetailPage({
                   disabled={visBusy || template.visibility === v}
                   type="button"
                 >
-                  {visibilityLabel(v)}
+                  {visibilityLabel(v, t)}
                 </button>
               ))}
             </div>
@@ -362,10 +371,10 @@ export function TemplateDetailPage({
   )
 }
 
-function visibilityLabel(v: NarrativeTemplateVisibility): string {
-  if (v === "public") return "广场公开"
-  if (v === "unlisted") return "凭链接"
-  return "只有我"
+function visibilityLabel(v: NarrativeTemplateVisibility, t: ReturnType<typeof useT>): string {
+  if (v === "public") return t("world.visibility_public")
+  if (v === "unlisted") return t("home.visibility_unlisted")
+  return t("home.visibility_private")
 }
 
 function PlayerRoleCard({
@@ -381,6 +390,7 @@ function PlayerRoleCard({
   onSelect: () => void
   index?: number
 }) {
+  const t = useT()
   const npcNameById = new Map(cast.map((c) => [c.character_id, c.display_name]))
   return (
     <motion.button
@@ -400,15 +410,15 @@ function PlayerRoleCard({
     >
       <div style={tdStyles.roleCardHeader}>
         <span style={tdStyles.roleCardLabel}>{role.label}</span>
-        <span style={tdStyles.roleCardTagPersona}>外人眼中的你</span>
+        <span style={tdStyles.roleCardTagPersona}>{t("world.role_tag_persona")}</span>
       </div>
 
       <div style={tdStyles.roleSummaryRow}>
         <span style={tdStyles.roleSummaryChip}>
-          ⚔ {role.leverages_over_npcs.length} 张反将牌
+          {t("world.role_summary_counters", { count: role.leverages_over_npcs.length })}
         </span>
         <span style={tdStyles.roleSummaryChip}>
-          💼 {role.starting_assets.length} 件初始物品
+          {t("world.role_summary_assets", { count: role.starting_assets.length })}
         </span>
         <span style={{ ...tdStyles.roleSummaryChip, ...tdStyles.roleSummaryHidden }}>
           🎯 {role.hidden_objective.slice(0, 18)}{role.hidden_objective.length > 18 ? "…" : ""}
@@ -418,13 +428,13 @@ function PlayerRoleCard({
       <p style={tdStyles.rolePersona}>{role.public_persona}</p>
 
       <div style={tdStyles.roleObjectiveBlock}>
-        <span style={tdStyles.roleObjectiveLabel}>你心里真正想要的</span>
+        <span style={tdStyles.roleObjectiveLabel}>{t("world.role_objective_label")}</span>
         {role.hidden_objective}
       </div>
 
       {role.leverages_over_npcs.length > 0 ? (
         <div>
-          <div style={tdStyles.roleSubLabel}>你手里的反将牌</div>
+          <div style={tdStyles.roleSubLabel}>{t("world.role_sub_leverages")}</div>
           <ul style={tdStyles.roleLeverageList}>
             {role.leverages_over_npcs.map((lev, i) => (
               <li key={i} style={tdStyles.roleLeverageItem}>
@@ -440,7 +450,7 @@ function PlayerRoleCard({
 
       {role.starting_assets.length > 0 ? (
         <div>
-          <div style={tdStyles.roleSubLabel}>开局握着</div>
+          <div style={tdStyles.roleSubLabel}>{t("world.role_sub_assets")}</div>
           <ul style={tdStyles.roleAssetList}>
             {role.starting_assets.map((asset, i) => (
               <li key={i} style={tdStyles.roleAssetItem}>
@@ -452,7 +462,9 @@ function PlayerRoleCard({
       ) : null}
 
       <div style={tdStyles.roleCardCta}>
-        <span style={tdStyles.roleCtaText}>{busy ? "开始中…" : "选这个身份开始 →"}</span>
+        <span style={tdStyles.roleCtaText}>
+          {busy ? t("world.start_busy") : t("world.role_card_cta")}
+        </span>
       </div>
     </motion.button>
   )

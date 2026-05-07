@@ -1,4 +1,4 @@
-import { type CSSProperties, useEffect, useRef, useState } from "react"
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
 import type {
   NarrativeDifficulty,
@@ -8,62 +8,66 @@ import type {
 import { useApi } from "../../app/api-context"
 import { useAuth } from "../../app/auth-context"
 import { friendlyError } from "../../shared/lib/friendly-error"
-import { useLanguage } from "../../shared/lib/i18n"
+import { useLanguage, useT, type StringKey } from "../../shared/lib/i18n"
 import { itemTransition } from "../../shared/lib/motion-presets"
 import { PAGE_BG } from "../../shared/lib/webtoon-assets"
 
-const PLACEHOLDER = `写一句故事的开端，越具体越好。
-
-比如：年会前夜，老板把我和实习生关在同一间会议室。
-或者：婚礼当天，伴娘的礼服里塞着一封我妹妹的字条。
-
-AI 会立刻为你搭起人物、关系、第一个戏剧时刻。`
-
-const SEED_EXAMPLES = [
-  "公司年会的红毯上，前任的现任搂着前任向我走来。",
-  "分手那天晚上，他给我妹妹打了一通电话。",
-  "我前任在我新公司当 HR，今天发了我的入职合同。",
-  "高中重逢，发现初恋已经成了我妹妹的男朋友。",
+const SEED_EXAMPLE_KEYS: StringKey[] = [
+  "create.example_seed_1",
+  "create.example_seed_2",
+  "create.example_seed_3",
+  "create.example_seed_4",
 ]
 
-const VISIBILITY_OPTIONS: Array<{
-  id: NarrativeTemplateVisibility
-  label: string
-  desc: string
-}> = [
-  { id: "private", label: "只有我", desc: "只有你能玩这个故事" },
-  { id: "unlisted", label: "凭链接", desc: "把链接发给朋友，他们能玩出自己的剧情" },
-  { id: "public", label: "广场公开", desc: "任何人都能看到、玩你的故事" },
-]
+const VISIBILITY_OPTION_IDS: NarrativeTemplateVisibility[] = ["private", "unlisted", "public"]
 
-const BUDGET_OPTIONS: Array<{
+type BudgetOptionMeta = {
   budget: number
-  label: string
-  time: string
-  desc: string
-}> = [
-  { budget: 8, label: "短", time: "10 分钟", desc: "一个戏剧瞬间，节奏紧凑" },
-  { budget: 12, label: "中", time: "15 分钟", desc: "一集短剧，起承转合完整" },
-  { budget: 20, label: "长", time: "25 分钟", desc: "多线索铺陈，情绪深入" },
+  labelKey: StringKey
+  timeKey: StringKey
+  descKey: StringKey
+}
+
+const BUDGET_OPTIONS: BudgetOptionMeta[] = [
+  {
+    budget: 8,
+    labelKey: "create.budget_short_label",
+    timeKey: "create.budget_short_time",
+    descKey: "create.budget_short_desc",
+  },
+  {
+    budget: 12,
+    labelKey: "create.budget_medium_label",
+    timeKey: "create.budget_medium_time",
+    descKey: "create.budget_medium_desc",
+  },
+  {
+    budget: 20,
+    labelKey: "create.budget_long_label",
+    timeKey: "create.budget_long_time",
+    descKey: "create.budget_long_desc",
+  },
 ]
 
-const DIFFICULTY_OPTIONS: Array<{
+type DifficultyOptionMeta = {
   id: NarrativeDifficulty
-  label: string
-  tagline: string
-  desc: string
-}> = [
+  labelKey: StringKey
+  taglineKey: StringKey
+  descKey: StringKey
+}
+
+const DIFFICULTY_OPTIONS: DifficultyOptionMeta[] = [
   {
     id: "story",
-    label: "故事模式",
-    tagline: "适合放松看戏",
-    desc: "你不会真正失败，故事一定会走到一个完整结局。",
+    labelKey: "create.difficulty_story_label",
+    taglineKey: "create.difficulty_story_tagline",
+    descKey: "create.difficulty_story_desc",
   },
   {
     id: "gauntlet",
-    label: "博弈模式",
-    tagline: "NPC 主动跟你斗",
-    desc: "NPC 各有目标和把柄。你可能在第 5 回合就翻车——结局也分胜利、妥协、崩盘三档。",
+    labelKey: "create.difficulty_gauntlet_label",
+    taglineKey: "create.difficulty_gauntlet_tagline",
+    descKey: "create.difficulty_gauntlet_desc",
   },
 ]
 
@@ -80,6 +84,24 @@ const STORY_LANGUAGE_OPTIONS: Array<{
   { id: "en", label: "English / 英文", desc: "Narration and NPC dialogue in English" },
 ]
 
+const VISIBILITY_KEY_MAP: Record<
+  NarrativeTemplateVisibility,
+  { labelKey: StringKey; descKey: StringKey }
+> = {
+  private: {
+    labelKey: "create.visibility_private_label",
+    descKey: "create.visibility_private_desc",
+  },
+  unlisted: {
+    labelKey: "create.visibility_unlisted_label",
+    descKey: "create.visibility_unlisted_desc",
+  },
+  public: {
+    labelKey: "create.visibility_public_label",
+    descKey: "create.visibility_public_desc",
+  },
+}
+
 export function CreatePage({
   onBackHome,
   onSessionStarted,
@@ -90,6 +112,7 @@ export function CreatePage({
   const api = useApi()
   const auth = useAuth()
   const { lang: uiLang } = useLanguage()
+  const t = useT()
   const [seed, setSeed] = useState("")
   const [visibility, setVisibility] = useState<NarrativeTemplateVisibility>("private")
   const [turnBudget, setTurnBudget] = useState<number>(12)
@@ -106,6 +129,8 @@ export function CreatePage({
   // ~16ms can both pass the `busy` check and fire two requests.
   const inflightRef = useRef(false)
 
+  const seedExamples = useMemo(() => SEED_EXAMPLE_KEYS.map((k) => t(k)), [t])
+
   // Author flow requires a real account.
   useEffect(() => {
     if (auth.loading) return
@@ -117,7 +142,7 @@ export function CreatePage({
   const handleCreate = async () => {
     const trimmed = seed.trim()
     if (!trimmed) {
-      setError("先写一句开头吧。")
+      setError(t("create.error_seed_required"))
       return
     }
     if (inflightRef.current) return
@@ -134,7 +159,7 @@ export function CreatePage({
       })
       onSessionStarted(response.session.session_id)
     } catch (err) {
-      setError(friendlyError(err, "无法创建故事，请稍后再试。"))
+      setError(friendlyError(err, t("create.error_create_failed")))
       setBusy(false)
       inflightRef.current = false
     }
@@ -169,32 +194,31 @@ export function CreatePage({
           animate={{ opacity: 1, y: 0 }}
           transition={itemTransition}
         >
-          <span className="ts-tag" style={{ marginBottom: 28 }}>新故事</span>
+          <span className="ts-tag" style={{ marginBottom: 28 }}>{t("create.tag_new")}</span>
           <h1 style={cpStyles.title}>
-            写下开头，
+            {t("create.heading_l1")}
             <br />
-            剩下的交给 AI。
+            {t("create.heading_l2")}
           </h1>
           <p style={cpStyles.sub}>
-            一句话即可。AI 会为你搭好人物、关系、第一个戏剧时刻——
-            然后你立刻接手往下玩。
+            {t("create.subhead")}
           </p>
 
           <div style={cpStyles.textareaWrap}>
             <textarea
               style={cpStyles.textarea}
-              placeholder={PLACEHOLDER}
+              placeholder={t("create.placeholder")}
               value={seed}
               onChange={(e) => setSeed(e.target.value)}
               spellCheck={false}
               disabled={busy}
             />
-            <div style={cpStyles.count}>{seed.length} 字</div>
+            <div style={cpStyles.count}>{t("create.char_count", { n: seed.length })}</div>
           </div>
 
           <div style={cpStyles.examplesRow}>
-            <span style={cpStyles.examplesLabel}>试试这些：</span>
-            {SEED_EXAMPLES.map((example) => (
+            <span style={cpStyles.examplesLabel}>{t("create.examples_label")}</span>
+            {seedExamples.map((example) => (
               <button
                 key={example}
                 style={cpStyles.exampleChip}
@@ -208,7 +232,7 @@ export function CreatePage({
             ))}
           </div>
 
-          <div style={cpStyles.fieldLabel}>篇幅</div>
+          <div style={cpStyles.fieldLabel}>{t("create.field_budget")}</div>
           <div style={cpStyles.visibility}>
             {BUDGET_OPTIONS.map((o) => (
               <button
@@ -222,15 +246,15 @@ export function CreatePage({
                 type="button"
               >
                 <div style={cpStyles.visBtnLabel}>
-                  {o.label}
-                  <span style={cpStyles.budgetTime}> · {o.time}</span>
+                  {t(o.labelKey)}
+                  <span style={cpStyles.budgetTime}> · {t(o.timeKey)}</span>
                 </div>
-                <div style={cpStyles.visBtnDesc}>{o.desc}</div>
+                <div style={cpStyles.visBtnDesc}>{t(o.descKey)}</div>
               </button>
             ))}
           </div>
 
-          <div style={cpStyles.fieldLabel}>难度</div>
+          <div style={cpStyles.fieldLabel}>{t("create.field_difficulty")}</div>
           <div style={cpStyles.difficultyRow}>
             {DIFFICULTY_OPTIONS.map((o) => (
               <button
@@ -245,15 +269,15 @@ export function CreatePage({
                 type="button"
               >
                 <div style={cpStyles.difficultyBtnLabel}>
-                  {o.label}
-                  <span style={cpStyles.difficultyBtnTagline}> · {o.tagline}</span>
+                  {t(o.labelKey)}
+                  <span style={cpStyles.difficultyBtnTagline}> · {t(o.taglineKey)}</span>
                 </div>
-                <div style={cpStyles.difficultyBtnDesc}>{o.desc}</div>
+                <div style={cpStyles.difficultyBtnDesc}>{t(o.descKey)}</div>
               </button>
             ))}
           </div>
 
-          <div style={cpStyles.fieldLabel}>故事语言 / Story language</div>
+          <div style={cpStyles.fieldLabel}>{t("create.field_story_lang")}</div>
           <div style={cpStyles.visibility}>
             {STORY_LANGUAGE_OPTIONS.map((o) => (
               <button
@@ -272,23 +296,26 @@ export function CreatePage({
             ))}
           </div>
 
-          <div style={cpStyles.fieldLabel}>谁能玩这个故事</div>
+          <div style={cpStyles.fieldLabel}>{t("create.field_visibility")}</div>
           <div style={cpStyles.visibility}>
-            {VISIBILITY_OPTIONS.map((o) => (
-              <button
-                key={o.id}
-                style={{
-                  ...cpStyles.visBtn,
-                  ...(visibility === o.id ? cpStyles.visBtnActive : {}),
-                }}
-                onClick={() => setVisibility(o.id)}
-                disabled={busy}
-                type="button"
-              >
-                <div style={cpStyles.visBtnLabel}>{o.label}</div>
-                <div style={cpStyles.visBtnDesc}>{o.desc}</div>
-              </button>
-            ))}
+            {VISIBILITY_OPTION_IDS.map((id) => {
+              const meta = VISIBILITY_KEY_MAP[id]
+              return (
+                <button
+                  key={id}
+                  style={{
+                    ...cpStyles.visBtn,
+                    ...(visibility === id ? cpStyles.visBtnActive : {}),
+                  }}
+                  onClick={() => setVisibility(id)}
+                  disabled={busy}
+                  type="button"
+                >
+                  <div style={cpStyles.visBtnLabel}>{t(meta.labelKey)}</div>
+                  <div style={cpStyles.visBtnDesc}>{t(meta.descKey)}</div>
+                </button>
+              )
+            })}
           </div>
 
           {error ? <div style={cpStyles.error}>{error}</div> : null}
@@ -303,10 +330,10 @@ export function CreatePage({
               }}
               onClick={() => void handleCreate()}
             >
-              {busy ? "AI 正在搭建故事..." : "开始这个故事 →"}
+              {busy ? t("create.cta_busy") : t("create.cta_idle")}
             </button>
             <button className="ts-btn ts-btn--ghost ts-btn--lg" onClick={onBackHome} disabled={busy}>
-              返回
+              {t("create.cta_back")}
             </button>
           </div>
 
@@ -351,19 +378,20 @@ export function CreatePage({
 // Rotating creative tips while user waits 5-10s for opening to generate.
 // Reads as "the AI is doing real work, here's what" instead of static
 // "loading..." which feels frozen at second 6.
-const BUSY_TIPS: string[] = [
-  "在为你的种子挑选 3-5 个角色，每人都有秘密…",
-  "在搭建 NPC 之间相互捏着的把柄网络…",
-  "在为你准备 3 张玩家身份卡——每张走向不同的故事…",
-  "在写下开场的第一个戏剧瞬间…",
-  "在校对人物动机和关系合理性…",
+const BUSY_TIP_KEYS: StringKey[] = [
+  "create.busy_tip_1",
+  "create.busy_tip_2",
+  "create.busy_tip_3",
+  "create.busy_tip_4",
+  "create.busy_tip_5",
 ]
 
 function BusyTip() {
+  const t = useT()
   const [idx, setIdx] = useState(0)
   useEffect(() => {
-    const t = setInterval(() => setIdx((v) => (v + 1) % BUSY_TIPS.length), 2200)
-    return () => clearInterval(t)
+    const id = setInterval(() => setIdx((v) => (v + 1) % BUSY_TIP_KEYS.length), 2200)
+    return () => clearInterval(id)
   }, [])
   return (
     <AnimatePresence mode="wait">
@@ -375,7 +403,7 @@ function BusyTip() {
         exit={{ opacity: 0, y: -4 }}
         transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
       >
-        {BUSY_TIPS[idx]}
+        {t(BUSY_TIP_KEYS[idx])}
       </motion.div>
     </AnimatePresence>
   )

@@ -270,6 +270,29 @@ export function PlayPage({
             </div>
           ) : null}
 
+          {/* Identity framing line — "This run, you are: {label}".
+              Sits above the role banner as a one-line declaration,
+              styled like a stage direction so the user pauses here
+              before reading the opening. The role banner below is
+              the operational card (persona / objective / leverages);
+              this line is the *naming* of the role, the moment the
+              user puts the costume on. Only renders pre-finale. */}
+          {story.session.player_role && !isComplete ? (
+            <motion.div
+              initial={{ opacity: 0, y: -4 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1, ...itemTransition }}
+              style={ppStyles.identityFraming}
+            >
+              <span style={ppStyles.identityFramingPrefix}>
+                {t("play.identity_framing_prefix")}
+              </span>
+              <span style={ppStyles.identityFramingLabel}>
+                {story.session.player_role.label}
+              </span>
+            </motion.div>
+          ) : null}
+
           {/* Player role banner — who YOU are this run. Private POV
               card; persona is what NPCs see, hidden_objective + leverages
               are your secrets. */}
@@ -1090,7 +1113,10 @@ function StoryBeat({
                     <span style={ppStyles.pulseChipArrow}>{shiftArrow(p.shift)}</span>
                   </motion.span>
                   {hasReason ? (
-                    <span style={ppStyles.pulseReason}>{t("play.pulse_reason_prefix", { reason: p.reason ?? "" })}</span>
+                    <span style={ppStyles.pulseReason}>
+                      <span style={ppStyles.pulseReasonArrow} aria-hidden>←</span>
+                      {t("play.pulse_reason_prefix", { reason: p.reason ?? "" })}
+                    </span>
                   ) : null}
                 </div>
               )
@@ -1989,6 +2015,36 @@ const ppStyles: Record<string, CSSProperties> = {
   castChipName: { fontSize: 12.5, fontWeight: 500, color: "var(--text)" },
   castChipRole: { fontSize: 10.5, color: "var(--text-faint)", marginTop: 2 },
 
+  // Stage-direction-style identity framing line. Single sentence,
+  // small caps prefix in muted text, role label in narrative serif
+  // at a slightly bigger size. Sits above the role banner — the
+  // *naming* of the role, the moment the user steps into the costume.
+  identityFraming: {
+    margin: "0 0 14px",
+    padding: "10px 0 12px",
+    borderTop: "1px dashed var(--line-strong)",
+    borderBottom: "1px dashed var(--line-strong)",
+    display: "flex",
+    alignItems: "baseline",
+    gap: 14,
+    flexWrap: "wrap" as const,
+  },
+  identityFramingPrefix: {
+    fontSize: 11,
+    color: "var(--text-faint)",
+    letterSpacing: "0.18em",
+    textTransform: "uppercase" as const,
+    fontWeight: 500,
+    flexShrink: 0,
+  },
+  identityFramingLabel: {
+    fontFamily: "var(--font-narrative)",
+    fontSize: 22,
+    fontWeight: 500,
+    color: "var(--text)",
+    lineHeight: 1.2,
+    letterSpacing: "-0.005em",
+  },
   // Player-role banner — who YOU are this run, including your private cards
   roleBanner: {
     margin: "0 0 16px",
@@ -2162,11 +2218,26 @@ const ppStyles: Record<string, CSSProperties> = {
     gap: 8,
     flexWrap: "wrap" as const,
   },
+  // Reason explanation paired with each pulse chip — this is the
+  // *because* of "she went colder because you...". Previously
+  // rendered at faint fontSize 11 — easy to miss. Bumped to 12.5 +
+  // muted (not faint) color, with a leading arrow glyph that
+  // visually links the cause to the chip on its left. Without this,
+  // users couldn't see that NPCs are reacting to THEM specifically.
   pulseReason: {
-    fontSize: 11,
-    color: "var(--text-faint)",
+    fontSize: 12.5,
+    color: "var(--text-muted)",
     fontStyle: "italic" as const,
-    lineHeight: 1.5,
+    lineHeight: 1.55,
+    paddingLeft: 4,
+    flex: "1 1 60%",
+    minWidth: 0,
+  },
+  pulseReasonArrow: {
+    color: "var(--text-faint)",
+    fontSize: 11,
+    fontStyle: "normal" as const,
+    marginRight: 4,
   },
   pulseChip: {
     display: "inline-flex",

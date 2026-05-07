@@ -85,6 +85,7 @@ export const STRINGS_ZH = {
   "home.empty_plaza": "还没有公开作品.写一个让所有人来玩?",
   "home.empty_my": "你还没有创建过故事.",
   "home.error_plaza": "广场加载失败.",
+  "home.archive_count": "{n} 局完结",
   "home.session_completed_meta": "完结",
   "home.session_progress_meta": "第 {current} / {total} 段",
   "home.played_count": "· 已玩 {count} 局",
@@ -206,6 +207,7 @@ export const STRINGS_ZH = {
   "login.note": "这是测试期,没有密码、没有邮箱.下个月会改成正式登录.",
 
   // Play page — shared / generic
+  "play.identity_framing_prefix": "这一局，你是 —",
   "play.input_action_placeholder": "你做了什么…",
   "play.input_diary_placeholder": "你心里在想什么(NPC 看不到)",
   "play.hint_pulse": "每个 NPC 在每回合结束时给出一个'情绪读数'：是更亲近、更冷淡、起疑、还是关系崩了。看 NPC 的 pulse 可以判断你刚才那一步打中了 TA 哪根神经。",
@@ -425,6 +427,7 @@ export const STRINGS_EN: Record<StringKey, string> = {
   "home.empty_plaza": "No public stories yet. Write one for everyone to play?",
   "home.empty_my": "You haven't created a story yet.",
   "home.error_plaza": "Failed to load the plaza.",
+  "home.archive_count": "{n} runs finished",
   "home.session_completed_meta": "Finished",
   "home.session_progress_meta": "Turn {current} of {total}",
   "home.played_count": "· {count} plays",
@@ -508,6 +511,7 @@ export const STRINGS_EN: Record<StringKey, string> = {
   "login.error_generic": "Sign-in failed. Please try again.",
   "login.note": "Testing phase — no password, no email. Real auth coming next month.",
 
+  "play.identity_framing_prefix": "This run, you are —",
   "play.input_action_placeholder": "What you do…",
   "play.input_diary_placeholder": "What you're really thinking (NPCs can't see this)",
   "play.hint_pulse": "Each NPC ends every turn with a quick emotional read — warming, cooling, wary, broken. Watching the pulse tells you which nerve your last move hit.",

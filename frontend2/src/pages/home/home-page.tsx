@@ -272,13 +272,26 @@ function MySessionsSection({
       ) : null}
       {completed.length > 0 ? (
         <section style={hpStyles.section}>
-          <SectionHeader title={t("home.section_completed")} />
+          {/* Personal-archive header: title + accumulated count.
+              Gives the user a sense of "this is mounting up." Without
+              the count, every visit looks the same; with it, finishing
+              a 7th run reads as crossing a threshold. */}
+          <div style={hpStyles.archiveHeader}>
+            <h2 style={hpStyles.sectionTitle}>{t("home.section_completed")}</h2>
+            <span style={hpStyles.archiveCount}>
+              {t("home.archive_count", { n: completed.length })}
+            </span>
+          </div>
           <div style={hpStyles.sessionRow}>
+            {/* Chronological newest-first; reverse-index gives each
+                entry a stable "#N" marker that increments as the user
+                accumulates more runs. */}
             {completed.slice(0, 6).map((s, idx) => (
               <SessionCard
                 key={s.session_id}
                 session={s}
                 index={idx}
+                archiveNumber={completed.length - idx}
                 onClick={() => onOpenPlay(s.session_id)}
               />
             ))}
@@ -293,10 +306,15 @@ function SessionCard({
   session,
   onClick,
   index = 0,
+  archiveNumber,
 }: {
   session: NarrativeSessionSummary
   onClick: () => void
   index?: number
+  /** When set, render the card as an archive entry — "#N" marker
+   *  in the corner + tier-colored ending chip. Only completed runs
+   *  receive this. */
+  archiveNumber?: number
 }) {
   const { lang } = useLanguage()
   const t = useT()
@@ -304,9 +322,27 @@ function SessionCard({
   const endingLabelDisplay = session.ending_label
     ? ENDING_LABEL_DISPLAY[lang]?.[session.ending_label] ?? session.ending_label
     : null
+  // Tier drives the chip's color treatment so "Vengeance" reads
+  // visually different from "Sink" — finished-runs grid becomes a
+  // legible archive instead of a wall of identical pills.
+  const tierChipStyle: CSSProperties =
+    session.ending_tier === "victory"
+      ? hpStyles.endingChipVictory
+      : session.ending_tier === "collapsed"
+        ? hpStyles.endingChipCollapsed
+        : hpStyles.endingChipCompromised
+  const tierGlyph =
+    session.ending_tier === "victory"
+      ? "✦"
+      : session.ending_tier === "collapsed"
+        ? "✕"
+        : "◇"
   return (
     <motion.button
-      style={hpStyles.sessionCard}
+      style={{
+        ...hpStyles.sessionCard,
+        ...(archiveNumber != null ? hpStyles.sessionCardArchive : null),
+      }}
       onClick={onClick}
       type="button"
       initial={{ opacity: 0, y: 6 }}
@@ -315,11 +351,19 @@ function SessionCard({
       whileHover={hoverLift}
       whileTap={tapPress}
     >
+      {archiveNumber != null ? (
+        <span style={hpStyles.archiveBadge} aria-hidden>
+          #{archiveNumber}
+        </span>
+      ) : null}
       <Truncated style={hpStyles.sessionTitle}>{session.template_title}</Truncated>
       {completed ? (
         <>
           <div style={hpStyles.sessionEndingLine}>
-            <span style={hpStyles.sessionEndingLabel}>{endingLabelDisplay}</span>
+            <span style={{ ...hpStyles.sessionEndingLabel, ...tierChipStyle }}>
+              <span style={hpStyles.endingChipGlyph} aria-hidden>{tierGlyph}</span>
+              {endingLabelDisplay}
+            </span>
             <Truncated style={hpStyles.sessionEndingSubtitle}>
               {`「${session.ending_subtitle ?? ""}」`}
             </Truncated>
@@ -567,6 +611,59 @@ const hpStyles: Record<string, CSSProperties> = {
     borderRadius: "var(--radius-md)",
     cursor: "pointer",
     transition: "all 160ms",
+    position: "relative",
+  },
+  // Archive treatment for completed runs — slightly heavier border,
+  // top-right "#N" badge. Reads as a stamped catalog entry rather
+  // than just a hover-able card.
+  sessionCardArchive: {
+    borderColor: "var(--line-strong)",
+    background: "linear-gradient(180deg, var(--bg-elev), rgba(255,255,255,0.01))",
+  },
+  archiveHeader: {
+    display: "flex",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    marginBottom: 18,
+    gap: 16,
+  },
+  archiveCount: {
+    fontSize: 11.5,
+    color: "var(--text-faint)",
+    letterSpacing: "0.08em",
+    textTransform: "uppercase" as const,
+    fontVariantNumeric: "tabular-nums",
+  },
+  archiveBadge: {
+    position: "absolute",
+    top: 10,
+    right: 12,
+    fontSize: 10.5,
+    color: "var(--text-faint)",
+    fontVariantNumeric: "tabular-nums",
+    letterSpacing: "0.06em",
+  },
+  endingChipGlyph: {
+    marginRight: 4,
+    fontSize: 11,
+  },
+  // Tier-colored ending chips. Each one signals the broad category
+  // (win / muddied / disaster) at a glance, so a list of completed
+  // runs reads as a record of varied outcomes, not a uniform pill row.
+  endingChipVictory: {
+    background: "linear-gradient(90deg, rgba(212,168,83,0.32), rgba(212,168,83,0.18))",
+    color: "rgba(245,210,140,0.96)",
+    border: "1px solid rgba(212,168,83,0.4)",
+  },
+  endingChipCompromised: {
+    background: "rgba(255,255,255,0.08)",
+    color: "var(--text)",
+    border: "1px solid var(--line-strong)",
+  },
+  endingChipCollapsed: {
+    background: "rgba(220,80,60,0.18)",
+    color: "rgba(245,180,170,0.95)",
+    border: "1px solid rgba(220,80,60,0.42)",
   },
   sessionTitle: {
     fontSize: 14.5,

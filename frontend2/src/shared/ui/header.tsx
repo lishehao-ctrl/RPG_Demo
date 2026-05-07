@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { useAuth } from "../../app/auth-context"
+import { LANGUAGE_OPTIONS, useLanguage, type Lang } from "../lib/i18n"
 import { Button } from "./primitives"
 
 export function Header({
@@ -12,6 +13,7 @@ export function Header({
   showCreateButton?: boolean
 }) {
   const auth = useAuth()
+  const { lang, setLang, t } = useLanguage()
   const [menuOpen, setMenuOpen] = useState(false)
 
   const handleLogin = () => {
@@ -28,9 +30,11 @@ export function Header({
       </button>
 
       <div className="topbar-actions">
+        <LanguageToggle lang={lang} onSelect={setLang} />
+
         {showCreateButton ? (
           <Button variant="primary" size="md" onClick={onCreate}>
-            写一个故事
+            {t("header.write_story")}
           </Button>
         ) : null}
 
@@ -38,7 +42,7 @@ export function Header({
           <span className="topbar-account__hint">...</span>
         ) : auth.isAnonymous ? (
           <Button variant="ghost" size="md" onClick={handleLogin}>
-            登录
+            {t("header.login")}
           </Button>
         ) : (
           <div className="topbar-account">
@@ -60,7 +64,7 @@ export function Header({
                     setMenuOpen(false)
                   }}
                 >
-                  退出登录
+                  {t("header.logout")}
                 </button>
               </div>
             ) : null}
@@ -68,5 +72,28 @@ export function Header({
         )}
       </div>
     </header>
+  )
+}
+
+function LanguageToggle({ lang, onSelect }: { lang: Lang; onSelect: (next: Lang) => void }) {
+  // Two-pill segmented control. If we add a third locale we'll switch
+  // to a dropdown, but two fits inline cleanly.
+  return (
+    <div className="topbar-lang" role="group" aria-label="language">
+      {LANGUAGE_OPTIONS.map((opt) => {
+        const active = opt.value === lang
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            className={`topbar-lang__pill${active ? " topbar-lang__pill--active" : ""}`}
+            onClick={() => onSelect(opt.value)}
+            aria-pressed={active}
+          >
+            {opt.label}
+          </button>
+        )
+      })}
+    </div>
   )
 }

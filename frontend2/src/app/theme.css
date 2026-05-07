@@ -106,6 +106,26 @@ a { color: inherit; }
 .brand-mark { color: var(--accent); font-size: 20px; }
 .brand strong { font-size: 16px; letter-spacing: 0.04em; }
 
+.topbar-actions {
+  display: inline-flex; align-items: center; gap: 12px;
+}
+.topbar-lang {
+  display: inline-flex; align-items: center;
+  border: 1px solid var(--line); border-radius: 999px;
+  padding: 2px; gap: 0;
+  background: var(--bg-elev);
+}
+.topbar-lang__pill {
+  background: none; border: none;
+  color: var(--text-muted); font-size: 12.5px; letter-spacing: 0.03em;
+  padding: 4px 12px; border-radius: 999px; cursor: pointer;
+  transition: color 0.16s, background 0.16s;
+}
+.topbar-lang__pill:hover { color: var(--text); }
+.topbar-lang__pill--active {
+  background: var(--accent-soft); color: var(--accent);
+}
+
 /* ------ layout shells ------ */
 .page { min-height: 100vh; display: flex; flex-direction: column; }
 

@@ -2,6 +2,7 @@ import { type CSSProperties, type FormEvent, useState } from "react"
 import { motion } from "motion/react"
 import { useAuth } from "../../app/auth-context"
 import { friendlyError } from "../../shared/lib/friendly-error"
+import { useT } from "../../shared/lib/i18n"
 import { itemTransition } from "../../shared/lib/motion-presets"
 
 const USERNAME_PATTERN = /^[A-Za-z0-9_]{2,20}$/
@@ -19,6 +20,7 @@ export function LoginPage({
 }) {
   void _onOpenCreate
   const auth = useAuth()
+  const t = useT()
   const [name, setName] = useState("")
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -28,7 +30,7 @@ export function LoginPage({
     if (submitting) return
     const trimmed = name.trim()
     if (!USERNAME_PATTERN.test(trimmed)) {
-      setError("用户名 2-20 字符，只能用字母、数字、下划线。")
+      setError(t("login.error_username_format"))
       return
     }
     setSubmitting(true)
@@ -37,7 +39,7 @@ export function LoginPage({
       await auth.login(trimmed)
       onLoggedIn(next)
     } catch (err) {
-      setError(friendlyError(err, "登录失败，请稍后再试。"))
+      setError(friendlyError(err, t("login.error_generic")))
       setSubmitting(false)
     }
   }
@@ -70,16 +72,16 @@ export function LoginPage({
           transition={itemTransition}
         >
           <span className="ts-tag" style={{ marginBottom: 24 }}>
-            登录
+            {t("login.tag")}
           </span>
-          <h1 style={lpStyles.title}>你叫什么?</h1>
-          <p style={lpStyles.sub}>随便起个用户名,没有密码。</p>
+          <h1 style={lpStyles.title}>{t("login.title")}</h1>
+          <p style={lpStyles.sub}>{t("login.sub")}</p>
 
           <div style={lpStyles.inputWrap}>
             <span style={lpStyles.at}>@</span>
             <input
               style={lpStyles.input}
-              placeholder="比如 shehao"
+              placeholder={t("login.placeholder")}
               value={name}
               onChange={(e) => setName(e.target.value.replace(/^@+/, ""))}
               autoFocus
@@ -101,10 +103,10 @@ export function LoginPage({
               pointerEvents: !name.trim() || submitting ? "none" : "auto",
             }}
           >
-            {submitting ? "进入中…" : "进入"}
+            {submitting ? t("login.submit_busy") : t("login.submit_idle")}
           </button>
 
-          <p style={lpStyles.note}>这是测试期,没有密码、没有邮箱。下个月会改成正式登录。</p>
+          <p style={lpStyles.note}>{t("login.note")}</p>
         </motion.form>
       </main>
     </div>

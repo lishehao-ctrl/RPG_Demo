@@ -2,6 +2,7 @@ import { useEffect } from "react"
 import { AnimatePresence, motion } from "motion/react"
 import { ApiProvider } from "./api-context"
 import { AuthProvider } from "./auth-context"
+import { LanguageProvider } from "../shared/lib/i18n"
 import { type AppRoute, useAppRoute } from "./routes"
 import { HomePage } from "../pages/home/home-page"
 import { CreatePage } from "../pages/create/create-page"
@@ -124,10 +125,12 @@ function Router() {
 
 export default function App() {
   return (
-    <ApiProvider>
-      <AuthProvider>
-        <Router />
-      </AuthProvider>
-    </ApiProvider>
+    <LanguageProvider>
+      <ApiProvider>
+        <AuthProvider>
+          <Router />
+        </AuthProvider>
+      </ApiProvider>
+    </LanguageProvider>
   )
 }

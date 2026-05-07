@@ -14,6 +14,7 @@ import {
   getEmptyPlazaImage,
 } from "../../shared/lib/webtoon-assets"
 import { friendlyError } from "../../shared/lib/friendly-error"
+import { ENDING_LABEL_DISPLAY, useLanguage, useT } from "../../shared/lib/i18n"
 import { hoverLift, itemTransition, itemVariants, tapPress } from "../../shared/lib/motion-presets"
 
 type Tab = "plaza" | "my-templates"
@@ -29,6 +30,7 @@ export function HomePage({
 }) {
   const api = useApi()
   const auth = useAuth()
+  const t = useT()
   const [tab, setTab] = useState<Tab>("plaza")
   const [publicTemplates, setPublicTemplates] = useState<NarrativeTemplateSummary[] | null>(null)
   const [myTemplates, setMyTemplates] = useState<NarrativeTemplateSummary[] | null>(null)
@@ -46,12 +48,12 @@ export function HomePage({
       })
       .catch((err) => {
         if (cancelled) return
-        setError(friendlyError(err, "广场加载失败。"))
+        setError(friendlyError(err, t("home.error_plaza")))
       })
     return () => {
       cancelled = true
     }
-  }, [api])
+  }, [api, t])
 
   useEffect(() => {
     if (auth.loading || auth.isAnonymous) return
@@ -97,33 +99,33 @@ export function HomePage({
             transition={itemTransition}
             style={hpStyles.heroTagline}
           >
-            互动短剧 · 你来决定
+            {t("home.hero_tagline")}
           </motion.div>
           <motion.h1
             variants={itemVariants}
             transition={itemTransition}
             style={hpStyles.heroTitle}
           >
-            一句话起头，
+            {t("home.hero_title_l1")}
             <br />
-            AI 给你一整集短剧。
+            {t("home.hero_title_l2")}
           </motion.h1>
           <motion.p
             variants={itemVariants}
             transition={itemTransition}
             style={hpStyles.heroSub}
           >
-            15 分钟一局 · 朋友们玩同一个开场，看谁玩出什么结局。
+            {t("home.hero_sub")}
           </motion.p>
           <motion.ul
             variants={itemVariants}
             transition={itemTransition}
             style={hpStyles.heroBullets}
           >
-            <li><span style={hpStyles.heroBulletDot}>·</span>写一个戏剧瞬间，AI 立刻搭起场景、人物、第一段</li>
-            <li><span style={hpStyles.heroBulletDot}>·</span>每回合 300 字叙述 + 选项 / 自由输入</li>
-            <li><span style={hpStyles.heroBulletDot}>·</span>右下角私聊"局外人朋友"——TA 不替你做决定，会陪你想清楚</li>
-            <li><span style={hpStyles.heroBulletDot}>·</span>结局可分享，可看朋友走出什么版本</li>
+            <li><span style={hpStyles.heroBulletDot}>·</span>{t("home.hero_bullet_1")}</li>
+            <li><span style={hpStyles.heroBulletDot}>·</span>{t("home.hero_bullet_2")}</li>
+            <li><span style={hpStyles.heroBulletDot}>·</span>{t("home.hero_bullet_3")}</li>
+            <li><span style={hpStyles.heroBulletDot}>·</span>{t("home.hero_bullet_4")}</li>
           </motion.ul>
           <motion.div
             variants={itemVariants}
@@ -137,7 +139,7 @@ export function HomePage({
               whileHover={{ scale: 1.03 }}
               whileTap={tapPress}
             >
-              写一个新故事 →
+              {t("home.cta_create")}
             </motion.button>
           </motion.div>
         </motion.section>
@@ -155,7 +157,7 @@ export function HomePage({
               onClick={() => setTab("plaza")}
               type="button"
             >
-              广场
+              {t("home.tab_plaza")}
             </button>
             {!auth.isAnonymous ? (
               <button
@@ -166,7 +168,7 @@ export function HomePage({
                 onClick={() => setTab("my-templates")}
                 type="button"
               >
-                我创建的
+                {t("home.tab_my")}
               </button>
             ) : null}
           </div>
@@ -175,14 +177,14 @@ export function HomePage({
             <TemplateGrid
               templates={publicTemplates}
               error={error}
-              emptyText="还没有公开作品。写一个让所有人来玩？"
+              emptyText={t("home.empty_plaza")}
               onOpenTemplate={onOpenTemplate}
             />
           ) : (
             <TemplateGrid
               templates={myTemplates}
               error={null}
-              emptyText="你还没有创建过故事。"
+              emptyText={t("home.empty_my")}
               onOpenTemplate={onOpenTemplate}
             />
           )}
@@ -199,14 +201,14 @@ export function HomePage({
               window.location.hash = "#/about"
             }}
           >
-            关于 / 隐私
+            {t("home.footer_about")}
           </a>
           <span style={hpStyles.footerSep}>·</span>
           <a
             href="mailto:hello@tinystories.app"
             style={hpStyles.footerLink}
           >
-            联系我们
+            {t("home.footer_contact")}
           </a>
         </footer>
       </main>
@@ -229,6 +231,7 @@ function MySessionsSection({
   sessions: NarrativeSessionSummary[]
   onOpenPlay: (sessionId: string) => void
 }) {
+  const t = useT()
   // Split: in-progress (no ending) above, completed (has ending) below.
   const inProgress = sessions.filter((s) => !s.ending_label)
   const completed = sessions.filter((s) => Boolean(s.ending_label))
@@ -236,7 +239,7 @@ function MySessionsSection({
     <>
       {inProgress.length > 0 ? (
         <section style={hpStyles.section}>
-          <SectionHeader title="继续未完成的故事" />
+          <SectionHeader title={t("home.section_in_progress")} />
           <div style={hpStyles.sessionRow}>
             {inProgress.slice(0, 6).map((s, idx) => (
               <SessionCard
@@ -251,7 +254,7 @@ function MySessionsSection({
       ) : null}
       {completed.length > 0 ? (
         <section style={hpStyles.section}>
-          <SectionHeader title="我玩完的故事" />
+          <SectionHeader title={t("home.section_completed")} />
           <div style={hpStyles.sessionRow}>
             {completed.slice(0, 6).map((s, idx) => (
               <SessionCard
@@ -277,7 +280,12 @@ function SessionCard({
   onClick: () => void
   index?: number
 }) {
+  const { lang } = useLanguage()
+  const t = useT()
   const completed = Boolean(session.ending_label)
+  const endingLabelDisplay = session.ending_label
+    ? ENDING_LABEL_DISPLAY[lang]?.[session.ending_label] ?? session.ending_label
+    : null
   return (
     <motion.button
       style={hpStyles.sessionCard}
@@ -293,19 +301,22 @@ function SessionCard({
       {completed ? (
         <>
           <div style={hpStyles.sessionEndingLine}>
-            <span style={hpStyles.sessionEndingLabel}>{session.ending_label}</span>
+            <span style={hpStyles.sessionEndingLabel}>{endingLabelDisplay}</span>
             <span style={hpStyles.sessionEndingSubtitle}>
               「{session.ending_subtitle}」
             </span>
           </div>
           <div style={hpStyles.sessionMeta}>
-            完结 · {formatRelative(session.last_active_at)}
+            {t("home.session_completed_meta")} · {formatRelative(session.last_active_at, t)}
           </div>
         </>
       ) : (
         <div style={hpStyles.sessionMeta}>
-          第 {session.turn_count + 1} / {session.turn_budget} 段 ·{" "}
-          {formatRelative(session.last_active_at)}
+          {t("home.session_progress_meta", {
+            current: session.turn_count + 1,
+            total: session.turn_budget,
+          })}{" "}
+          · {formatRelative(session.last_active_at, t)}
         </div>
       )}
     </motion.button>
@@ -370,6 +381,7 @@ function TemplateCard({
   onClick: () => void
   index?: number
 }) {
+  const t = useT()
   const cover = getCoverForTemplate(template)
   return (
     <motion.button
@@ -398,10 +410,10 @@ function TemplateCard({
       <div style={hpStyles.cardBody}>
         <div style={hpStyles.cardSeed}>"{template.seed}"</div>
         <div style={hpStyles.cardFooter}>
-          <span style={hpStyles.cardBadge}>{visibilityLabel(template.visibility)}</span>
-          <span style={hpStyles.cardPlays}>· 已玩 {template.play_count} 局</span>
+          <span style={hpStyles.cardBadge}>{visibilityLabel(template.visibility, t)}</span>
+          <span style={hpStyles.cardPlays}>{t("home.played_count", { count: template.play_count })}</span>
           {template.is_owner ? (
-            <span style={hpStyles.cardOwnerBadge}>我创建的</span>
+            <span style={hpStyles.cardOwnerBadge}>{t("home.is_owner")}</span>
           ) : null}
         </div>
       </div>
@@ -409,22 +421,22 @@ function TemplateCard({
   )
 }
 
-function visibilityLabel(v: NarrativeTemplateSummary["visibility"]): string {
-  if (v === "public") return "公开"
-  if (v === "unlisted") return "凭链接"
-  return "只有我"
+function visibilityLabel(v: NarrativeTemplateSummary["visibility"], t: ReturnType<typeof useT>): string {
+  if (v === "public") return t("home.visibility_public")
+  if (v === "unlisted") return t("home.visibility_unlisted")
+  return t("home.visibility_private")
 }
 
-function formatRelative(isoString: string): string {
+function formatRelative(isoString: string, t: ReturnType<typeof useT>): string {
   const date = new Date(isoString)
   const diffMs = Date.now() - date.getTime()
   const minutes = Math.floor(diffMs / 60000)
-  if (minutes < 1) return "刚刚"
-  if (minutes < 60) return `${minutes} 分钟前`
+  if (minutes < 1) return t("home.relative_just_now")
+  if (minutes < 60) return t("home.relative_minutes", { n: minutes })
   const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours} 小时前`
+  if (hours < 24) return t("home.relative_hours", { n: hours })
   const days = Math.floor(hours / 24)
-  if (days < 30) return `${days} 天前`
+  if (days < 30) return t("home.relative_days", { n: days })
   return date.toLocaleDateString()
 }
 

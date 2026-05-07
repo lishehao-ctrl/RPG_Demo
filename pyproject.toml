@@ -3,11 +3,33 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "rpg-demo-rebuild"
+name = "tiny-stories"
 version = "0.1.0"
-description = "Clean-slate interactive narrative backend rebuilt around LangGraph"
+description = "An LLM-driven 12-turn interactive drama engine. 3 selectable player roles, 9 narrative mechanisms, 15 shareable endings."
 readme = "README.md"
 requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Tiny Stories contributors" }]
+keywords = [
+  "llm",
+  "interactive-fiction",
+  "narrative-game",
+  "prompt-engineering",
+  "openai-compatible",
+  "fastapi",
+  "react",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Games/Entertainment :: Role-Playing",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Framework :: FastAPI",
+]
 dependencies = [
   "fastapi>=0.116.0,<1.0.0",
   "uvicorn[standard]>=0.35.0,<1.0.0",
@@ -16,6 +38,12 @@ dependencies = [
   "langgraph>=1.0.0,<2.0.0",
   "openai>=1.0.0,<2.0.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/your-handle/tiny-stories"
+Repository = "https://github.com/your-handle/tiny-stories"
+Issues = "https://github.com/your-handle/tiny-stories/issues"
+Architecture = "https://github.com/your-handle/tiny-stories/blob/main/ARCHITECTURE.md"
 
 [project.optional-dependencies]
 dev = [

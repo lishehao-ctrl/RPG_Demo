@@ -9,18 +9,18 @@ const SHELLS = [
   "entertainment_scandal",
   "office_power",
   // Newer themes covering the most common drama settings that
-  // previously fell back to wealth_families. Each ships with a
-  // matching `-02.jpg` variant.
+  // previously fell back to wealth_families. Each ships with five
+  // deterministic cover variants.
   "wedding",
   "courtroom",
   "palace_drama",
 ] as const
 type Shell = (typeof SHELLS)[number]
 
-// Each shell has 2 variants now; pick is deterministic by template_id hash so
-// the same template always shows the same cover, but two templates of the
+// Each shell has five variants now; pick is deterministic by template_id hash
+// so the same template always shows the same cover, but two templates of the
 // same shell get different visuals.
-const SHELL_VARIANTS_PER_SHELL = 2
+const SHELL_VARIANTS_PER_SHELL = 5
 
 const AVATAR_FEMALE = [
   "female-01",
@@ -40,6 +40,9 @@ const AVATAR_FEMALE = [
   "elder-01",
   "student-01",
   "period-01",
+  "bride-01",
+  "idol-01",
+  "lawyer-01",
 ] as const
 const AVATAR_MALE = [
   "male-01",
@@ -54,6 +57,9 @@ const AVATAR_MALE = [
   "male-10",
   "elder-02",
   "student-02",
+  "idol-01",
+  "lawyer-01",
+  "royal-01",
 ] as const
 
 // Dedicated advisor portrait pool — visually distinct from the cast pool so
@@ -69,10 +75,48 @@ const ADVISOR_AVATARS = [
   "advisor-08",
   "advisor-09",
   "advisor-10",
+  "advisor-11",
+  "advisor-12",
+  "advisor-13",
+  "advisor-14",
 ] as const
 
 const SEGMENT_PHASES = ["opening", "pressure", "reversal", "reveal", "terminal"] as const
 type SegmentPhase = (typeof SEGMENT_PHASES)[number]
+
+const SEGMENT_PHASE_POOLS: Record<SegmentPhase, readonly string[]> = {
+  opening: [
+    "opening",
+    "opening_rooftop_gala",
+    "opening_campus_rain_gate",
+    "opening_backstage_vanity",
+    "opening_courtroom_waiting",
+  ],
+  pressure: [
+    "pressure",
+    "pressure_boardroom_vote",
+    "pressure_family_banquet",
+    "pressure_press_hallway",
+    "pressure_palace_corridor",
+  ],
+  reversal: [
+    "reversal",
+    "reversal_elevator_standoff",
+    "reversal_wedding_aisle",
+  ],
+  reveal: [
+    "reveal",
+    "reveal_hidden_usb",
+    "reveal_torn_contract",
+    "reveal_phone_reflection",
+    "reveal_cctv_room",
+  ],
+  terminal: [
+    "terminal",
+    "terminal_rain_crosswalk",
+    "terminal_empty_boardroom",
+  ],
+}
 
 const ENDING_VARIANTS = [
   "burned_alone",
@@ -111,12 +155,22 @@ function pick<T>(pool: readonly T[], key: string): T {
   return pool[stableHash(key) % pool.length] as T
 }
 
+function shellVariantSlugs(shell: Shell): string[] {
+  return Array.from({ length: SHELL_VARIANTS_PER_SHELL }, (_, idx) => (
+    idx === 0 ? shell : `${shell}-0${idx + 1}`
+  ))
+}
+
+function segmentSlugs(): string[] {
+  return SEGMENT_PHASES.flatMap((phase) => [...SEGMENT_PHASE_POOLS[phase]])
+}
+
 // ───────── covers ─────────
 
 function shellVariantSlug(shell: Shell, key: string): string {
-  // Stable per-key variant pick: -01 (original) or -02 (alt). Adding more
-  // variants later requires only bumping SHELL_VARIANTS_PER_SHELL and
-  // dropping the new file at /shells/{shell}-NN.jpg.
+  // Stable per-key variant pick: -01 (legacy filename) or -02...-05.
+  // Adding more variants later requires only bumping SHELL_VARIANTS_PER_SHELL
+  // and dropping the new file at /shells/{shell}-NN.jpg.
   if (SHELL_VARIANTS_PER_SHELL <= 1) return shell
   const idx = stableHash(`shell-variant|${key}|${shell}`) % SHELL_VARIANTS_PER_SHELL
   // -01 maps to the legacy filename without suffix to avoid breaking
@@ -154,9 +208,9 @@ export function getDefaultAvatar(gender?: "female" | "male"): string {
 // ───────── scenes / segments ─────────
 
 /** Background art for the play stage, picked by the current beat phase. */
-export function getSceneByPhase(phase: string | null | undefined): string {
+export function getSceneByPhase(phase: string | null | undefined, key = "default"): string {
   const slug = (SEGMENT_PHASES.find((p) => p === phase) ?? "opening") as SegmentPhase
-  return `/webtoons/segments/${slug}.jpg`
+  return `/webtoons/segments/${pick(SEGMENT_PHASE_POOLS[slug], `segment|${slug}|${key}`)}.jpg`
 }
 
 // ───────── endings ─────────
@@ -179,17 +233,41 @@ export const PAGE_BG = {
 
 export const LOGO_URL = "/webtoons/ui/logo.png"
 
+// ───────── peak narration close-ups ─────────
+// 13 cinematic close-up images used as full-bleed banners on "peak"
+// narrator beats (broken pulse / inventory delta fired / late-game
+// cold shifts). Each peak beat picks one deterministically by hashing
+// the message ord, so the same beat always shows the same image but
+// adjacent peaks get different visuals — no repeat fatigue.
+
+const PEAK_CLOSEUPS = [
+  "peak_face",
+  "peak_hand",
+  "peak_screen",
+  "peak_torn",
+  "peak_silence",
+  "peak_cold_eye",
+  "peak_ring_crack",
+  "peak_elevator_button",
+  "peak_message_seen",
+  "peak_contract_stamp",
+  "peak_lip_bite",
+  "peak_broken_photo",
+  "peak_jade_pendant",
+] as const
+
 // ───────── catalog (handy for design review / debugging) ─────────
 
 export const ASSET_CATALOG = {
-  shells: SHELLS.map((s) => `/webtoons/shells/${s}.jpg`),
+  shells: SHELLS.flatMap((s) => shellVariantSlugs(s).map((slug) => `/webtoons/shells/${slug}.jpg`)),
   avatars: {
     female: AVATAR_FEMALE.map((s) => `/webtoons/avatars/${s}.jpg`),
     male: AVATAR_MALE.map((s) => `/webtoons/avatars/${s}.jpg`),
   },
   advisors: ADVISOR_AVATARS.map((s) => `/webtoons/advisors/${s}.jpg`),
-  segments: SEGMENT_PHASES.map((s) => `/webtoons/segments/${s}.jpg`),
+  segments: segmentSlugs().map((s) => `/webtoons/segments/${s}.jpg`),
   endings: ENDING_VARIANTS.map((s) => `/webtoons/endings/${s}.jpg`),
+  peaks: PEAK_CLOSEUPS.map((s) => `/webtoons/peaks/${s}.jpg`),
 } as const
 
 // ───────── narrative (template/session) helpers ─────────
@@ -381,21 +459,6 @@ export function getTierSplash(
 export function getEmptyPlazaImage(): string {
   return "/webtoons/empty/plaza.jpg"
 }
-
-// ───────── peak narration close-ups ─────────
-// 5 cinematic close-up images used as full-bleed banners on "peak"
-// narrator beats (broken pulse / inventory delta fired / late-game
-// cold shifts). Each peak beat picks one deterministically by hashing
-// the message ord, so the same beat always shows the same image but
-// adjacent peaks get different visuals — no repeat fatigue.
-
-const PEAK_CLOSEUPS = [
-  "peak_face",
-  "peak_hand",
-  "peak_screen",
-  "peak_torn",
-  "peak_silence",
-] as const
 
 export function getPeakCloseUp(messageOrd: number): string {
   const slug = pick(PEAK_CLOSEUPS, `peak|${messageOrd}`)

@@ -5,6 +5,7 @@
   "version": "0.0.1",
   "scripts": {
     "render": "remotion render src/index.ts TinyStoriesTrailer out/tiny-stories-trailer.mp4",
+    "render:admissions": "remotion render src/index.ts AdmissionsDemoTrailer out/tiny-stories-admissions-demo.mp4",
     "preview": "remotion preview src/index.ts",
     "check": "tsc --noEmit"
   },

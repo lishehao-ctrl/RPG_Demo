@@ -34,17 +34,22 @@ const keyframes = {
   portfolio: "keyframes/09-portfolio-dawn.jpg",
 }
 
-const fps = 30
+const overlays = {
+  titleRibbon: "overlays/title-ribbon-alpha.png",
+  evidencePanel: "overlays/evidence-panel-alpha.png",
+}
+
+export const admissionsDemoFrames = 2250
 const scenes = {
-  coldOpen: [0, 240],
-  input: [240, 520],
-  build: [520, 790],
-  runtime: [790, 1110],
-  choices: [1110, 1410],
-  freeform: [1410, 1720],
-  advisor: [1720, 2050],
-  ending: [2050, 2390],
-  reflection: [2390, 2700],
+  coldOpen: [0, 190],
+  input: [190, 450],
+  build: [450, 690],
+  runtime: [690, 970],
+  choices: [970, 1235],
+  freeform: [1235, 1490],
+  advisor: [1490, 1760],
+  ending: [1760, 2025],
+  reflection: [2025, admissionsDemoFrames],
 } as const
 
 function clampInterpolate(frame: number, range: [number, number], output: [number, number]) {
@@ -270,7 +275,8 @@ const CopyBlock: React.FC<{
   y?: number
   size?: number
   maxWidth?: number
-}> = ({start, label, title, body, x = 108, y = 122, size, maxWidth = 950}) => {
+  matte?: boolean
+}> = ({start, label, title, body, x = 108, y = 122, size, maxWidth = 950, matte = true}) => {
   const frame = useCurrentFrame()
   const local = Math.max(0, frame - start)
   const {fps: videoFps} = useVideoConfig()
@@ -283,11 +289,30 @@ const CopyBlock: React.FC<{
         top: y,
         opacity: enter,
         transform: `translateY(${interpolate(enter, [0, 1], [30, 0])}px)`,
+        padding: matte ? "26px 34px 30px" : undefined,
       }}
     >
-      <Label>{label}</Label>
-      <Headline size={size} style={{maxWidth}}>{title}</Headline>
-      {body ? <Body style={{maxWidth: Math.max(320, maxWidth - 80)}}>{body}</Body> : null}
+      {matte ? (
+        <Img
+          src={staticFile(overlays.titleRibbon)}
+          style={{
+            position: "absolute",
+            left: -54,
+            top: -74,
+            width: maxWidth + 240,
+            height: body ? 342 : 236,
+            objectFit: "fill",
+            opacity: .86,
+            filter: "drop-shadow(0 30px 80px rgba(0,0,0,.42))",
+            pointerEvents: "none",
+          }}
+        />
+      ) : null}
+      <div style={{position: "relative"}}>
+        <Label style={{fontSize: 17, letterSpacing: 2.2}}>{label}</Label>
+        <Headline size={size} style={{maxWidth}}>{title}</Headline>
+        {body ? <Body style={{maxWidth: Math.max(320, maxWidth - 80), fontSize: 25}}>{body}</Body> : null}
+      </div>
     </div>
   )
 }
@@ -304,14 +329,14 @@ const ProofChip: React.FC<{children: React.ReactNode; delay: number; tone?: "blu
   return (
     <div
       style={{
-        padding: "16px 20px",
-        borderRadius: 16,
-        border: `1px solid ${color}66`,
-        background: "rgba(8, 11, 17, .72)",
+        position: "relative",
+        padding: "13px 18px 13px 22px",
+        borderLeft: `3px solid ${color}`,
+        background: `linear-gradient(90deg, ${color}22, rgba(6,8,13,.26) 72%, transparent)`,
         color: "#fbf5ea",
-        fontSize: 24,
-        fontWeight: 720,
-        boxShadow: `0 0 38px ${color}24`,
+        fontSize: 22,
+        fontWeight: 760,
+        textShadow: "0 8px 24px rgba(0,0,0,.62)",
         opacity,
         transform: `translateY(${clampInterpolate(local, [0, 18], [22, 0])}px)`,
       }}
@@ -423,17 +448,27 @@ const EvidencePanel: React.FC<{
         left,
         top,
         width,
-        padding: "22px 24px",
-        borderRadius: 20,
-        border: `1px solid ${color}66`,
-        background: "linear-gradient(180deg, rgba(8,12,19,.88), rgba(6,8,13,.72))",
-        boxShadow: `0 26px 90px rgba(0,0,0,.42), 0 0 48px ${color}20`,
+        padding: "28px 32px 30px",
         color: "#fff6e8",
         opacity,
         transform: `translateY(${clampInterpolate(local, [0, 18], [22, 0])}px)`,
+        filter: `drop-shadow(0 34px 90px rgba(0,0,0,.50)) drop-shadow(0 0 34px ${color}24)`,
       }}
     >
-      {children}
+      <Img
+        src={staticFile(overlays.evidencePanel)}
+        style={{
+          position: "absolute",
+          left: -56,
+          top: -62,
+          width: width + 118,
+          height: "calc(100% + 124px)",
+          objectFit: "fill",
+          opacity: .88,
+          pointerEvents: "none",
+        }}
+      />
+      <div style={{position: "relative"}}>{children}</div>
     </div>
   )
 }
@@ -447,7 +482,7 @@ const PanelTitle: React.FC<{label: string; title: string; tone?: "blue" | "gold"
   return (
     <>
       <div style={{color, fontSize: 17, fontWeight: 820, letterSpacing: 1.8, textTransform: "uppercase"}}>{label}</div>
-      <div style={{marginTop: 8, color: "#fff8ea", fontSize: 30, lineHeight: 1.08, fontWeight: 820}}>{title}</div>
+      <div style={{marginTop: 8, color: "#fff8ea", fontSize: 27, lineHeight: 1.08, fontWeight: 820}}>{title}</div>
     </>
   )
 }
@@ -507,13 +542,12 @@ const CodePanel: React.FC<{
     <PanelTitle label="runtime evidence" title={title} tone={tone} />
     <div
       style={{
-        marginTop: 18,
-        padding: "18px 20px",
-        borderRadius: 14,
-        background: "rgba(0,0,0,.34)",
-        border: "1px solid rgba(255,255,255,.11)",
+        marginTop: 16,
+        padding: "12px 0 0 18px",
+        borderLeft: "1px solid rgba(255,255,255,.18)",
+        background: "linear-gradient(90deg, rgba(255,255,255,.055), transparent 70%)",
         fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-        fontSize: 19,
+        fontSize: 17,
         lineHeight: 1.38,
         color: "rgba(248,246,240,.88)",
       }}
@@ -535,7 +569,7 @@ const StateDiffPanel: React.FC<{delay: number; left: number; top: number}> = ({d
   return (
     <EvidencePanel delay={delay} left={left} top={top} width={560} tone="gold">
       <PanelTitle label="state transition" title="Choice mutates the next turn" tone="gold" />
-      <div style={{display: "grid", gridTemplateColumns: "1.1fr .9fr .9fr", gap: 8, marginTop: 20, fontSize: 19}}>
+      <div style={{display: "grid", gridTemplateColumns: "1.1fr .9fr .9fr", gap: 8, marginTop: 18, fontSize: 17}}>
         <div style={{color: "rgba(245,239,229,.56)", fontWeight: 760}}>field</div>
         <div style={{color: "rgba(245,239,229,.56)", fontWeight: 760}}>before</div>
         <div style={{color: "#d7ad50", fontWeight: 850}}>after</div>
@@ -570,12 +604,11 @@ const OwnershipGrid: React.FC<{start: number}> = ({start}) => {
             key={item}
             style={{
               opacity,
-              padding: "15px 16px",
-              borderRadius: 14,
-              border: "1px solid rgba(255,255,255,.13)",
-              background: "rgba(8,10,15,.60)",
+              padding: "13px 15px",
+              borderLeft: "2px solid rgba(215,173,80,.70)",
+              background: "linear-gradient(90deg, rgba(215,173,80,.14), rgba(255,255,255,.035))",
               color: "#fff7e9",
-              fontSize: 22,
+              fontSize: 20,
               fontWeight: 760,
             }}
           >
@@ -604,12 +637,11 @@ const CropCallout: React.FC<{
         position: "absolute",
         left,
         top,
-        padding: "14px 18px",
-        borderRadius: 14,
-        border: `1px solid ${color}88`,
-        background: "rgba(5,7,12,.82)",
+        padding: "12px 18px",
+        borderLeft: `3px solid ${color}`,
+        background: `linear-gradient(90deg, ${color}26, rgba(5,7,12,.30), transparent)`,
         color: "#fff8ed",
-        fontSize: 23,
+        fontSize: 22,
         fontWeight: 760,
         opacity,
         transform: `translateY(${clampInterpolate(local, [0, 18], [18, 0])}px)`,
@@ -631,13 +663,13 @@ const ColdOpen: React.FC = () => {
         label="Admissions Demo"
         title={<>One seed becomes a playable AI drama system.</>}
         body="A real UI drives a backend runtime: structured state, constrained LLM turns, advisor context, and a compiled ending artifact."
-        size={76}
+        size={68}
       />
-      <ScreenFrame src={captures.reviewer} start={48} end={end} x={1010} y={520} width={760} scaleFrom={.98} scaleTo={1.018} />
-      <div style={{position: "absolute", left: 108, bottom: 106, display: "grid", gap: 14, width: 520}}>
-        <ProofChip delay={82}>React UI + API runtime</ProofChip>
-        <ProofChip delay={104} tone="gold">Schema-validated generation</ProofChip>
-        <ProofChip delay={126} tone="red">Replayable state machine</ProofChip>
+      <ScreenFrame src={captures.reviewer} start={44} end={end} x={1010} y={512} width={760} scaleFrom={.98} scaleTo={1.018} />
+      <div style={{position: "absolute", left: 108, bottom: 88, display: "grid", gap: 10, width: 520}}>
+        <ProofChip delay={70}>React UI + API runtime</ProofChip>
+        <ProofChip delay={90} tone="gold">Schema-validated generation</ProofChip>
+        <ProofChip delay={110} tone="red">Replayable state machine</ProofChip>
       </div>
     </>
   )
@@ -649,7 +681,7 @@ const InputScene: React.FC = () => {
     <>
       <ArtBackground src={keyframes.hook} start={start} end={end} tint="gold" />
       <ScreenVideo src={captures.createTyping} start={start + 8} end={end} x={132} y={92} width={1600} scaleFrom={1} scaleTo={1.012} />
-      <CropCallout left={118} top={850} delay={start + 164} tone="gold">One dramatic premise enters the real UI.</CropCallout>
+      <CropCallout left={118} top={850} delay={start + 142} tone="gold">One dramatic premise enters the real UI.</CropCallout>
     </>
   )
 }
@@ -664,14 +696,14 @@ const BuildScene: React.FC = () => {
         label="Build Phase"
         title="The backend compiles story into runnable state."
         body="The demo is not a free chat box: every generated turn is shaped into a state object the UI can replay and inspect."
-        size={66}
+        size={58}
       />
-      <EvidencePanel delay={start + 98} left={106} top={555} width={560} tone="blue">
+      <EvidencePanel delay={start + 78} left={106} top={555} width={560} tone="blue">
         <PanelTitle label="full-stack path" title="UI to runtime to replay" />
-        <ArchitectureFlow start={start + 124} />
+        <ArchitectureFlow start={start + 98} />
       </EvidencePanel>
       <CodePanel
-        delay={start + 132}
+        delay={start + 110}
         left={1090}
         top={202}
         width={610}
@@ -694,9 +726,9 @@ const RuntimeScene: React.FC = () => {
     <>
       <ArtBackground src={keyframes.reveal} start={start} end={end} tint="blue" dim={.70} />
       <ScreenFrame src={captures.runtime} start={start + 8} end={end} x={74} y={86} width={1160} scaleFrom={1} scaleTo={1.025} />
-      <StateDiffPanel delay={start + 72} left={1260} top={166} />
+      <StateDiffPanel delay={start + 58} left={1260} top={166} />
       <CodePanel
-        delay={start + 122}
+        delay={start + 98}
         left={1260}
         top={610}
         width={548}
@@ -726,13 +758,13 @@ const ChoiceScene: React.FC = () => {
         body="The interface keeps the action readable, then the runtime locks it into the run history before generating the next beat."
         x={96}
         y={124}
-        size={48}
+        size={44}
         maxWidth={560}
       />
       <div style={{position: "absolute", left: 96, bottom: 108, display: "grid", gap: 12, width: 560}}>
-        <ProofChip delay={start + 132} tone="blue">selected_action_id persisted</ProofChip>
-        <ProofChip delay={start + 158} tone="gold">turn_count increments</ProofChip>
-        <ProofChip delay={start + 184} tone="red">next choices regenerated from state</ProofChip>
+        <ProofChip delay={start + 96} tone="blue">selected_action_id persisted</ProofChip>
+        <ProofChip delay={start + 116} tone="gold">turn_count increments</ProofChip>
+        <ProofChip delay={start + 136} tone="red">next choices regenerated from state</ProofChip>
       </div>
     </>
   )
@@ -752,7 +784,7 @@ const FreeformScene: React.FC = () => {
         body="This is the product tradeoff: readable options for most players, custom tactics for advanced play."
         x={96}
         y={122}
-        size={46}
+        size={42}
         maxWidth={590}
       />
       <div
@@ -761,14 +793,13 @@ const FreeformScene: React.FC = () => {
           left: 96,
           bottom: 116,
           width: 590,
-          padding: "26px 30px",
-          borderRadius: 20,
-          border: "1px solid rgba(215,173,80,.42)",
-          background: "rgba(7,9,14,.88)",
+          padding: "20px 24px 22px",
+          borderLeft: "3px solid rgba(215,173,80,.82)",
+          background: "linear-gradient(90deg, rgba(215,173,80,.18), rgba(7,9,14,.34), transparent)",
           color: "#fff6e7",
-          fontSize: 29,
+          fontSize: 25,
           lineHeight: 1.35,
-          boxShadow: "0 28px 90px rgba(0,0,0,.56)",
+          textShadow: "0 10px 32px rgba(0,0,0,.70)",
         }}
       >
         <div style={{color: "#d7ad50", fontSize: 17, fontWeight: 820, letterSpacing: 1.6, textTransform: "uppercase", marginBottom: 10}}>
@@ -793,10 +824,11 @@ const AdvisorScene: React.FC = () => {
         body="The advisor can read run context and help the player reason, but it cannot choose or mutate the story state."
         x={114}
         y={122}
-        size={54}
+        size={48}
+        maxWidth={690}
       />
       <CodePanel
-        delay={start + 120}
+        delay={start + 94}
         left={116}
         top={536}
         width={610}
@@ -808,7 +840,7 @@ const AdvisorScene: React.FC = () => {
           "advisor_messages separate from turns",
         ]}
       />
-      <CropCallout left={1058} top={706} delay={start + 160} tone="gold">Player keeps control</CropCallout>
+      <CropCallout left={1058} top={706} delay={start + 130} tone="gold">Player keeps control</CropCallout>
     </>
   )
 }
@@ -826,10 +858,11 @@ const EndingScene: React.FC = () => {
         body="The final screen turns selected turns into a shareable artifact: ending label, highlights, paths not taken, and replay loop."
         x={110}
         y={110}
-        size={54}
+        size={48}
+        maxWidth={620}
       />
       <CodePanel
-        delay={start + 122}
+        delay={start + 94}
         left={110}
         top={526}
         width={560}
@@ -859,11 +892,12 @@ const ReflectionScene: React.FC = () => {
         body="The demo connects product UX, backend orchestration, LLM constraints, state persistence, and a reviewer-facing proof flow."
         x={108}
         y={150}
-        size={62}
+        size={54}
+        maxWidth={780}
       />
-      <EvidencePanel delay={start + 128} left={108} top={502} width={800} tone="gold">
+      <EvidencePanel delay={start + 84} left={108} top={492} width={800} tone="gold">
         <PanelTitle label="ownership" title="What this portfolio artifact proves" tone="gold" />
-        <OwnershipGrid start={start + 150} />
+        <OwnershipGrid start={start + 104} />
       </EvidencePanel>
       <div
         style={{
@@ -911,7 +945,7 @@ export const AdmissionsDemoTrailer: React.FC = () => (
       <div
         style={{
           height: "100%",
-          width: `${clampInterpolate(useCurrentFrame(), [0, 2700], [0, 100])}%`,
+          width: `${clampInterpolate(useCurrentFrame(), [0, admissionsDemoFrames], [0, 100])}%`,
           background: "linear-gradient(90deg, #8ee8ff, #d7ad50, #ff5d72)",
         }}
       />

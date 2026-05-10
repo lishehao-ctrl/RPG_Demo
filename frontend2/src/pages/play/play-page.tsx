@@ -42,9 +42,11 @@ import {
 
 export function PlayPage({
   sessionId,
+  reviewerMode = false,
   onBackHome,
 }: {
   sessionId: string
+  reviewerMode?: boolean
   onBackHome: () => void
 }) {
   const api = useApi()
@@ -242,6 +244,16 @@ export function PlayPage({
               players see WHERE in the story they are, not just turn N. */}
           {!isComplete ? (
             <StageProgressBar turnIndex={turnsCompleted} turnBudget={turnBudget} />
+          ) : null}
+
+          {reviewerMode ? (
+            <RuntimeInspector
+              story={story}
+              ending={ending}
+              lastNarrator={lastNarrator}
+              turnsRemaining={turnsRemaining}
+              liveInventory={liveInventory}
+            />
           ) : null}
 
           {/* Pulse legend — explains what the 5 NPC pulse colors mean.
@@ -596,6 +608,79 @@ export function PlayPage({
       </AnimatePresence>
     </div>
   )
+}
+
+function RuntimeInspector({
+  story,
+  ending,
+  lastNarrator,
+  turnsRemaining,
+  liveInventory,
+}: {
+  story: NarrativeStoryHistoryResponse
+  ending: NarrativeEnding | null
+  lastNarrator: NarrativeStoryMessage | null
+  turnsRemaining: number
+  liveInventory: string[]
+}) {
+  const { lang } = useLanguage()
+  const upcomingTurn = Math.min(story.session.turn_budget - 1, story.session.turn_count + 1)
+  const stage = stageDisplayName(stageForLocal(upcomingTurn, story.session.turn_budget))
+  const playerTurns = story.messages.filter((m) => m.role === "player").length
+  const endingLabel = ending
+    ? ENDING_LABEL_DISPLAY[lang]?.[ending.label] ?? ending.label
+    : story.session.ending_label
+      ? ENDING_LABEL_DISPLAY[lang]?.[story.session.ending_label] ?? story.session.ending_label
+      : "Pending"
+  const language = story.template.language === "zh" ? "Chinese" : "English"
+
+  const rows = [
+    { label: "Seed", value: story.template.title },
+    { label: "Language", value: language },
+    { label: "Player role", value: story.session.player_role?.label ?? "Auto-selected" },
+    { label: "Current stage", value: stage },
+    { label: "Turns played", value: `${playerTurns} / ${story.session.turn_budget}` },
+    { label: "Turns left", value: String(turnsRemaining) },
+    { label: "Live options", value: String(lastNarrator?.options.length ?? 0) },
+    { label: "Inventory state", value: `${liveInventory.length} item${liveInventory.length === 1 ? "" : "s"}` },
+    { label: "Ending compiler", value: endingLabel },
+  ]
+
+  return (
+    <motion.section
+      style={ppStyles.runtimeInspector}
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={itemTransition}
+      aria-label="Runtime inspector"
+    >
+      <div style={ppStyles.runtimeInspectorHeader}>
+        <span style={ppStyles.runtimeInspectorKicker}>Reviewer runtime inspector</span>
+        <strong>Generation is being evaluated as a system.</strong>
+      </div>
+      <div style={ppStyles.runtimeInspectorGrid}>
+        {rows.map((row) => (
+          <div style={ppStyles.runtimeInspectorRow} key={row.label}>
+            <span>{row.label}</span>
+            <strong>{row.value}</strong>
+          </div>
+        ))}
+      </div>
+      <div style={ppStyles.runtimeInspectorNote}>
+        Seed → role → state → choice → consequence → ending. This view is
+        intentionally visible only from the portfolio reviewer path.
+      </div>
+    </motion.section>
+  )
+}
+
+function stageDisplayName(stage: string): string {
+  if (stage === "hook") return "Prelude"
+  if (stage === "pressure") return "Build"
+  if (stage === "reversal") return "Turn"
+  if (stage === "climax") return "Climax"
+  if (stage === "pre_finale" || stage === "pre_finale_open") return "Coda"
+  return stage.replace(/_/g, " ")
 }
 
 // ---------------------------------------------------------------------------
@@ -2129,6 +2214,51 @@ const ppStyles: Record<string, CSSProperties> = {
 
   main: { flex: 1, display: "flex", justifyContent: "center", overflow: "hidden" },
   storyColumn: { width: "100%", maxWidth: 720, padding: "32px 32px 120px", overflowY: "auto" },
+
+  runtimeInspector: {
+    margin: "0 0 24px",
+    padding: "16px",
+    background: "linear-gradient(180deg, rgba(126,88,200,0.16), rgba(212,168,83,0.05))",
+    border: "1px solid rgba(212,168,83,0.30)",
+    borderRadius: "var(--radius-md)",
+    boxShadow: "0 14px 42px rgba(0,0,0,0.26)",
+  },
+  runtimeInspectorHeader: {
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: 6,
+    marginBottom: 14,
+  },
+  runtimeInspectorKicker: {
+    fontSize: 10.5,
+    letterSpacing: "0.16em",
+    textTransform: "uppercase" as const,
+    color: "var(--accent)",
+    fontWeight: 700,
+  },
+  runtimeInspectorGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+    gap: 8,
+  },
+  runtimeInspectorRow: {
+    minWidth: 0,
+    padding: "10px 11px",
+    border: "1px solid rgba(255,255,255,0.10)",
+    borderRadius: "var(--radius-sm)",
+    background: "rgba(12,12,16,0.36)",
+    display: "flex",
+    flexDirection: "column" as const,
+    gap: 4,
+  },
+  runtimeInspectorNote: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTop: "1px dashed rgba(255,255,255,0.14)",
+    fontSize: 12.5,
+    color: "var(--text-muted)",
+    lineHeight: 1.55,
+  },
 
   castStrip: {
     display: "flex",

@@ -11,6 +11,8 @@ import { AboutPage } from "../pages/about/about-page"
 import { LoginPage } from "../pages/auth/login-page"
 import { ReplayPage } from "../pages/replay/replay-page"
 import { TemplateDetailPage } from "../pages/world/world-detail-page"
+import { PortfolioPage } from "../pages/portfolio/portfolio-page"
+import { ReviewerPage } from "../pages/portfolio/reviewer-page"
 import { pageTransition } from "../shared/lib/motion-presets"
 
 function NotFoundRedirect({ navigate }: { navigate: (next: AppRoute) => void }) {
@@ -62,6 +64,7 @@ function renderRoute(route: AppRoute, navigate: (next: AppRoute) => void) {
       return (
         <PlayPage
           sessionId={route.sessionId}
+          reviewerMode={route.reviewer}
           onBackHome={() => navigate({ name: "home" })}
         />
       )
@@ -71,6 +74,22 @@ function renderRoute(route: AppRoute, navigate: (next: AppRoute) => void) {
           sessionId={route.sessionId}
           onBackHome={() => navigate({ name: "home" })}
           onOpenTemplate={(templateId) => navigate({ name: "template", templateId })}
+        />
+      )
+    case "portfolio":
+      return (
+        <PortfolioPage
+          onBackHome={() => navigate({ name: "home" })}
+          onOpenCreate={() => navigate({ name: "create" })}
+          onOpenReviewer={() => navigate({ name: "reviewer" })}
+        />
+      )
+    case "reviewer":
+      return (
+        <ReviewerPage
+          onBackHome={() => navigate({ name: "home" })}
+          onOpenCreate={() => navigate({ name: "create" })}
+          onSessionStarted={(sessionId) => navigate({ name: "play", sessionId, reviewer: true })}
         />
       )
     case "about":
@@ -90,8 +109,10 @@ function routeKey(route: AppRoute): string {
     case "login": return "login"
     case "create": return "create"
     case "about": return "about"
+    case "portfolio": return "portfolio"
+    case "reviewer": return "reviewer"
     case "template": return `template:${route.templateId}`
-    case "play": return `play:${route.sessionId}`
+    case "play": return route.reviewer ? `play:${route.sessionId}:reviewer` : `play:${route.sessionId}`
     case "replay": return `replay:${route.sessionId}`
   }
 }

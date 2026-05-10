@@ -5,8 +5,10 @@ export type AppRoute =
   | { name: "login"; next?: string }
   | { name: "create" }
   | { name: "template"; templateId: string }
-  | { name: "play"; sessionId: string }
+  | { name: "play"; sessionId: string; reviewer?: boolean }
   | { name: "replay"; sessionId: string }
+  | { name: "portfolio" }
+  | { name: "reviewer" }
   | { name: "about" }
 
 export type NavDirection = "forward" | "backward"
@@ -22,6 +24,8 @@ const ROUTE_DEPTH: Record<AppRoute["name"], number> = {
   login: 1,
   create: 1,
   replay: 1,
+  portfolio: 1,
+  reviewer: 1,
   template: 1,
   play: 2,
 }
@@ -49,10 +53,16 @@ function parseRoute(hash: string): AppRoute {
     return { name: "template", templateId: segments[1] }
   }
   if (segments[0] === "play" && segments[1]) {
-    return { name: "play", sessionId: segments[1] }
+    return { name: "play", sessionId: segments[1], reviewer: params.get("reviewer") === "1" }
   }
   if (segments[0] === "replay" && segments[1]) {
     return { name: "replay", sessionId: segments[1] }
+  }
+  if (segments[0] === "portfolio") {
+    return { name: "portfolio" }
+  }
+  if (segments[0] === "reviewer") {
+    return { name: "reviewer" }
   }
   if (segments[0] === "about") {
     return { name: "about" }
@@ -76,9 +86,15 @@ export function buildHash(route: AppRoute): string {
     case "template":
       return `#/template/${route.templateId}`
     case "play":
-      return `#/play/${route.sessionId}`
+      return route.reviewer
+        ? `#/play/${route.sessionId}?reviewer=1`
+        : `#/play/${route.sessionId}`
     case "replay":
       return `#/replay/${route.sessionId}`
+    case "portfolio":
+      return "#/portfolio"
+    case "reviewer":
+      return "#/reviewer"
     case "about":
       return "#/about"
   }

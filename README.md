@@ -15,6 +15,7 @@
 <p align="center">
   <a href="./README.zh.md">中文</a> · <strong>English</strong> ·
   <a href="./docs/PROJECT_PAUSE_2026-05-09.md">Project pause memo</a> ·
+  <a href="#portfolio-reviewer-mode">Portfolio reviewer mode</a> ·
   <a href="./ARCHITECTURE.md">Architecture deep-dive</a> ·
   <a href="./CONTRIBUTING.md">Contributing</a> ·
   <a href="./docs/devlog/2026-05-tiny-stories-9-mechanisms.md">Design devlog</a> ·
@@ -67,6 +68,30 @@ not a SaaS for end users. The mechanism stack is complete, the docs
 are thorough, and it's MIT licensed. Reading this repo gives you a
 working pattern for: **structured prompt design + scheduler-driven LLM
 control + cross-layer contracts**.
+
+---
+
+## Portfolio reviewer mode
+
+The React app now includes a portfolio-facing review layer:
+
+- `#/portfolio` — a case-study page framing Tiny Stories as an
+  inspectable AI narrative runtime.
+- `#/reviewer` — a curated English demo path using a locked
+  high-signal seed, `The Merger Betrayal`.
+- `#/play/<session>?reviewer=1` — the normal play surface with a
+  visible runtime inspector showing seed, language, player role,
+  stage, options, inventory, and ending-compiler state.
+
+This layer is intended for admissions / portfolio review. It reduces
+randomness, keeps the Korean-webtoon visual style, and makes the
+engineering contribution legible: not "LLM writes a story", but a
+bounded product workflow around generation.
+
+For future asset generation, use this existing-asset baseline board as
+the primary style reference:
+
+![Korean webtoon baseline reference](./docs/images/style-refs/manhwa-baseline-reference.jpg)
 
 ---
 

@@ -22,6 +22,10 @@ export function Header({
     window.location.hash = "#/login"
   }
 
+  const handlePortfolio = () => {
+    window.location.hash = "#/portfolio"
+  }
+
   return (
     <header className="topbar">
       <button className="brand" onClick={onHome} type="button">
@@ -30,6 +34,10 @@ export function Header({
       </button>
 
       <div className="topbar-actions">
+        <button className="topbar-link" type="button" onClick={handlePortfolio}>
+          {t("header.case_study")}
+        </button>
+
         <LanguageToggle lang={lang} onSelect={setLang} />
 
         {showCreateButton ? (

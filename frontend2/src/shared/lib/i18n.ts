@@ -53,6 +53,7 @@ export const STRINGS_ZH = {
   "header.signout": "退出",
   "header.my_worlds": "我的故事",
   "header.lang_label": "语言",
+  "header.case_study": "案例研究",
 
   // Generic actions
   "action.back_home": "返回首页",
@@ -78,6 +79,7 @@ export const STRINGS_ZH = {
   "home.hero_bullet_3": "右下角私聊\"局外人朋友\" — TA 不替你做决定,会陪你想清楚",
   "home.hero_bullet_4": "结局可分享,可看朋友走出什么版本",
   "home.cta_create": "写一个新故事 →",
+  "home.cta_portfolio": "查看 Portfolio 案例",
   "home.tab_plaza": "广场",
   "home.tab_my": "我创建的",
   "home.section_in_progress": "继续未完成的故事",
@@ -98,6 +100,7 @@ export const STRINGS_ZH = {
   "home.relative_hours": "{n} 小时前",
   "home.relative_days": "{n} 天前",
   "home.footer_about": "关于 / 隐私",
+  "home.footer_portfolio": "Portfolio 案例",
   "home.footer_contact": "联系我们",
 
   // Create page
@@ -372,6 +375,7 @@ export const STRINGS_EN: Record<StringKey, string> = {
   "header.signout": "Sign out",
   "header.my_worlds": "My stories",
   "header.lang_label": "Language",
+  "header.case_study": "Case study",
 
   "action.back_home": "Back to home",
   "action.cancel": "Cancel",
@@ -394,6 +398,7 @@ export const STRINGS_EN: Record<StringKey, string> = {
   "home.hero_bullet_3": "Side-chat your \"outsider friend\" — they won't decide for you, but they'll think it through with you.",
   "home.hero_bullet_4": "Endings are shareable. See which version your friends ended up in.",
   "home.cta_create": "Write a new story →",
+  "home.cta_portfolio": "View portfolio case study",
 
   // === world detail page ===
   "world.error_template_missing": "This story isn't around anymore.",
@@ -449,6 +454,7 @@ export const STRINGS_EN: Record<StringKey, string> = {
   "home.relative_hours": "{n}h ago",
   "home.relative_days": "{n}d ago",
   "home.footer_about": "About / Privacy",
+  "home.footer_portfolio": "Portfolio case study",
   "home.footer_contact": "Contact",
 
   "create.title": "Write a story",

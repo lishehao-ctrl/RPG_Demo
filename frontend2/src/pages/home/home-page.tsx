@@ -139,6 +139,17 @@ export function HomePage({
               >
                 {t("home.cta_create")}
               </motion.button>
+              <motion.button
+                className="ts-btn ts-btn--ghost ts-btn--lg"
+                onClick={() => {
+                  window.location.hash = "#/portfolio"
+                }}
+                type="button"
+                whileHover={{ scale: 1.03 }}
+                whileTap={tapPress}
+              >
+                {t("home.cta_portfolio")}
+              </motion.button>
             </motion.div>
           </div>
         </motion.section>
@@ -218,6 +229,17 @@ export function HomePage({
             }}
           >
             {t("home.footer_about")}
+          </a>
+          <span style={hpStyles.footerSep}>·</span>
+          <a
+            href="#/portfolio"
+            style={hpStyles.footerLink}
+            onClick={(e) => {
+              e.preventDefault()
+              window.location.hash = "#/portfolio"
+            }}
+          >
+            {t("home.footer_portfolio")}
           </a>
           <span style={hpStyles.footerSep}>·</span>
           <a
@@ -562,7 +584,7 @@ const hpStyles: Record<string, CSSProperties> = {
     margin: "0 0 32px",
     fontWeight: 400,
   },
-  heroActions: { display: "flex", justifyContent: "center", gap: 12 },
+  heroActions: { display: "flex", justifyContent: "flex-start", gap: 12, flexWrap: "wrap" },
 
   section: { marginTop: 56 },
   sectionHeader: { marginBottom: 20 },

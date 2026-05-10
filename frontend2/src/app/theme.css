@@ -178,6 +178,12 @@ kbd {
 .topbar-actions {
   display: inline-flex; align-items: center; gap: 12px;
 }
+.topbar-link {
+  background: none; border: none; color: var(--text-muted);
+  font-size: 13px; padding: 6px 8px; border-radius: 8px;
+  transition: color 0.16s, background 0.16s;
+}
+.topbar-link:hover { color: var(--text); background: rgba(255,255,255,0.04); }
 .topbar-lang {
   display: inline-flex; align-items: center;
   border: 1px solid var(--line); border-radius: 999px;
@@ -194,9 +200,459 @@ kbd {
 .topbar-lang__pill--active {
   background: var(--accent-soft); color: var(--accent);
 }
+.topbar-account {
+  position: relative;
+}
+.topbar-account__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 190px;
+  padding: 4px 10px 4px 4px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg-elev);
+  color: var(--text-muted);
+}
+.topbar-account__avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  flex: 0 0 auto;
+}
+.topbar-account__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.topbar-account__hint {
+  color: var(--text-faint);
+  font-size: 13px;
+}
+.topbar-account__menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 140px;
+  padding: 6px;
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-soft);
+}
+.topbar-account__menu-item {
+  width: 100%;
+  padding: 9px 10px;
+  text-align: left;
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.topbar-account__menu-item:hover {
+  color: var(--text);
+  background: rgba(255,255,255,0.04);
+}
 
 /* ------ layout shells ------ */
 .page { min-height: 100vh; display: flex; flex-direction: column; }
+
+/* ============== PORTFOLIO / REVIEWER ============== */
+.portfolio-page,
+.reviewer-page {
+  min-height: 100vh;
+  background:
+    linear-gradient(180deg, rgba(12,12,16,0.84), var(--bg) 38%),
+    var(--bg);
+}
+
+.portfolio-main,
+.reviewer-main {
+  width: 100%;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 32px 32px 96px;
+}
+
+.portfolio-hero,
+.reviewer-hero {
+  min-height: 560px;
+  display: flex;
+  align-items: flex-end;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  position: relative;
+  background-size: cover;
+  background-position: center 34%;
+  border: 1px solid rgba(255,255,255,0.10);
+  box-shadow: 0 24px 80px rgba(0,0,0,0.42);
+}
+
+.portfolio-hero {
+  background-image:
+    linear-gradient(90deg, rgba(12,12,16,0.96) 0%, rgba(12,12,16,0.70) 42%, rgba(12,12,16,0.16) 100%),
+    linear-gradient(180deg, rgba(12,12,16,0.04) 0%, rgba(12,12,16,0.86) 100%),
+    url("/webtoons/shells/wealth_families.jpg");
+}
+
+.reviewer-hero {
+  background-image:
+    linear-gradient(90deg, rgba(12,12,16,0.96) 0%, rgba(12,12,16,0.76) 46%, rgba(12,12,16,0.20) 100%),
+    linear-gradient(180deg, rgba(12,12,16,0.08) 0%, rgba(12,12,16,0.90) 100%),
+    url("/webtoons/shells/entertainment_scandal-02.jpg");
+}
+
+.portfolio-hero__content,
+.reviewer-hero {
+  color: white;
+}
+
+.portfolio-hero__content {
+  width: min(760px, 100%);
+  padding: 72px 56px;
+}
+
+.portfolio-hero h1,
+.reviewer-hero h1 {
+  font-family: var(--font-narrative);
+  font-size: 56px;
+  line-height: 1.04;
+  letter-spacing: 0;
+  font-weight: 400;
+  margin: 22px 0 20px;
+  text-shadow: 0 2px 26px rgba(0,0,0,0.6);
+}
+
+.portfolio-hero p,
+.reviewer-hero p {
+  max-width: 650px;
+  margin: 0 0 30px;
+  color: rgba(244,239,230,0.82);
+  font-size: 17px;
+  line-height: 1.7;
+}
+
+.portfolio-hero__actions,
+.reviewer-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.portfolio-proofbar {
+  margin: 18px 0 72px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: rgba(255,255,255,0.025);
+}
+
+.portfolio-proofbar__item {
+  min-width: 0;
+  padding: 18px 20px;
+  border-right: 1px solid var(--line);
+}
+.portfolio-proofbar__item:last-child { border-right: none; }
+.portfolio-proofbar__item strong {
+  display: block;
+  color: var(--accent);
+  font-family: var(--font-narrative);
+  font-size: 24px;
+  font-weight: 500;
+  margin-bottom: 3px;
+}
+.portfolio-proofbar__item span {
+  color: var(--text-muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.portfolio-section {
+  margin-top: 72px;
+}
+
+.portfolio-section--two {
+  display: grid;
+  grid-template-columns: minmax(0, 1.12fr) minmax(280px, 0.88fr);
+  gap: 42px;
+  align-items: start;
+}
+
+.portfolio-kicker {
+  display: inline-flex;
+  color: var(--accent);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+
+.portfolio-section h2,
+.portfolio-final h2 {
+  font-family: var(--font-narrative);
+  font-size: 36px;
+  line-height: 1.12;
+  font-weight: 400;
+  margin: 0 0 18px;
+}
+
+.portfolio-lede,
+.portfolio-final p {
+  color: var(--text-muted);
+  font-size: 16px;
+  line-height: 1.75;
+  margin: 0;
+}
+
+.portfolio-seed,
+.reviewer-hero blockquote {
+  margin: 26px 0 0;
+  padding: 18px 22px;
+  border-left: 3px solid var(--accent);
+  background: rgba(255,255,255,0.04);
+  color: var(--text);
+  font-family: var(--font-narrative);
+  font-size: 18px;
+  line-height: 1.6;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.portfolio-review-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  counter-reset: review;
+}
+.portfolio-review-list li {
+  counter-increment: review;
+  display: grid;
+  grid-template-columns: 34px 1fr;
+  gap: 12px;
+  align-items: start;
+  padding: 14px 16px;
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  line-height: 1.55;
+}
+.portfolio-review-list li::before {
+  content: counter(review, decimal-leading-zero);
+  color: var(--accent);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  padding-top: 3px;
+}
+
+.portfolio-section__head {
+  max-width: 680px;
+  margin-bottom: 24px;
+}
+
+.portfolio-inspector {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 18px;
+  align-items: stretch;
+}
+
+.portfolio-inspector__tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.portfolio-inspector__tabs button {
+  display: grid;
+  grid-template-columns: 34px 1fr;
+  gap: 12px;
+  text-align: left;
+  padding: 14px;
+  color: var(--text-muted);
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  transition: color 0.16s, border-color 0.16s, background 0.16s;
+}
+.portfolio-inspector__tabs button span {
+  color: var(--text-faint);
+  font-size: 11px;
+  letter-spacing: 0.10em;
+}
+.portfolio-inspector__tabs button.is-active {
+  color: var(--text);
+  border-color: rgba(212,168,83,0.46);
+  background: linear-gradient(180deg, rgba(212,168,83,0.14), rgba(255,255,255,0.035));
+}
+
+.portfolio-inspector__detail {
+  min-height: 312px;
+  padding: 34px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background:
+    linear-gradient(180deg, rgba(12,12,16,0.08), rgba(12,12,16,0.88)),
+    url("/webtoons/segments/reveal.jpg");
+  background-size: cover;
+  background-position: center;
+}
+.portfolio-inspector__detail > span {
+  color: var(--accent);
+  letter-spacing: 0.16em;
+  font-size: 11px;
+  font-weight: 700;
+}
+.portfolio-inspector__detail h3 {
+  font-family: var(--font-narrative);
+  font-size: 34px;
+  font-weight: 400;
+  margin: 10px 0 10px;
+}
+.portfolio-inspector__detail p {
+  color: rgba(244,239,230,0.82);
+  line-height: 1.65;
+  max-width: 620px;
+  margin: 0 0 18px;
+}
+.portfolio-inspector__detail div {
+  max-width: 640px;
+  color: rgba(244,239,230,0.68);
+  font-size: 13.5px;
+  line-height: 1.65;
+  border-top: 1px dashed rgba(255,255,255,0.18);
+  padding-top: 14px;
+}
+
+.portfolio-gallery {
+  margin-top: 72px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+.portfolio-gallery__item {
+  overflow: hidden;
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+.portfolio-gallery__item img {
+  width: 100%;
+  height: 240px;
+  display: block;
+  object-fit: cover;
+}
+.portfolio-gallery__item div {
+  padding: 14px;
+}
+.portfolio-gallery__item h3 {
+  margin: 0 0 6px;
+  font-size: 14px;
+}
+.portfolio-gallery__item p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.portfolio-case-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+.portfolio-case-card {
+  padding: 22px;
+  min-height: 180px;
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+.portfolio-case-card p {
+  margin: 0;
+  color: var(--text-muted);
+  line-height: 1.7;
+  font-size: 14.5px;
+}
+
+.portfolio-final {
+  padding: 48px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background:
+    linear-gradient(90deg, rgba(12,12,16,0.96), rgba(12,12,16,0.68)),
+    url("/webtoons/endings/v2/loner.jpg");
+  background-size: cover;
+  background-position: center 42%;
+}
+.portfolio-final p {
+  max-width: 680px;
+  margin-bottom: 28px;
+}
+
+.reviewer-main {
+  max-width: 1040px;
+}
+.reviewer-hero {
+  min-height: 620px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: 64px 56px;
+}
+.reviewer-hero > * {
+  position: relative;
+  max-width: 760px;
+}
+.reviewer-error {
+  margin-top: 16px;
+  padding: 12px 14px;
+  color: var(--warn);
+  background: rgba(224,122,95,0.12);
+  border: 1px solid rgba(224,122,95,0.28);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+.reviewer-checklist {
+  margin-top: 18px;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+.reviewer-checklist article {
+  min-height: 110px;
+  padding: 16px;
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+.reviewer-checklist span {
+  display: block;
+  color: var(--accent);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  margin-bottom: 12px;
+}
+.reviewer-checklist p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
 
 /* ============== HOME ============== */
 .home-main { flex: 1; padding: 0 32px 96px; max-width: var(--max-content); margin: 0 auto; width: 100%; }
@@ -518,8 +974,74 @@ kbd {
 /* responsive tweaks */
 @media (max-width: 720px) {
   .home-main, .play-main, .create-main { padding-left: 20px; padding-right: 20px; }
-  .topbar { padding: 14px 20px; }
+  .topbar { padding: 14px 18px; flex-wrap: wrap; gap: 10px; }
+  .brand { flex: 1 1 auto; }
+  .topbar-actions {
+    width: 100%;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .topbar-link { display: none; }
+  .topbar-actions > .ts-btn {
+    height: 36px;
+    padding: 0 12px;
+    font-size: 12.5px;
+    border-radius: 999px;
+  }
+  .topbar-lang__pill {
+    padding: 4px 9px;
+    font-size: 11.5px;
+  }
+  .topbar-account__pill {
+    max-width: 42px;
+    padding: 4px;
+  }
+  .topbar-account__name {
+    display: none;
+  }
   .home-hero { padding: 64px 0 48px; }
   .play-actions__row { grid-template-columns: 1fr; }
   .create-length__options { grid-template-columns: 1fr; }
+  .portfolio-main,
+  .reviewer-main {
+    padding: 20px 18px 72px;
+  }
+  .portfolio-hero,
+  .reviewer-hero {
+    min-height: 520px;
+    border-radius: var(--radius-md);
+  }
+  .portfolio-hero__content,
+  .reviewer-hero {
+    padding: 48px 24px;
+  }
+  .portfolio-hero h1,
+  .reviewer-hero h1 {
+    font-size: 38px;
+  }
+  .portfolio-hero p,
+  .reviewer-hero p {
+    font-size: 15px;
+  }
+  .portfolio-proofbar,
+  .portfolio-gallery,
+  .portfolio-case-grid,
+  .reviewer-checklist {
+    grid-template-columns: 1fr;
+  }
+  .portfolio-proofbar__item {
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+  }
+  .portfolio-section--two,
+  .portfolio-inspector {
+    grid-template-columns: 1fr;
+  }
+  .portfolio-section h2,
+  .portfolio-final h2 {
+    font-size: 30px;
+  }
+  .portfolio-final {
+    padding: 32px 22px;
+  }
 }

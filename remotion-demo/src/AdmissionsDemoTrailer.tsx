@@ -34,11 +34,6 @@ const keyframes = {
   portfolio: "keyframes/09-portfolio-dawn.jpg",
 }
 
-const overlays = {
-  titleRibbon: "overlays/title-ribbon-alpha.png",
-  evidencePanel: "overlays/evidence-panel-alpha.png",
-}
-
 export const admissionsDemoFrames = 2250
 const scenes = {
   coldOpen: [0, 190],
@@ -243,6 +238,7 @@ const Headline: React.FC<{children: React.ReactNode; size?: number; style?: Reac
       fontWeight: 780,
       letterSpacing: 0,
       maxWidth: 950,
+      overflowWrap: "break-word",
       textShadow: "0 20px 54px rgba(0,0,0,.58)",
       ...style,
     }}
@@ -259,6 +255,7 @@ const Body: React.FC<{children: React.ReactNode; style?: React.CSSProperties}> =
       fontSize: 30,
       lineHeight: 1.34,
       maxWidth: 850,
+      overflowWrap: "break-word",
       ...style,
     }}
   >
@@ -275,44 +272,33 @@ const CopyBlock: React.FC<{
   y?: number
   size?: number
   maxWidth?: number
-  matte?: boolean
-}> = ({start, label, title, body, x = 108, y = 122, size, maxWidth = 950, matte = true}) => {
+  tone?: "blue" | "gold" | "red"
+}> = ({start, label, title, body, x = 108, y = 122, size, maxWidth = 950, tone = "gold"}) => {
   const frame = useCurrentFrame()
   const local = Math.max(0, frame - start)
   const {fps: videoFps} = useVideoConfig()
   const enter = spring({frame: local, fps: videoFps, config: {damping: 20, stiffness: 78}})
+  const color = tone === "blue" ? "#8ee8ff" : tone === "red" ? "#ff5d72" : "#d7ad50"
   return (
     <div
       style={{
         position: "absolute",
         left: x,
         top: y,
+        width: maxWidth,
+        boxSizing: "border-box",
+        padding: "26px 30px 28px",
+        borderLeft: `4px solid ${color}`,
+        borderTop: `1px solid ${color}66`,
+        background: `linear-gradient(90deg, rgba(4,7,12,.82), rgba(4,7,12,.58) 58%, rgba(4,7,12,.16)), linear-gradient(180deg, ${color}18, transparent 62%)`,
+        boxShadow: `0 28px 84px rgba(0,0,0,.42), 0 0 38px ${color}1c`,
         opacity: enter,
         transform: `translateY(${interpolate(enter, [0, 1], [30, 0])}px)`,
-        padding: matte ? "26px 34px 30px" : undefined,
       }}
     >
-      {matte ? (
-        <Img
-          src={staticFile(overlays.titleRibbon)}
-          style={{
-            position: "absolute",
-            left: -54,
-            top: -74,
-            width: maxWidth + 240,
-            height: body ? 342 : 236,
-            objectFit: "fill",
-            opacity: .86,
-            filter: "drop-shadow(0 30px 80px rgba(0,0,0,.42))",
-            pointerEvents: "none",
-          }}
-        />
-      ) : null}
-      <div style={{position: "relative"}}>
-        <Label style={{fontSize: 17, letterSpacing: 2.2}}>{label}</Label>
-        <Headline size={size} style={{maxWidth}}>{title}</Headline>
-        {body ? <Body style={{maxWidth: Math.max(320, maxWidth - 80), fontSize: 25}}>{body}</Body> : null}
-      </div>
+      <Label style={{fontSize: 16, letterSpacing: 2.0, color}}>{label}</Label>
+      <Headline size={size} style={{maxWidth: "100%", marginTop: 16}}>{title}</Headline>
+      {body ? <Body style={{maxWidth: "100%", fontSize: 24, marginTop: 18}}>{body}</Body> : null}
     </div>
   )
 }
@@ -448,27 +434,18 @@ const EvidencePanel: React.FC<{
         left,
         top,
         width,
-        padding: "28px 32px 30px",
+        boxSizing: "border-box",
+        padding: "22px 24px 24px",
+        borderLeft: `3px solid ${color}`,
+        borderTop: "1px solid rgba(255,255,255,.16)",
+        background: `linear-gradient(90deg, rgba(2,5,10,.82), rgba(2,5,10,.58) 62%, rgba(2,5,10,.22)), linear-gradient(180deg, ${color}16, transparent 70%)`,
         color: "#fff6e8",
         opacity,
         transform: `translateY(${clampInterpolate(local, [0, 18], [22, 0])}px)`,
-        filter: `drop-shadow(0 34px 90px rgba(0,0,0,.50)) drop-shadow(0 0 34px ${color}24)`,
+        boxShadow: `0 28px 86px rgba(0,0,0,.44), 0 0 34px ${color}16`,
       }}
     >
-      <Img
-        src={staticFile(overlays.evidencePanel)}
-        style={{
-          position: "absolute",
-          left: -56,
-          top: -62,
-          width: width + 118,
-          height: "calc(100% + 124px)",
-          objectFit: "fill",
-          opacity: .88,
-          pointerEvents: "none",
-        }}
-      />
-      <div style={{position: "relative"}}>{children}</div>
+      {children}
     </div>
   )
 }
@@ -482,7 +459,7 @@ const PanelTitle: React.FC<{label: string; title: string; tone?: "blue" | "gold"
   return (
     <>
       <div style={{color, fontSize: 17, fontWeight: 820, letterSpacing: 1.8, textTransform: "uppercase"}}>{label}</div>
-      <div style={{marginTop: 8, color: "#fff8ea", fontSize: 27, lineHeight: 1.08, fontWeight: 820}}>{title}</div>
+      <div style={{marginTop: 8, color: "#fff8ea", fontSize: 25, lineHeight: 1.12, fontWeight: 820}}>{title}</div>
     </>
   )
 }
@@ -519,8 +496,8 @@ const ArchitectureFlow: React.FC<{start: number}> = ({start}) => {
               {i + 1}
             </div>
             <div style={{flex: 1}}>
-              <div style={{fontSize: 24, fontWeight: 800, color: "#fff6e8"}}>{node.name}</div>
-              <div style={{fontSize: 17, color: "rgba(245,239,229,.62)", marginTop: 2}}>{node.detail}</div>
+              <div style={{fontSize: 21, fontWeight: 800, color: "#fff6e8"}}>{node.name}</div>
+              <div style={{fontSize: 15, color: "rgba(245,239,229,.62)", marginTop: 2}}>{node.detail}</div>
             </div>
           </div>
         )
@@ -547,13 +524,13 @@ const CodePanel: React.FC<{
         borderLeft: "1px solid rgba(255,255,255,.18)",
         background: "linear-gradient(90deg, rgba(255,255,255,.055), transparent 70%)",
         fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-        fontSize: 17,
+        fontSize: 16,
         lineHeight: 1.38,
         color: "rgba(248,246,240,.88)",
       }}
     >
       {rows.map((row) => (
-        <div key={row} style={{whiteSpace: "pre"}}>{row}</div>
+        <div key={row} style={{whiteSpace: "pre-wrap", overflowWrap: "anywhere"}}>{row}</div>
       ))}
     </div>
   </EvidencePanel>
@@ -664,6 +641,7 @@ const ColdOpen: React.FC = () => {
         title={<>One seed becomes a playable AI drama system.</>}
         body="A real UI drives a backend runtime: structured state, constrained LLM turns, advisor context, and a compiled ending artifact."
         size={68}
+        tone="blue"
       />
       <ScreenFrame src={captures.reviewer} start={44} end={end} x={1010} y={512} width={760} scaleFrom={.98} scaleTo={1.018} />
       <div style={{position: "absolute", left: 108, bottom: 88, display: "grid", gap: 10, width: 520}}>
@@ -697,6 +675,7 @@ const BuildScene: React.FC = () => {
         title="The backend compiles story into runnable state."
         body="The demo is not a free chat box: every generated turn is shaped into a state object the UI can replay and inspect."
         size={58}
+        tone="blue"
       />
       <EvidencePanel delay={start + 78} left={106} top={555} width={560} tone="blue">
         <PanelTitle label="full-stack path" title="UI to runtime to replay" />
@@ -760,6 +739,7 @@ const ChoiceScene: React.FC = () => {
         y={124}
         size={44}
         maxWidth={560}
+        tone="red"
       />
       <div style={{position: "absolute", left: 96, bottom: 108, display: "grid", gap: 12, width: 560}}>
         <ProofChip delay={start + 96} tone="blue">selected_action_id persisted</ProofChip>
@@ -826,6 +806,7 @@ const AdvisorScene: React.FC = () => {
         y={122}
         size={48}
         maxWidth={690}
+        tone="blue"
       />
       <CodePanel
         delay={start + 94}
@@ -860,6 +841,7 @@ const EndingScene: React.FC = () => {
         y={110}
         size={48}
         maxWidth={620}
+        tone="red"
       />
       <CodePanel
         delay={start + 94}

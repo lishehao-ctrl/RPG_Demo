@@ -5,7 +5,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from rpg_backend.author_v2.contracts import CompiledPlayPlan
+from rpg_backend.author_v2.contracts import CompiledPlayPlan, PlayLengthPresetId
 from rpg_backend.author_v3.contracts import RelationshipMatrix, WorldConfiguration
 from rpg_backend.author_v3.gateway import (
     AuthorV3GatewayError,
@@ -46,6 +46,7 @@ def run_author_v3_pipeline(
     run_mode: str = "deterministic",
     settings: Settings | None = None,
     arc_template_id: str = "flagship_6",
+    play_length_preset_override: PlayLengthPresetId | None = None,
 ) -> dict[str, Any]:
     resolved_settings = settings or get_settings()
     gateway: AuthorV3LLMGateway | None = None
@@ -124,6 +125,7 @@ def run_author_v3_pipeline(
     plan = bridge_to_plan(
         config, matrix, web, pool, mapped_segments, quality_report,
         arc_template_id=arc_template_id,
+        play_length_preset_override=play_length_preset_override,
     )
 
     return {

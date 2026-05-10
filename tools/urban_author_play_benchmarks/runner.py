@@ -330,7 +330,8 @@ def run_case(
 
         settings = get_settings()
         stage = "author_play_graph"
-        if settings.author_v3_enabled:
+        use_author_v3 = settings.author_v3_enabled and mode != "deterministic"
+        if use_author_v3:
             from rpg_backend.author_v3.plan_bridge import package_from_v3_pipeline
             from rpg_backend.author_v3.workflow import run_author_v3_pipeline
 

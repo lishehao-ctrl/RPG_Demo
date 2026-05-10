@@ -14,6 +14,7 @@
 
 <p align="center">
   <a href="./README.zh.md">中文</a> · <strong>English</strong> ·
+  <a href="./docs/PROJECT_PAUSE_2026-05-09.md">Project pause memo</a> ·
   <a href="./ARCHITECTURE.md">Architecture deep-dive</a> ·
   <a href="./CONTRIBUTING.md">Contributing</a> ·
   <a href="./docs/devlog/2026-05-tiny-stories-9-mechanisms.md">Design devlog</a> ·
@@ -24,8 +25,20 @@
   <img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-yellow.svg" />
   <img alt="Python 3.11+" src="https://img.shields.io/badge/python-3.11+-blue.svg" />
   <img alt="React 19" src="https://img.shields.io/badge/react-19-61dafb.svg" />
-  <img alt="Status: Alpha" src="https://img.shields.io/badge/status-alpha-orange.svg" />
+  <img alt="Status: Paused" src="https://img.shields.io/badge/status-paused-lightgrey.svg" />
 </p>
+
+---
+
+## Project status
+
+This project is paused as of 2026-05-09 PDT. Treat it as an
+LLM narrative-engineering case study, not an active consumer product.
+The core mechanisms are worth preserving, but the product demand,
+player agency, repeat play, and sharing loops remain unproven.
+
+See [Project pause memo](./docs/PROJECT_PAUSE_2026-05-09.md) before
+restarting work.
 
 ---
 

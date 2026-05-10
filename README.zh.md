@@ -14,6 +14,7 @@
 
 <p align="center">
   <strong>中文</strong> · <a href="./README.md">English</a> ·
+  <a href="./docs/PROJECT_PAUSE_2026-05-09.zh.md">项目暂停 memo</a> ·
   <a href="./ARCHITECTURE.zh.md">Architecture deep-dive</a> ·
   <a href="./CONTRIBUTING.zh.md">Contributing</a> ·
   <a href="./docs/devlog/2026-05-tiny-stories-9-mechanisms.zh.md">Design devlog</a> ·
@@ -24,8 +25,18 @@
   <img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-yellow.svg" />
   <img alt="Python 3.11+" src="https://img.shields.io/badge/python-3.11+-blue.svg" />
   <img alt="React 19" src="https://img.shields.io/badge/react-19-61dafb.svg" />
-  <img alt="Status: Alpha" src="https://img.shields.io/badge/status-alpha-orange.svg" />
+  <img alt="Status: Paused" src="https://img.shields.io/badge/status-paused-lightgrey.svg" />
 </p>
+
+---
+
+## 项目状态
+
+本项目已于 2026-05-09 PDT 暂停.后续应把它视为一个 LLM 互动叙事工程案例,
+而不是正在推进的消费级产品.机制、prompt contract、runtime、评测和素材仍有复用价值,
+但真实用户需求、玩家 agency、复玩和分享闭环尚未被证明.
+
+重启前先读 [项目暂停 memo](./docs/PROJECT_PAUSE_2026-05-09.zh.md).
 
 ---
 

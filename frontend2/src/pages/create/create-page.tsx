@@ -524,7 +524,7 @@ const cpStyles: Record<string, CSSProperties> = {
     transition: "all 180ms",
   },
   visBtnActive: {
-    borderColor: "var(--accent)",
+    border: "1px solid var(--accent)",
     background: "var(--accent-soft)",
   },
   visBtnLabel: { fontSize: 15, fontWeight: 600, marginBottom: 6 },
@@ -551,12 +551,12 @@ const cpStyles: Record<string, CSSProperties> = {
     transition: "all 180ms",
   },
   difficultyBtnActive: {
-    borderColor: "var(--accent)",
+    border: "1px solid var(--accent)",
     background: "rgba(201,90,67,0.18)",
     color: "white",
   },
   difficultyBtnGauntlet: {
-    borderColor: "#dc6b4a",
+    border: "1px solid #dc6b4a",
     background: "rgba(220,80,60,0.18)",
     boxShadow: "0 0 16px rgba(220,80,60,0.3)",
   },

@@ -94,6 +94,18 @@ _SHELL_KEYWORDS: dict[StoryShellId, tuple[str, ...]] = {
     ),
 }
 
+_EXPLICIT_OUT_OF_SCOPE_KEYWORDS: tuple[str, ...] = (
+    "架空王朝",
+    "摄政王",
+    "女将军",
+    "边境决战",
+    "仙侠",
+    "修真",
+    "魔法",
+    "星际",
+    "机甲",
+)
+
 
 def _contains_any(seed: str, keywords: tuple[str, ...]) -> bool:
     return any(keyword in seed for keyword in keywords)
@@ -551,7 +563,9 @@ _TONE_PACKS: dict[ConflictTemplateId, TemplateToneExamplePack] = {
 def build_seed_fingerprint(seed: str, play_length_preset: str) -> SeedFingerprint:
     shell_id, score = _best_shell(seed)
     fit_mode: SeedFitMode
-    if shell_id in PROMO_SHELLS and score >= 2:
+    if score == 0 and _contains_any(seed, _EXPLICIT_OUT_OF_SCOPE_KEYWORDS):
+        fit_mode = "out_of_scope"
+    elif shell_id in PROMO_SHELLS and score >= 2:
         fit_mode = "direct_fit"
     elif shell_id in PROMO_SHELLS and score >= 1:
         fit_mode = "shell_fit"

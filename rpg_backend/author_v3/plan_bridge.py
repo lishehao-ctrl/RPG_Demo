@@ -850,6 +850,7 @@ def bridge_to_plan(
     quality_report: QualityReport,
     *,
     arc_template_id: ArcTemplateId = "flagship_6",
+    play_length_preset_override: PlayLengthPresetId | None = None,
 ) -> CompiledPlayPlan:
     protagonist = next(c for c in config.characters if c.character_id == config.protagonist_id)
     shell_defaults = _resolve_shell_defaults(
@@ -895,6 +896,7 @@ def bridge_to_plan(
     ending_matrix = _build_ending_matrix(config, matrix, terminal_seg_id)
 
     max_turns = len(compiled_segments) * 8
+    play_length_preset = play_length_preset_override or shell_defaults.play_length_preset
 
     return CompiledPlayPlan(
         story_id=f"v3_{uuid4().hex[:12]}",
@@ -910,7 +912,7 @@ def bridge_to_plan(
             relationship_geometry=shell_defaults.relationship_geometry,
             cost_class=shell_defaults.cost_class,
             public_bomb_family=shell_defaults.public_bomb_family,
-            play_length_preset=shell_defaults.play_length_preset,
+            play_length_preset=play_length_preset,
             protagonist_identity_class=shell_defaults.protagonist_identity_class,
             tone_bias=shell_defaults.tone_bias,
             route_preference_bias=shell_defaults.route_preference_bias,
@@ -920,7 +922,7 @@ def bridge_to_plan(
         protagonist_public_identity=protagonist.public_identity[:120],
         protagonist_hidden_need=protagonist.hidden_need[:180],
         social_arena=config.social_arena[:120],
-        play_length_preset=shell_defaults.play_length_preset,
+        play_length_preset=play_length_preset,
         route_promise=f"{protagonist.display_name}在权力斗争中寻找真相与盟友"[:220],
         bomb_moment="核心秘密曝光引发连锁反应"[:220],
         cost_of_truth="每个选择都有不可逆的代价"[:220],

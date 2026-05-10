@@ -821,7 +821,7 @@ def _generate_opening_once(
     opening_passage = _extract_passage_for_opening(payload)
     if not opening_passage:
         raise ValueError("missing or non-string field: opening_passage")
-    options = _parse_options(payload.get("options"))
+    options = _parse_options(payload.get("options"), language=language)
     player_goals = _parse_player_goals(payload.get("player_goals"))
     failure_conditions = _parse_failure_conditions(payload.get("failure_conditions"))
     valid_npc_ids = {c.character_id for c in cast}
@@ -943,7 +943,7 @@ def advance_turn(
     # First attempt
     payload = _invoke_turn(gateway, user_payload, retry_feedback=None)
     passage = _extract_passage(payload)
-    options = _parse_options(payload.get("options") or payload.get("next_options"))
+    options = _parse_options(payload.get("options") or payload.get("next_options"), language=language)
     npc_pulse = _parse_npc_pulse(payload.get("npc_pulse"), valid_ids)
     inventory_delta = _parse_inventory_delta(payload.get("inventory_delta"))
     if not passage:
@@ -959,7 +959,7 @@ def advance_turn(
         )
         payload = _invoke_turn(gateway, user_payload, retry_feedback=feedback)
         passage = _extract_passage(payload)
-        options = _parse_options(payload.get("options") or payload.get("next_options"))
+        options = _parse_options(payload.get("options") or payload.get("next_options"), language=language)
         npc_pulse = _parse_npc_pulse(payload.get("npc_pulse"), valid_ids)
         inventory_delta = _parse_inventory_delta(payload.get("inventory_delta"))
         if passage:
@@ -2180,7 +2180,7 @@ def _parse_npc_pulse(raw: Any, valid_ids: set[str]) -> list[NPCPulse]:
         reason_raw = item.get("reason")
         reason: str | None = None
         if isinstance(reason_raw, str) and reason_raw.strip():
-            reason = reason_raw.strip()[:80]
+            reason = _clip_text(reason_raw, 80)
         if not npc_id or npc_id not in valid_ids:
             continue
         if not state:
@@ -2193,7 +2193,53 @@ def _parse_npc_pulse(raw: Any, valid_ids: set[str]) -> list[NPCPulse]:
     return pulses
 
 
-def _parse_options(raw: Any) -> list[StoryOption]:
+_OPTION_TAG_EN_BY_ZH: dict[str, str] = {
+    "挑拨": "Provoke",
+    "反将": "Counter",
+    "妥协": "Yield",
+    "观望": "Watch",
+    "试探": "Probe",
+    "合作": "Ally",
+    "硬刚": "Confront",
+    "示弱": "Submit",
+}
+_OPTION_TAG_ZH_BY_EN = {v: k for k, v in _OPTION_TAG_EN_BY_ZH.items()}
+
+
+def _clip_text(value: str, limit: int) -> str:
+    text = value.strip()
+    if len(text) <= limit:
+        return text
+    if limit <= 3:
+        return text[:limit]
+    head = text[: limit - 3].rstrip()
+    if " " in head:
+        word_safe = head.rsplit(" ", 1)[0].rstrip()
+        if len(word_safe) >= max(12, limit // 2):
+            head = word_safe
+    return head.rstrip(".,;: -") + "..."
+
+
+def _normalize_option_label_language(label: str, language: TemplateLanguage | None) -> str:
+    if not label.startswith("["):
+        return label
+    close = label.find("]")
+    if close <= 1:
+        return label
+    tag = label[1:close].strip()
+    body = label[close + 1 :]
+    if language == "en":
+        replacement = _OPTION_TAG_EN_BY_ZH.get(tag)
+    elif language == "zh":
+        replacement = _OPTION_TAG_ZH_BY_EN.get(tag)
+    else:
+        replacement = None
+    if not replacement:
+        return label
+    return f"[{replacement}]{body}"
+
+
+def _parse_options(raw: Any, *, language: TemplateLanguage | None = None) -> list[StoryOption]:
     options: list[StoryOption] = []
     if not isinstance(raw, list):
         return options
@@ -2202,17 +2248,19 @@ def _parse_options(raw: Any) -> list[StoryOption]:
             text = item.strip()
             if not text:
                 continue
-            options.append(StoryOption(label=text[:60], hint="", handle=""))
+            text = _normalize_option_label_language(text, language)
+            options.append(StoryOption(label=_clip_text(text, 60), hint="", handle=""))
             continue
         if not isinstance(item, dict):
             continue
         label = str(item.get("label") or item.get("text") or "").strip()
         if not label:
             continue
+        label = _normalize_option_label_language(label, language)
         hint = str(item.get("hint") or "").strip()
         handle = str(item.get("handle") or "").strip()
         options.append(
-            StoryOption(label=label[:60], hint=hint[:120], handle=handle[:12])
+            StoryOption(label=_clip_text(label, 60), hint=_clip_text(hint, 120), handle=handle[:12])
         )
         if len(options) >= 5:
             break

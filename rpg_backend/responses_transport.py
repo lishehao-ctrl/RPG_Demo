@@ -672,6 +672,8 @@ class _RawResponsesResource:
         # of ~2s). Also covers thinking_budget / chat_template_kwargs / content_type.
         _passthrough_keys = ("enable_thinking", "thinking_budget", "chat_template_kwargs", "content_type")
         for _key in _passthrough_keys:
+            if _key == "enable_thinking" and _is_beecode_base_url(self._base_url):
+                continue
             if _key in payload and _key not in chat_payload:
                 chat_payload[_key] = payload[_key]
         return f"{self._base_url}/chat/completions", chat_payload

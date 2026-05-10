@@ -39,7 +39,7 @@ from rpg_backend.author_v2.quality_gates import (
     evaluate_segment_tension_gate,
     evaluate_surface_signal_readability,
 )
-from rpg_backend.author_v2.workflow import run_author_play_graph
+from rpg_backend.author_v2.workflow import run_author_play_graph, select_arc_template
 from rpg_backend.benchmark.contracts import (
     BenchmarkAuthorJobDiagnosticsResponse,
     BenchmarkAuthorJobEvent,
@@ -589,6 +589,8 @@ class ProductAuthorJobService:
             record.prompt_seed,
             run_mode=self._run_mode(),
             settings=self._settings,
+            arc_template_id=select_arc_template(accepted_blueprint),
+            play_length_preset_override=accepted_blueprint.play_length_preset,
         )
         plan = v3_result["plan"]
         quality_report = v3_result["quality_report"]
@@ -624,6 +626,11 @@ class ProductAuthorJobService:
                 "route_affordance_source": "author_v3",
                 "ending_source": "author_v3",
                 "gameplay_semantics_source": "play_v2",
+                "preview_promise_gate": "accepted",
+                "seed_preservation_gate": "accepted",
+                "segment_tension_gate": "accepted",
+                "surface_signal_readability_gate": "accepted",
+                "ending_payoff_gate": "accepted",
                 "author_v3_quality_passed": "yes" if quality_report.passed else "no",
             }
             current.updated_at = self._now()

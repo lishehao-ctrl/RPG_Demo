@@ -1267,9 +1267,12 @@ function StoryBeat({
       <div style={ppStyles.playerLabel}>
         {t("play.beat_player_label")}
         {pickedHandle ? (
-          <span style={ppStyles.playerHandleChip} title={message.content}>
-            {pickedHandle}
-          </span>
+          <>
+            <span style={ppStyles.playerLabelSeparator}>{" · "}</span>
+            <span style={ppStyles.playerHandleChip} title={message.content}>
+              {pickedHandle}
+            </span>
+          </>
         ) : null}
       </div>
       <div style={ppStyles.playerText}>{message.content}</div>
@@ -2561,7 +2564,6 @@ const ppStyles: Record<string, CSSProperties> = {
   // "I picked '亮录音' that turn" instead of re-parsing the full
   // intent-tagged sentence below.
   playerHandleChip: {
-    marginLeft: 8,
     fontSize: 11.5,
     fontFamily: "var(--font-narrative)",
     fontWeight: 500,
@@ -2572,6 +2574,11 @@ const ppStyles: Record<string, CSSProperties> = {
     letterSpacing: 0,
     textTransform: "none" as const,
     fontStyle: "normal" as const,
+  },
+  playerLabelSeparator: {
+    margin: "0 6px",
+    color: "var(--text-faint)",
+    letterSpacing: 0,
   },
   playerLabel: {
     fontSize: 11,

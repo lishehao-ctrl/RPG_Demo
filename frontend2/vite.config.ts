@@ -8,7 +8,7 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     server: {
-      port: 5174,
+      port: 5173,
       proxy: {
         "^/(health|me|auth|author|stories|play|benchmark|narrative)": {
           target: backendTarget,

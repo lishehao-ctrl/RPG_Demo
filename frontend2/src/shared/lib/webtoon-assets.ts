@@ -209,22 +209,31 @@ const SHELL_KEYWORDS: Record<Shell, readonly string[]> = {
   wealth_families: [
     "豪门", "霸总", "总裁", "继承", "豪宅", "联姻", "家族", "夫人", "千金", "少爷",
     "宴会", "婆媳", "继母", "私生子", "年夜饭", "嫁入", "遗嘱", "红毯",
+    "wealth", "heir", "inheritance", "estate", "family", "banquet", "will", "gala",
   ],
   office_power: [
     "总监", "副总", "经理", "项目", "职场", "公司", "高管", "实习", "客户",
     "汇报", "会议", "权力博弈", "竞标", "年会", "述职",
+    "office", "company", "board", "merger", "contract", "launch", "legal", "vote",
+    "cofounder", "startup", "promotion", "investor",
   ],
   entertainment_scandal: [
     "颁奖", "明星", "搭档", "经纪人", "娱乐圈", "出道", "粉丝", "片场",
     "通告", "代言", "热搜", "狗仔", "发布会", "导演",
+    "awards", "livestream", "celebrity", "backstage", "red carpet", "sponsor",
+    "scandal", "press", "recording",
   ],
   campus_romance: [
     "高中", "大学", "校园", "同学", "学姐", "学长", "学妹", "教室",
     "宿舍", "毕业", "重逢", "初恋", "妹妹", "哥哥", "校服",
+    "campus", "college", "classmate", "reunion", "scholarship", "mentor",
+    "first love", "sister", "brother",
   ],
   urban_supernatural: [
     "都市", "怪谈", "灵异", "鬼", "诡异", "失踪", "深夜", "电话", "梦",
     "凶杀", "目击", "怨灵", "诅咒",
+    "supernatural", "haunting", "ghost", "curse", "midnight", "missing",
+    "witness", "nightmare",
   ],
   wedding: [
     "婚礼", "婚宴", "婚纱", "新娘", "新郎", "伴娘", "伴郎", "证婚人",
@@ -274,10 +283,14 @@ const FEMALE_ROLE_HINTS = [
   "妻", "妻子", "夫人", "母", "妈", "女儿", "妹", "姐", "姑娘", "小姐", "千金",
   "公主", "皇后", "继母", "学姐", "学妹", "女主", "少奶奶", "新娘", "未婚妻",
   "经纪人", "助理", "闺蜜", "情人",
+  "wife", "mother", "daughter", "sister", "bride", "fiancee", "girlfriend",
+  "queen", "princess", "assistant", "manager",
 ]
 const MALE_ROLE_HINTS = [
   "夫", "丈夫", "父", "爸", "儿子", "弟", "哥", "少爷", "总裁", "霸总",
   "皇帝", "王", "继父", "学长", "男主", "新郎", "未婚夫",
+  "husband", "father", "son", "brother", "groom", "fiance", "boyfriend",
+  "king", "prince", "ceo", "founder", "cofounder",
 ]
 
 function inferGender(role: string, relation: string): "female" | "male" {

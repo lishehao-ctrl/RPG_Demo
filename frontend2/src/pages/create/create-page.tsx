@@ -8,7 +8,7 @@ import type {
 import { useApi } from "../../app/api-context"
 import { useAuth } from "../../app/auth-context"
 import { friendlyError } from "../../shared/lib/friendly-error"
-import { useLanguage, useT, type StringKey } from "../../shared/lib/i18n"
+import { useLanguage, useT, type Lang, type StringKey } from "../../shared/lib/i18n"
 import { itemTransition, transitions } from "../../shared/lib/motion-presets"
 import { PAGE_BG } from "../../shared/lib/webtoon-assets"
 
@@ -72,17 +72,21 @@ const DIFFICULTY_OPTIONS: DifficultyOptionMeta[] = [
 ]
 
 // Story-language options — controls the locale of generated narration
-// and NPC dialogue. Immutable per template once created. The label /
-// desc copy is bilingual itself: each row shows both versions so the
-// user can pick regardless of UI language.
-const STORY_LANGUAGE_OPTIONS: Array<{
+// and NPC dialogue. Immutable per template once created.
+const STORY_LANGUAGE_OPTIONS: Record<Lang, Array<{
   id: NarrativeTemplateLanguage
   label: string
   desc: string
-}> = [
-  { id: "zh", label: "中文 / Chinese", desc: "NPC 对白和叙述都用简体中文" },
-  { id: "en", label: "English / 英文", desc: "Narration and NPC dialogue in English" },
-]
+}>> = {
+  zh: [
+    { id: "zh", label: "中文", desc: "NPC 对白和叙述都用简体中文" },
+    { id: "en", label: "英文", desc: "Narration and NPC dialogue in English" },
+  ],
+  en: [
+    { id: "zh", label: "Chinese", desc: "Narration and NPC dialogue in Simplified Chinese" },
+    { id: "en", label: "English", desc: "Narration and NPC dialogue in English" },
+  ],
+}
 
 const VISIBILITY_KEY_MAP: Record<
   NarrativeTemplateVisibility,
@@ -279,7 +283,7 @@ export function CreatePage({
 
           <div style={cpStyles.fieldLabel}>{t("create.field_story_lang")}</div>
           <div style={cpStyles.visibility}>
-            {STORY_LANGUAGE_OPTIONS.map((o) => (
+            {STORY_LANGUAGE_OPTIONS[uiLang].map((o) => (
               <button
                 key={o.id}
                 style={{

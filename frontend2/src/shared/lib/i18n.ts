@@ -270,6 +270,8 @@ export const STRINGS_ZH = {
   "play.beat_inv_removed": "你失去了：{item}",
   "play.beat_player_label": "你",
   "play.beat_diary_tag": "内心独白",
+  "play.bookmark_add_title": "标记这一段",
+  "play.bookmark_remove_title": "已标记 · 点击取消",
 
   // Play page — action area (options + free input + diary)
   "play.action_no_options": "（这一段没给选项，写下你想做的事）",
@@ -468,10 +470,10 @@ export const STRINGS_EN: Record<StringKey, string> = {
   "create.placeholder": "Write the opening line. The more specific, the better.\n\nLike: The night before the year-end gala, my boss locks me in a meeting room with the new intern.\nOr: On the wedding day, there's a note from my sister tucked inside the bridesmaid's dress.\n\nAI will instantly build the cast, the relationships, the first dramatic moment.",
   "create.char_count": "{n} chars",
   "create.examples_label": "Try one:",
-  "create.example_seed_1": "At the company gala, my ex's new partner walks toward me with their arm around my ex.",
-  "create.example_seed_2": "The night we broke up, he called my younger sister.",
-  "create.example_seed_3": "My ex is now HR at my new company — and just sent over my offer letter.",
-  "create.example_seed_4": "High-school reunion: turns out my first love is now my sister's boyfriend.",
+  "create.example_seed_1": "Minutes before the awards livestream, my cofounder announces our secret merger onstage.",
+  "create.example_seed_2": "At the board gala, my ex arrives with the recording that can ruin the vote.",
+  "create.example_seed_3": "The morning of the product launch, legal asks me to take the fall for a missing contract.",
+  "create.example_seed_4": "On the wedding day, the best man hands me a note from the bride's old account.",
   "create.field_budget": "Length",
   "create.budget_short_label": "Short",
   "create.budget_short_time": "10 min",
@@ -574,6 +576,8 @@ export const STRINGS_EN: Record<StringKey, string> = {
   "play.beat_inv_removed": "You lost: {item}",
   "play.beat_player_label": "You",
   "play.beat_diary_tag": "Inner monologue",
+  "play.bookmark_add_title": "Bookmark this beat",
+  "play.bookmark_remove_title": "Bookmarked — click to remove",
 
   "play.action_no_options": "(No options this turn — write what you want to do.)",
   "play.action_free_placeholder": "Write what you do — an action, a line, or a decision.",

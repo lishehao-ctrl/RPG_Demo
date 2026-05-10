@@ -113,6 +113,9 @@ export function ReplayPage({
     ? getEndingIllustration(replay.ending.label)
     : getCoverForTemplate(templateLike)
   const advisorAvatar = getAdvisorAvatar(sessionId, replay.advisor_persona)
+  const endingSubtitleText = replay.ending
+    ? lang === "en" ? `"${replay.ending.subtitle}"` : `「${replay.ending.subtitle}」`
+    : ""
 
   // We need a notional template_id to navigate back to "play it yourself."
   // Replay doesn't include it directly, so we derive nothing — the main CTA
@@ -140,7 +143,7 @@ export function ReplayPage({
               <div style={rpStyles.heroEndingLabel}>
                 {ENDING_LABEL_DISPLAY[lang][replay.ending.label] ?? replay.ending.label}
               </div>
-              <div style={rpStyles.heroEndingSubtitle}>「{replay.ending.subtitle}」</div>
+              <div style={rpStyles.heroEndingSubtitle}>{endingSubtitleText}</div>
             </div>
           ) : (
             <div style={rpStyles.heroIncomplete}>
@@ -238,7 +241,7 @@ export function ReplayPage({
                   <div style={rpStyles.endingLabelChip}>
                     {ENDING_LABEL_DISPLAY[lang][replay.ending.label] ?? replay.ending.label}
                   </div>
-                  <h2 style={rpStyles.endingSubtitle}>「{replay.ending.subtitle}」</h2>
+                  <h2 style={rpStyles.endingSubtitle}>{endingSubtitleText}</h2>
                 </div>
               </section>
             ) : null}
@@ -347,7 +350,7 @@ export function ReplayPage({
               <div style={rpStyles.endingLabelChip}>
                 {ENDING_LABEL_DISPLAY[lang][replay.ending.label] ?? replay.ending.label}
               </div>
-              <h2 style={rpStyles.endingSubtitle}>「{replay.ending.subtitle}」</h2>
+              <h2 style={rpStyles.endingSubtitle}>{endingSubtitleText}</h2>
               <div style={rpStyles.endingPassage}>{replay.ending.passage}</div>
             </div>
           ) : null}

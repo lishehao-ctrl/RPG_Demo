@@ -14,7 +14,7 @@ import { StageProgressBar } from "../../shared/ui/stage-progress-bar"
 import { Truncated } from "../../shared/ui/truncated"
 import { useBookmarks } from "../../shared/lib/bookmarks"
 import { friendlyError } from "../../shared/lib/friendly-error"
-import { useT } from "../../shared/lib/i18n"
+import { ENDING_LABEL_DISPLAY, useLanguage, useT } from "../../shared/lib/i18n"
 import {
   cascadeDelay,
   fadeTransition,
@@ -702,6 +702,7 @@ function EndingScreen({
 }) {
   void templateId
   const t = useT()
+  const { lang } = useLanguage()
 
   // Merge user bookmarks into the LLM's highlight list. User picks
   // get a `userMarked` flag and a synthesized headline / body
@@ -784,6 +785,8 @@ function EndingScreen({
     skipChoreography ? 0 : delay
 
   const illustration = getEndingIllustration(ending.label)
+  const endingDisplayLabel = ENDING_LABEL_DISPLAY[lang][ending.label] ?? ending.label
+  const endingSubtitle = lang === "en" ? `"${ending.subtitle}"` : `「${ending.subtitle}」`
   const tier = ending.tier ?? "compromised"
   const tierSplash = getTierSplash(tier)
   const tierVisuals: Record<string, { ribbon: string; chipBg: string; chipColor: string; gradient: string; badgeText: string }> = {
@@ -874,7 +877,7 @@ function EndingScreen({
           }
           style={{ ...ppStyles.endingLabelChip, background: tv.chipBg, color: tv.chipColor }}
         >
-          {ending.label}
+          {endingDisplayLabel}
         </motion.div>
         <motion.h2
           initial={initialOr({ opacity: 0, y: 14 })}
@@ -882,7 +885,7 @@ function EndingScreen({
           transition={{ delay: delayOr(0.6), ...itemTransition }}
           style={ppStyles.endingSubtitle}
         >
-          「{ending.subtitle}」
+          {endingSubtitle}
         </motion.h2>
         <motion.div
           initial={initialOr({ opacity: 0 })}
@@ -995,7 +998,7 @@ function EndingScreen({
                     </div>
                     <div style={ppStyles.branchOutcome}>
                       <span style={{ ...ppStyles.branchEndingChip, ...tierStyle }}>
-                        {b.alternate_ending_label}
+                        {ENDING_LABEL_DISPLAY[lang][b.alternate_ending_label] ?? b.alternate_ending_label}
                       </span>
                       <span style={ppStyles.branchRationale}>{b.rationale}</span>
                     </div>
@@ -1136,7 +1139,7 @@ function StoryBeat({
               ...ppStyles.beatBookmarkBtn,
               ...(isBookmarked ? ppStyles.beatBookmarkBtnActive : null),
             }}
-            title={isBookmarked ? "已标记 · 点击取消" : "标记这一段"}
+            title={isBookmarked ? t("play.bookmark_remove_title") : t("play.bookmark_add_title")}
           >
             {isBookmarked ? "★" : "☆"}
           </button>
@@ -1823,7 +1826,7 @@ function AdvisorSidechat({
       })
       .catch((err) => {
         if (cancelled) return
-        setError(friendlyError(err, "顾问历史加载失败。"))
+        setError(friendlyError(err, t("play.advisor_history_failed")))
       })
     return () => {
       cancelled = true
@@ -1872,7 +1875,7 @@ function AdvisorSidechat({
         }
       }
     } catch (err) {
-      setError(friendlyError(err, "顾问没回上你这一句，再试一次？"))
+      setError(friendlyError(err, t("play.advisor_ask_failed")))
     } finally {
       setBusy(false)
     }

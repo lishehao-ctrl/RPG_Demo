@@ -28,6 +28,10 @@ const keyframes = {
   choice: "keyframes/03-choice-moment.jpg",
   reveal: "keyframes/04-evidence-reveal.jpg",
   ending: "keyframes/05-ending-share.jpg",
+  system: "keyframes/06-system-showcase.jpg",
+  build: "keyframes/07-build-compiler.jpg",
+  advisor: "keyframes/08-advisor-boundary.jpg",
+  portfolio: "keyframes/09-portfolio-dawn.jpg",
 }
 
 const fps = 30
@@ -71,7 +75,8 @@ const ArtBackground: React.FC<{
   start: number
   end: number
   tint?: "red" | "blue" | "gold"
-}> = ({src, start, end, tint = "blue"}) => {
+  dim?: number
+}> = ({src, start, end, tint = "blue", dim = .72}) => {
   const frame = useCurrentFrame()
   const progress = clampInterpolate(frame, [start, end], [0, 1])
   const opacity = sceneOpacity(start, end)
@@ -91,10 +96,10 @@ const ArtBackground: React.FC<{
       />
       <AbsoluteFill
         style={{
-          background: `linear-gradient(90deg, rgba(2,4,8,.90), rgba(2,4,8,.34) 48%, rgba(2,4,8,.82)), radial-gradient(circle at 72% 34%, ${tintColor}, transparent 40%)`,
+          background: `linear-gradient(90deg, rgba(2,4,8,${dim}), rgba(2,4,8,.16) 48%, rgba(2,4,8,${Math.max(.46, dim - .12)})), radial-gradient(circle at 72% 34%, ${tintColor}, transparent 40%)`,
         }}
       />
-      <AbsoluteFill style={{boxShadow: "inset 0 0 190px rgba(0,0,0,.88)"}} />
+      <AbsoluteFill style={{boxShadow: "inset 0 0 138px rgba(0,0,0,.70)"}} />
     </AbsoluteFill>
   )
 }
@@ -264,7 +269,8 @@ const CopyBlock: React.FC<{
   x?: number
   y?: number
   size?: number
-}> = ({start, label, title, body, x = 108, y = 122, size}) => {
+  maxWidth?: number
+}> = ({start, label, title, body, x = 108, y = 122, size, maxWidth = 950}) => {
   const frame = useCurrentFrame()
   const local = Math.max(0, frame - start)
   const {fps: videoFps} = useVideoConfig()
@@ -280,8 +286,8 @@ const CopyBlock: React.FC<{
       }}
     >
       <Label>{label}</Label>
-      <Headline size={size}>{title}</Headline>
-      {body ? <Body>{body}</Body> : null}
+      <Headline size={size} style={{maxWidth}}>{title}</Headline>
+      {body ? <Body style={{maxWidth: Math.max(320, maxWidth - 80)}}>{body}</Body> : null}
     </div>
   )
 }
@@ -317,9 +323,9 @@ const ProofChip: React.FC<{children: React.ReactNode; delay: number; tone?: "blu
 
 const ProgressRibbon: React.FC = () => {
   const frame = useCurrentFrame()
-  const steps = ["Seed", "Build", "State", "Play", "Advise", "Ending"]
+  const steps = ["Input", "Compile", "State", "Play", "Advisor", "Ending"]
   const active =
-    frame < scenes.input[0] ? 0 :
+    frame < scenes.build[0] ? 0 :
     frame < scenes.runtime[0] ? 1 :
     frame < scenes.choices[0] ? 2 :
     frame < scenes.advisor[0] ? 3 :
@@ -398,6 +404,189 @@ const SystemDiagram: React.FC<{start: number}> = ({start}) => {
   )
 }
 
+const EvidencePanel: React.FC<{
+  children: React.ReactNode
+  delay: number
+  left: number
+  top: number
+  width: number
+  tone?: "blue" | "gold" | "red"
+}> = ({children, delay, left, top, width, tone = "blue"}) => {
+  const frame = useCurrentFrame()
+  const local = frame - delay
+  const color = tone === "gold" ? "#d7ad50" : tone === "red" ? "#ff5d72" : "#8ee8ff"
+  const opacity = clampInterpolate(local, [0, 18], [0, 1])
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left,
+        top,
+        width,
+        padding: "22px 24px",
+        borderRadius: 20,
+        border: `1px solid ${color}66`,
+        background: "linear-gradient(180deg, rgba(8,12,19,.88), rgba(6,8,13,.72))",
+        boxShadow: `0 26px 90px rgba(0,0,0,.42), 0 0 48px ${color}20`,
+        color: "#fff6e8",
+        opacity,
+        transform: `translateY(${clampInterpolate(local, [0, 18], [22, 0])}px)`,
+      }}
+    >
+      {children}
+    </div>
+  )
+}
+
+const PanelTitle: React.FC<{label: string; title: string; tone?: "blue" | "gold" | "red"}> = ({
+  label,
+  title,
+  tone = "blue",
+}) => {
+  const color = tone === "gold" ? "#d7ad50" : tone === "red" ? "#ff5d72" : "#8ee8ff"
+  return (
+    <>
+      <div style={{color, fontSize: 17, fontWeight: 820, letterSpacing: 1.8, textTransform: "uppercase"}}>{label}</div>
+      <div style={{marginTop: 8, color: "#fff8ea", fontSize: 30, lineHeight: 1.08, fontWeight: 820}}>{title}</div>
+    </>
+  )
+}
+
+const ArchitectureFlow: React.FC<{start: number}> = ({start}) => {
+  const frame = useCurrentFrame()
+  const nodes = [
+    {name: "React UI", detail: "frontend2/src/pages/play"},
+    {name: "Route map", detail: "frontend2/src/api/route-map.ts"},
+    {name: "FastAPI routes", detail: "rpg_backend/main.py"},
+    {name: "Service + engine", detail: "narrative/service.py"},
+    {name: "SQLite state", detail: "narrative/repository.py"},
+  ]
+  return (
+    <div style={{display: "grid", gap: 10, marginTop: 20}}>
+      {nodes.map((node, i) => {
+        const opacity = clampInterpolate(frame - start - i * 10, [0, 16], [0, 1])
+        return (
+          <div key={node.name} style={{display: "flex", alignItems: "center", gap: 12, opacity}}>
+            <div
+              style={{
+                width: 34,
+                height: 34,
+                borderRadius: 17,
+                display: "grid",
+                placeItems: "center",
+                background: "rgba(142,232,255,.16)",
+                border: "1px solid rgba(142,232,255,.44)",
+                color: "#8ee8ff",
+                fontSize: 17,
+                fontWeight: 850,
+              }}
+            >
+              {i + 1}
+            </div>
+            <div style={{flex: 1}}>
+              <div style={{fontSize: 24, fontWeight: 800, color: "#fff6e8"}}>{node.name}</div>
+              <div style={{fontSize: 17, color: "rgba(245,239,229,.62)", marginTop: 2}}>{node.detail}</div>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+const CodePanel: React.FC<{
+  delay: number
+  left: number
+  top: number
+  width: number
+  title: string
+  rows: string[]
+  tone?: "blue" | "gold" | "red"
+}> = ({delay, left, top, width, title, rows, tone = "blue"}) => (
+  <EvidencePanel delay={delay} left={left} top={top} width={width} tone={tone}>
+    <PanelTitle label="runtime evidence" title={title} tone={tone} />
+    <div
+      style={{
+        marginTop: 18,
+        padding: "18px 20px",
+        borderRadius: 14,
+        background: "rgba(0,0,0,.34)",
+        border: "1px solid rgba(255,255,255,.11)",
+        fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+        fontSize: 19,
+        lineHeight: 1.38,
+        color: "rgba(248,246,240,.88)",
+      }}
+    >
+      {rows.map((row) => (
+        <div key={row} style={{whiteSpace: "pre"}}>{row}</div>
+      ))}
+    </div>
+  </EvidencePanel>
+)
+
+const StateDiffPanel: React.FC<{delay: number; left: number; top: number}> = ({delay, left, top}) => {
+  const rows = [
+    ["turn", "2", "3"],
+    ["stage", "setup", "confrontation"],
+    ["inventory", "phone", "recording"],
+    ["leverage", "unclear", "clause proof"],
+  ]
+  return (
+    <EvidencePanel delay={delay} left={left} top={top} width={560} tone="gold">
+      <PanelTitle label="state transition" title="Choice mutates the next turn" tone="gold" />
+      <div style={{display: "grid", gridTemplateColumns: "1.1fr .9fr .9fr", gap: 8, marginTop: 20, fontSize: 19}}>
+        <div style={{color: "rgba(245,239,229,.56)", fontWeight: 760}}>field</div>
+        <div style={{color: "rgba(245,239,229,.56)", fontWeight: 760}}>before</div>
+        <div style={{color: "#d7ad50", fontWeight: 850}}>after</div>
+        {rows.map(([field, before, after]) => (
+          <React.Fragment key={field}>
+            <div style={{padding: "10px 0", color: "#fff6e8", fontWeight: 780}}>{field}</div>
+            <div style={{padding: "10px 0", color: "rgba(245,239,229,.66)"}}>{before}</div>
+            <div style={{padding: "10px 0", color: "#ffe1a0", fontWeight: 760}}>{after}</div>
+          </React.Fragment>
+        ))}
+      </div>
+    </EvidencePanel>
+  )
+}
+
+const OwnershipGrid: React.FC<{start: number}> = ({start}) => {
+  const frame = useCurrentFrame()
+  const items = [
+    "React game UI",
+    "FastAPI runtime",
+    "LLM state compiler",
+    "Advisor side-channel",
+    "Ending replay artifact",
+    "High-DPR demo capture",
+  ]
+  return (
+    <div style={{display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 22}}>
+      {items.map((item, i) => {
+        const opacity = clampInterpolate(frame - start - i * 8, [0, 14], [0, 1])
+        return (
+          <div
+            key={item}
+            style={{
+              opacity,
+              padding: "15px 16px",
+              borderRadius: 14,
+              border: "1px solid rgba(255,255,255,.13)",
+              background: "rgba(8,10,15,.60)",
+              color: "#fff7e9",
+              fontSize: 22,
+              fontWeight: 760,
+            }}
+          >
+            {item}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 const CropCallout: React.FC<{
   children: React.ReactNode
   left: number
@@ -436,18 +625,19 @@ const ColdOpen: React.FC = () => {
   const [start, end] = scenes.coldOpen
   return (
     <>
-      <ArtBackground src={keyframes.engine} start={start} end={end} tint="blue" />
+      <ArtBackground src={keyframes.system} start={start} end={end} tint="blue" dim={.64} />
       <CopyBlock
         start={22}
         label="Admissions Demo"
-        title={<>A playable LLM system, not a prompt demo.</>}
-        body="Tiny Stories turns one seed into a stateful drama runtime: roles, hidden objectives, choices, advisor context, and a compiled ending."
+        title={<>One seed becomes a playable AI drama system.</>}
+        body="A real UI drives a backend runtime: structured state, constrained LLM turns, advisor context, and a compiled ending artifact."
         size={76}
       />
-      <div style={{position: "absolute", right: 116, bottom: 116, display: "grid", gap: 14, width: 440}}>
-        <ProofChip delay={82}>Full-stack prototype</ProofChip>
-        <ProofChip delay={104} tone="gold">Structured generation</ProofChip>
-        <ProofChip delay={126} tone="red">Stateful play loop</ProofChip>
+      <ScreenFrame src={captures.reviewer} start={48} end={end} x={1010} y={520} width={760} scaleFrom={.98} scaleTo={1.018} />
+      <div style={{position: "absolute", left: 108, bottom: 106, display: "grid", gap: 14, width: 520}}>
+        <ProofChip delay={82}>React UI + API runtime</ProofChip>
+        <ProofChip delay={104} tone="gold">Schema-validated generation</ProofChip>
+        <ProofChip delay={126} tone="red">Replayable state machine</ProofChip>
       </div>
     </>
   )
@@ -468,15 +658,32 @@ const BuildScene: React.FC = () => {
   const [start, end] = scenes.build
   return (
     <>
-      <ArtBackground src={keyframes.engine} start={start} end={end} tint="blue" />
+      <ArtBackground src={keyframes.build} start={start} end={end} tint="blue" dim={.58} />
       <CopyBlock
         start={start + 24}
         label="Build Phase"
-        title="Generation becomes structured runtime data."
-        body="The backend compiles a seed into cast, private goals, leverage, inventory, pressure, and the first playable turn."
+        title="The backend compiles story into runnable state."
+        body="The demo is not a free chat box: every generated turn is shaped into a state object the UI can replay and inspect."
         size={66}
       />
-      <SystemDiagram start={start + 120} />
+      <EvidencePanel delay={start + 98} left={106} top={555} width={560} tone="blue">
+        <PanelTitle label="full-stack path" title="UI to runtime to replay" />
+        <ArchitectureFlow start={start + 124} />
+      </EvidencePanel>
+      <CodePanel
+        delay={start + 132}
+        left={1090}
+        top={202}
+        width={610}
+        title="Generated output is parsed before play"
+        rows={[
+          "POST /narrative/templates/:id/sessions",
+          "GET  /narrative/sessions/:id/story",
+          "POST /narrative/sessions/:id/story/turns",
+          "StoryHistoryResponse -> React render",
+          "AdvanceTurnResponse -> persisted turn",
+        ]}
+      />
     </>
   )
 }
@@ -485,11 +692,23 @@ const RuntimeScene: React.FC = () => {
   const [start, end] = scenes.runtime
   return (
     <>
-      <ArtBackground src={keyframes.reveal} start={start} end={end} tint="blue" />
-      <ScreenFrame src={captures.runtime} start={start + 10} end={end} x={88} y={96} width={1660} scaleFrom={1} scaleTo={1.018} />
-      <CropCallout left={1018} top={186} delay={start + 70} tone="blue">Reviewer runtime inspector</CropCallout>
-      <CropCallout left={1088} top={406} delay={start + 106}>Role, stage, turns, inventory</CropCallout>
-      <CropCallout left={392} top={800} delay={start + 138} tone="red">The player has position, motive, and leverage.</CropCallout>
+      <ArtBackground src={keyframes.reveal} start={start} end={end} tint="blue" dim={.70} />
+      <ScreenFrame src={captures.runtime} start={start + 8} end={end} x={74} y={86} width={1160} scaleFrom={1} scaleTo={1.025} />
+      <StateDiffPanel delay={start + 72} left={1260} top={166} />
+      <CodePanel
+        delay={start + 122}
+        left={1260}
+        top={610}
+        width={548}
+        title="Inspector proves state is real"
+        tone="blue"
+        rows={[
+          "route-map.ts:getNarrativeStory",
+          "main.py:get_narrative_story",
+          "service.py:get_story_history",
+          "repository.py:list_story_messages",
+        ]}
+      />
     </>
   )
 }
@@ -498,21 +717,22 @@ const ChoiceScene: React.FC = () => {
   const [start, end] = scenes.choices
   return (
     <>
-      <ArtBackground src={keyframes.choice} start={start} end={end} tint="red" />
-      <ScreenFrame src={captures.options} start={start + 8} end={end} x={104} y={110} width={1580} scaleFrom={1.012} scaleTo={1.035} />
+      <ArtBackground src={keyframes.choice} start={start} end={end} tint="red" dim={.64} />
+      <ScreenFrame src={captures.options} start={start + 8} end={end} x={720} y={148} width={1060} scaleFrom={1.0} scaleTo={1.018} />
       <CopyBlock
         start={start + 38}
         label="Play Loop"
-        title="A choice becomes input to the next state transition."
-        body="The UI keeps choices readable, then locks the selected action before continuing the story."
-        x={116}
-        y={118}
-        size={54}
+        title="A player choice feeds the next state transition."
+        body="The interface keeps the action readable, then the runtime locks it into the run history before generating the next beat."
+        x={96}
+        y={124}
+        size={48}
+        maxWidth={560}
       />
-      <div style={{position: "absolute", right: 116, bottom: 96, display: "grid", gap: 12, width: 490}}>
-        <ProofChip delay={start + 150} tone="blue">Option click</ProofChip>
-        <ProofChip delay={start + 174} tone="gold">Narrator beat updates</ProofChip>
-        <ProofChip delay={start + 198} tone="red">Next choice appears</ProofChip>
+      <div style={{position: "absolute", left: 96, bottom: 108, display: "grid", gap: 12, width: 560}}>
+        <ProofChip delay={start + 132} tone="blue">selected_action_id persisted</ProofChip>
+        <ProofChip delay={start + 158} tone="gold">turn_count increments</ProofChip>
+        <ProofChip delay={start + 184} tone="red">next choices regenerated from state</ProofChip>
       </div>
     </>
   )
@@ -520,29 +740,27 @@ const ChoiceScene: React.FC = () => {
 
 const FreeformScene: React.FC = () => {
   const [start, end] = scenes.freeform
-  const frame = useCurrentFrame()
   const action = "I ask the lawyer to read the clause aloud, then secretly record his answer."
-  const chars = Math.round(clampInterpolate(frame - start - 88, [0, 90], [0, action.length]))
-  const blink = Math.floor((frame - start) / 13) % 2 === 0
   return (
     <>
-      <ArtBackground src={keyframes.choice} start={start} end={end} tint="gold" />
-      <ScreenFrame src={captures.options} start={start + 10} end={end} x={88} y={98} width={1600} scaleFrom={1.02} scaleTo={1.04} />
+      <ArtBackground src={keyframes.system} start={start} end={end} tint="gold" dim={.60} />
+      <ScreenFrame src={captures.options} start={start + 10} end={end} x={744} y={140} width={1030} scaleFrom={1.0} scaleTo={1.016} />
       <CopyBlock
         start={start + 28}
         label="Open Action"
         title="Structured choices lower friction. Free-form input keeps agency."
         body="This is the product tradeoff: readable options for most players, custom tactics for advanced play."
-        x={108}
-        y={110}
-        size={52}
+        x={96}
+        y={122}
+        size={46}
+        maxWidth={590}
       />
       <div
         style={{
           position: "absolute",
-          left: 396,
-          bottom: 110,
-          width: 810,
+          left: 96,
+          bottom: 116,
+          width: 590,
           padding: "26px 30px",
           borderRadius: 20,
           border: "1px solid rgba(215,173,80,.42)",
@@ -553,8 +771,10 @@ const FreeformScene: React.FC = () => {
           boxShadow: "0 28px 90px rgba(0,0,0,.56)",
         }}
       >
-        {action.slice(0, chars)}
-        <span style={{opacity: blink ? 1 : 0, color: "#d7ad50"}}>|</span>
+        <div style={{color: "#d7ad50", fontSize: 17, fontWeight: 820, letterSpacing: 1.6, textTransform: "uppercase", marginBottom: 10}}>
+          advanced tactic example
+        </div>
+        {action}
       </div>
     </>
   )
@@ -564,19 +784,31 @@ const AdvisorScene: React.FC = () => {
   const [start, end] = scenes.advisor
   return (
     <>
-      <ArtBackground src={keyframes.reveal} start={start} end={end} tint="blue" />
-      <ScreenFrame src={captures.advisor} start={start + 8} end={end} x={92} y={102} width={1640} scaleFrom={1} scaleTo={1.018} />
+      <ArtBackground src={keyframes.advisor} start={start} end={end} tint="blue" dim={.54} />
+      <ScreenFrame src={captures.advisor} start={start + 8} end={end} x={960} y={154} width={820} scaleFrom={.99} scaleTo={1.016} />
       <CopyBlock
         start={start + 34}
         label="Advisor Channel"
         title="A second LLM surface with bounded authority."
-        body="The advisor reads run context and helps the player reason, but it does not take over the decision."
+        body="The advisor can read run context and help the player reason, but it cannot choose or mutate the story state."
         x={114}
         y={122}
         size={54}
       />
-      <CropCallout left={1208} top={190} delay={start + 116} tone="blue">Context-aware, role-separated sidechat</CropCallout>
-      <CropCallout left={998} top={820} delay={start + 154} tone="gold">Player keeps control</CropCallout>
+      <CodePanel
+        delay={start + 120}
+        left={116}
+        top={536}
+        width={610}
+        title="Role-separated LLM surface"
+        rows={[
+          "route-map.ts:askNarrativeAdvisor",
+          "main.py:ask_narrative_advisor",
+          "service.py:ask_advisor",
+          "advisor_messages separate from turns",
+        ]}
+      />
+      <CropCallout left={1058} top={706} delay={start + 160} tone="gold">Player keeps control</CropCallout>
     </>
   )
 }
@@ -585,71 +817,54 @@ const EndingScene: React.FC = () => {
   const [start, end] = scenes.ending
   return (
     <>
-      <ArtBackground src={keyframes.ending} start={start} end={end} tint="red" />
-      <ScreenFrame src={captures.ending} start={start + 8} end={end} x={96} y={88} width={1580} scaleFrom={1.012} scaleTo={1.032} />
+      <ArtBackground src={keyframes.ending} start={start} end={end} tint="red" dim={.64} />
+      <ScreenFrame src={captures.ending} start={start + 8} end={end} x={728} y={88} width={1040} scaleFrom={1.004} scaleTo={1.022} />
       <CopyBlock
         start={start + 28}
         label="Ending Compiler"
         title="The result is compiled from the path actually played."
-        body="The final screen turns a run into a shareable artifact: ending label, highlights, paths not taken, and replay loop."
+        body="The final screen turns selected turns into a shareable artifact: ending label, highlights, paths not taken, and replay loop."
         x={110}
         y={110}
         size={54}
       />
-      <div style={{position: "absolute", right: 98, bottom: 90, display: "grid", gap: 12, width: 500}}>
-        <ProofChip delay={start + 142} tone="red">Pivotal moments</ProofChip>
-        <ProofChip delay={start + 166} tone="gold">Alternate branches</ProofChip>
-        <ProofChip delay={start + 190} tone="blue">Shareable ending</ProofChip>
-      </div>
+      <CodePanel
+        delay={start + 122}
+        left={110}
+        top={526}
+        width={560}
+        title="Ending uses run history"
+        tone="red"
+        rows={[
+          "GET /narrative/sessions/:id/ending",
+          "service.py:get_session_ending",
+          "ending_highlights_json",
+          "replay page keeps advisor track",
+        ]}
+      />
     </>
   )
 }
 
 const ReflectionScene: React.FC = () => {
   const [start, end] = scenes.reflection
-  const frame = useCurrentFrame()
-  const metrics = [
-    "Full-stack prototype",
-    "Structured LLM generation",
-    "Stateful gameplay loop",
-    "Advisor context",
-    "Shareable ending",
-  ]
   return (
     <>
-      <ArtBackground src={keyframes.engine} start={start} end={end} tint="gold" />
-      <ScreenFrame src={captures.portfolio} start={start + 8} end={end} x={900} y={142} width={880} scaleFrom={1} scaleTo={1.01} />
+      <ArtBackground src={keyframes.portfolio} start={start} end={end} tint="gold" dim={.45} />
+      <ScreenFrame src={captures.portfolio} start={start + 8} end={end} x={1040} y={178} width={720} scaleFrom={1} scaleTo={1.012} />
       <CopyBlock
         start={start + 28}
         label="Engineering Reflection"
-        title="I use this project to study reliable AI product systems."
-        body="Next layer: measure latency, recover from failed turns, and benchmark quality across many seeds."
+        title="Built as a full-stack AI product case study."
+        body="The demo connects product UX, backend orchestration, LLM constraints, state persistence, and a reviewer-facing proof flow."
         x={108}
         y={150}
         size={62}
       />
-      <div style={{position: "absolute", left: 108, bottom: 112, width: 760, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14}}>
-        {metrics.map((m, i) => {
-          const opacity = clampInterpolate(frame - start - 130 - i * 14, [0, 20], [0, 1])
-          return (
-            <div
-              key={m}
-              style={{
-                opacity,
-                padding: "18px 20px",
-                borderRadius: 16,
-                border: "1px solid rgba(255,255,255,.13)",
-                background: "rgba(8,10,15,.72)",
-                color: "#fff5e7",
-                fontSize: 25,
-                fontWeight: 760,
-              }}
-            >
-              {m}
-            </div>
-          )
-        })}
-      </div>
+      <EvidencePanel delay={start + 128} left={108} top={502} width={800} tone="gold">
+        <PanelTitle label="ownership" title="What this portfolio artifact proves" tone="gold" />
+        <OwnershipGrid start={start + 150} />
+      </EvidencePanel>
       <div
         style={{
           position: "absolute",

@@ -19,3 +19,6 @@ frontend2/node_modules/
 frontend2/dist/
 frontend2/.vite/
 frontend2/test-results/
+remotion-demo/node_modules/
+remotion-demo/.vite/
+remotion-demo/out/

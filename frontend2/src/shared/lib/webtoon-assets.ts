@@ -8,6 +8,12 @@ const SHELLS = [
   "wealth_families",
   "entertainment_scandal",
   "office_power",
+  // Newer themes covering the most common drama settings that
+  // previously fell back to wealth_families. Each ships with a
+  // matching `-02.jpg` variant.
+  "wedding",
+  "courtroom",
+  "palace_drama",
 ] as const
 type Shell = (typeof SHELLS)[number]
 
@@ -27,6 +33,13 @@ const AVATAR_FEMALE = [
   "female-08",
   "female-09",
   "female-10",
+  // Variant portraits — different ages / costumes. Hash-distributed
+  // into the same pool so the cast strip gets visual variety; mild
+  // age mismatch risk (e.g. an "elder" portrait assigned to a young
+  // role) is tolerated for the variety win.
+  "elder-01",
+  "student-01",
+  "period-01",
 ] as const
 const AVATAR_MALE = [
   "male-01",
@@ -39,6 +52,8 @@ const AVATAR_MALE = [
   "male-08",
   "male-09",
   "male-10",
+  "elder-02",
+  "student-02",
 ] as const
 
 // Dedicated advisor portrait pool — visually distinct from the cast pool so
@@ -210,6 +225,22 @@ const SHELL_KEYWORDS: Record<Shell, readonly string[]> = {
   urban_supernatural: [
     "都市", "怪谈", "灵异", "鬼", "诡异", "失踪", "深夜", "电话", "梦",
     "凶杀", "目击", "怨灵", "诅咒",
+  ],
+  wedding: [
+    "婚礼", "婚宴", "婚纱", "新娘", "新郎", "伴娘", "伴郎", "证婚人",
+    "婚戒", "蜜月", "婚约", "婚书", "嫁妆", "请帖", "敬酒", "教堂",
+    "wedding", "bride", "groom",
+  ],
+  courtroom: [
+    "法庭", "庭审", "律师", "法官", "检察官", "证人", "被告", "原告",
+    "辩护", "判决", "陪审", "诉讼", "证据", "公诉", "出庭",
+    "courtroom", "lawyer", "trial", "verdict",
+  ],
+  palace_drama: [
+    "宫廷", "皇宫", "皇上", "皇后", "嫔妃", "贵妃", "宠妃", "公主",
+    "太子", "丞相", "妃嫔", "选秀", "宫斗", "御花园", "凤冠",
+    "汉服", "古代", "王朝", "诸侯", "藩王", "宫女",
+    "palace", "empress", "concubine", "dynasty",
   ],
 }
 

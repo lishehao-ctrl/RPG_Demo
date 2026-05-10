@@ -2,6 +2,8 @@ import React from "react"
 import {
   AbsoluteFill,
   Img,
+  OffthreadVideo,
+  Sequence,
   interpolate,
   spring,
   staticFile,
@@ -12,6 +14,7 @@ import {
 const captures = {
   reviewer: "captures/01-reviewer-entry.png",
   create: "captures/02-create-seed-filled.png",
+  createTyping: "captures/02-create-real-typing.mp4",
   runtime: "captures/03-play-runtime-top.png",
   options: "captures/04-play-options-bottom.png",
   advisor: "captures/05-advisor-open.png",
@@ -144,6 +147,59 @@ const ScreenFrame: React.FC<{
           ...crop,
         }}
       />
+    </div>
+  )
+}
+
+const ScreenVideo: React.FC<{
+  src: string
+  start: number
+  end: number
+  x?: number
+  y?: number
+  width?: number
+  scaleFrom?: number
+  scaleTo?: number
+}> = ({src, start, end, x = 170, y = 118, width = 1380, scaleFrom = .98, scaleTo = 1.02}) => {
+  const frame = useCurrentFrame()
+  const local = Math.max(0, frame - start)
+  const {fps: videoFps} = useVideoConfig()
+  const enter = spring({
+    frame: local,
+    fps: videoFps,
+    config: {damping: 22, stiffness: 70, mass: .9},
+  })
+  const progress = clampInterpolate(frame, [start, end], [0, 1])
+  const opacity = sceneOpacity(start, end)
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: x,
+        top: y,
+        width,
+        height: width * 9 / 16,
+        overflow: "hidden",
+        borderRadius: 24,
+        border: "1px solid rgba(255,255,255,.24)",
+        boxShadow: "0 34px 120px rgba(0,0,0,.56), 0 0 0 1px rgba(255,255,255,.08) inset, 0 0 54px rgba(142,232,255,.10)",
+        opacity,
+        transform: `translateY(${interpolate(enter, [0, 1], [34, 0])}px) scale(${scaleFrom + (scaleTo - scaleFrom) * progress})`,
+        background: "#08090d",
+      }}
+    >
+      <Sequence from={start} durationInFrames={end - start} layout="none">
+        <OffthreadVideo
+          src={staticFile(src)}
+          muted
+          style={{
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+            filter: "brightness(1.2) contrast(1.08) saturate(1.08)",
+          }}
+        />
+      </Sequence>
     </div>
   )
 }
@@ -306,35 +362,6 @@ const ProgressRibbon: React.FC = () => {
   )
 }
 
-const TypedSeed: React.FC<{start: number}> = ({start}) => {
-  const frame = useCurrentFrame()
-  const seed = "At my wedding, the groom asks me to sign away my shares before the ceremony starts."
-  const chars = Math.round(clampInterpolate(frame - start, [0, 112], [0, seed.length]))
-  const blink = Math.floor((frame - start) / 14) % 2 === 0
-  return (
-    <div
-      style={{
-        position: "absolute",
-        left: 720,
-        top: 402,
-        width: 680,
-        padding: "24px 26px",
-        borderRadius: 18,
-        border: "1px solid rgba(255,255,255,.18)",
-        background: "rgba(9,12,18,.82)",
-        boxShadow: "0 24px 80px rgba(0,0,0,.44)",
-        color: "#f9f1e4",
-        fontSize: 27,
-        lineHeight: 1.38,
-        fontWeight: 560,
-      }}
-    >
-      {seed.slice(0, chars)}
-      <span style={{opacity: blink ? 1 : 0, color: "#d7ad50"}}>|</span>
-    </div>
-  )
-}
-
 const SystemDiagram: React.FC<{start: number}> = ({start}) => {
   const frame = useCurrentFrame()
   const nodes = ["Seed", "Cast", "Hidden goals", "Runtime state", "First turn"]
@@ -431,8 +458,7 @@ const InputScene: React.FC = () => {
   return (
     <>
       <ArtBackground src={keyframes.hook} start={start} end={end} tint="gold" />
-      <ScreenFrame src={captures.create} start={start + 8} end={end} x={150} y={108} width={1500} scaleFrom={1} scaleTo={1.012} />
-      <TypedSeed start={start + 82} />
+      <ScreenVideo src={captures.createTyping} start={start + 8} end={end} x={132} y={92} width={1600} scaleFrom={1} scaleTo={1.012} />
       <CropCallout left={118} top={850} delay={start + 164} tone="gold">One dramatic premise enters the real UI.</CropCallout>
     </>
   )

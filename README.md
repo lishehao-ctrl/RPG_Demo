@@ -25,23 +25,20 @@
 
 ## Demo
 
-<video src="./docs/demo-video/tiny-stories-admissions-demo-readme.mp4" controls width="100%" poster="./docs/demo-video/admissions-trailer-contact.jpg">
-  Your browser cannot play the embedded video. Open the compressed demo:
-  ./docs/demo-video/tiny-stories-admissions-demo-readme.mp4
-</video>
+[![Watch the Tiny Stories demo](./docs/demo-video/admissions-trailer-contact.jpg)](https://lishehao.github.io/RPG_Demo/)
 
 <p align="center">
-  <a href="./docs/demo-video/tiny-stories-admissions-demo-readme.mp4">Open compressed MP4</a>
+  <a href="https://lishehao.github.io/RPG_Demo/"><strong>Watch the GitHub Pages demo</strong></a>
   ·
-  <a href="./docs/demo-video/tiny-stories-admissions-demo.mp4">Open 1080p render</a>
+  <a href="./docs/demo-video/tiny-stories-admissions-demo-readme.mp4">Open compressed MP4</a>
   ·
   <a href="./docs/demo-video/admissions-narration.txt">Narration script</a>
 </p>
 
-The embedded demo is a 720p compressed MP4 with narration (~4.6 MB).
-It shows real app capture mixed with generated Korean-webtoon keyframes:
-seed input, story generation, runtime state, player choices, free-form
-action, advisor chat, and ending compilation.
+The GitHub Pages demo contains a playable 720p compressed MP4 with
+narration (~4.6 MB). It shows real app capture mixed with generated
+Korean-webtoon keyframes: seed input, story generation, runtime state,
+player choices, free-form action, advisor chat, and ending compilation.
 
 ---
 

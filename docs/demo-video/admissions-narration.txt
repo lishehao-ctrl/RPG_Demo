@@ -1,0 +1,15 @@
+What you are watching is not a concept trailer.
+
+Tiny Stories starts with one dramatic seed, then compiles it into a playable AI drama runtime.
+
+The backend generates the cast, player role, hidden leverage, failure conditions, and the first scene before the player ever makes a move.
+
+During play, each choice becomes persisted state. The interface keeps the options readable, but still lets the player write a custom tactic when the fixed choices are not enough.
+
+A separate advisor channel can reason over the current run, without taking control of the story.
+
+Then the ending compiler turns the path actually played into a label, highlights, alternate branches, and a replayable artifact.
+
+For a portfolio reviewer, the point is the system design: React product UX, FastAPI runtime, typed contracts, LLM orchestration, persistent state, and a demo path that can be inspected rather than merely believed.
+
+It is a small game, but a complete case study in building AI products with constraints.

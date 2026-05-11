@@ -1,6 +1,7 @@
 import React from "react"
 import {
   AbsoluteFill,
+  Audio,
   Img,
   OffthreadVideo,
   Sequence,
@@ -32,6 +33,10 @@ const keyframes = {
   build: "keyframes/07-build-compiler.jpg",
   advisor: "keyframes/08-advisor-boundary.jpg",
   portfolio: "keyframes/09-portfolio-dawn.jpg",
+}
+
+const audio = {
+  narration: "audio/admissions-narration.wav",
 }
 
 export const admissionsDemoFrames = 2250
@@ -896,6 +901,13 @@ const ReflectionScene: React.FC = () => {
   )
 }
 
+const NarrationTrack: React.FC = () => {
+  const frame = useCurrentFrame()
+  const fadeIn = clampInterpolate(frame, [0, 42], [0, .82])
+  const fadeOut = clampInterpolate(frame, [admissionsDemoFrames - 120, admissionsDemoFrames - 18], [.82, 0])
+  return <Audio src={staticFile(audio.narration)} volume={Math.min(fadeIn, fadeOut)} />
+}
+
 export const AdmissionsDemoTrailer: React.FC = () => (
   <AbsoluteFill
     style={{
@@ -904,6 +916,7 @@ export const AdmissionsDemoTrailer: React.FC = () => (
       overflow: "hidden",
     }}
   >
+    <NarrationTrack />
     <Scene range={scenes.coldOpen}><ColdOpen /></Scene>
     <Scene range={scenes.input}><InputScene /></Scene>
     <Scene range={scenes.build}><BuildScene /></Scene>

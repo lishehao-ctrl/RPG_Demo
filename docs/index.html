@@ -79,33 +79,61 @@
 
       .hero {
         display: grid;
-        grid-template-columns: minmax(0, 0.78fr) minmax(300px, 0.42fr);
-        gap: 28px;
-        align-items: end;
-        padding: 34px 0 24px;
+        grid-template-columns: minmax(320px, 0.46fr) minmax(0, 0.54fr);
+        gap: 34px;
+        align-items: center;
+        padding: 24px 0 48px;
       }
 
       h1 {
         margin: 0;
-        max-width: 840px;
-        font-size: clamp(46px, 7vw, 94px);
-        line-height: 0.92;
+        max-width: 620px;
+        font-size: clamp(42px, 5.7vw, 78px);
+        line-height: 0.95;
         letter-spacing: 0;
       }
 
       .lede {
         margin: 22px 0 0;
-        max-width: 760px;
+        max-width: 600px;
         color: var(--muted);
-        font-size: clamp(17px, 2vw, 21px);
+        font-size: clamp(16px, 1.7vw, 19px);
         line-height: 1.55;
+      }
+
+      .cta-row {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 24px;
+      }
+
+      .play-button {
+        border: 0;
+        border-radius: 999px;
+        background: linear-gradient(135deg, var(--gold), #f6d28b);
+        color: #1c1511;
+        cursor: pointer;
+        font: inherit;
+        font-size: 15px;
+        font-weight: 800;
+        padding: 12px 18px;
+        box-shadow: 0 16px 38px rgba(231, 184, 93, 0.2);
+      }
+
+      .direct-link {
+        color: var(--ink);
+        font-size: 14px;
+        font-weight: 650;
+        text-decoration: none;
       }
 
       .tag-row {
         display: flex;
         flex-wrap: wrap;
         gap: 10px;
-        margin-top: 24px;
+        margin-top: 22px;
       }
 
       .tag {
@@ -116,33 +144,6 @@
         border-radius: 999px;
         font-size: 13px;
         white-space: nowrap;
-      }
-
-      .summary {
-        border: 1px solid var(--line);
-        background: linear-gradient(150deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03));
-        border-radius: 8px;
-        padding: 20px;
-        box-shadow: var(--shadow);
-      }
-
-      .summary strong {
-        display: block;
-        color: var(--gold);
-        font-size: 13px;
-        margin-bottom: 8px;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-      }
-
-      .summary p {
-        margin: 0;
-        color: var(--muted);
-        line-height: 1.6;
-      }
-
-      .player-section {
-        padding: 24px 0 54px;
       }
 
       .video-frame {
@@ -163,6 +164,7 @@
       .video-actions {
         display: flex;
         justify-content: space-between;
+        align-items: center;
         gap: 14px;
         flex-wrap: wrap;
         border-top: 1px solid var(--line);
@@ -170,6 +172,16 @@
         padding: 14px 16px;
         color: var(--muted);
         font-size: 14px;
+      }
+
+      .video-kicker {
+        color: var(--gold);
+        display: block;
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        margin-bottom: 4px;
+        text-transform: uppercase;
       }
 
       .video-actions a {
@@ -292,10 +304,6 @@
           align-items: start;
         }
 
-        .summary {
-          box-shadow: none;
-        }
-
         .step::after {
           display: none;
         }
@@ -319,8 +327,13 @@
           font-size: 42px;
         }
 
+        .play-button {
+          width: 100%;
+        }
+
         .video-actions {
           flex-direction: column;
+          align-items: flex-start;
         }
       }
     </style>
@@ -344,6 +357,12 @@
             role assignment, deterministic state scaffolding, advisor context, player
             choice, free-form action, and ending compilation.
           </p>
+          <div class="cta-row">
+            <button class="play-button" type="button" data-play-demo>Play demo with sound</button>
+            <a class="direct-link" href="./demo-video/tiny-stories-admissions-demo-readme.mp4">
+              Open MP4 directly
+            </a>
+          </div>
           <div class="tag-row" aria-label="Project highlights">
             <span class="tag">React 19</span>
             <span class="tag">FastAPI</span>
@@ -352,19 +371,11 @@
             <span class="tag">Programmatic video demo</span>
           </div>
         </div>
-        <aside class="summary" aria-label="Demo summary">
-          <strong>Admissions reviewer cut</strong>
-          <p>
-            A 75-second narrated demo showing the real play loop, reviewer state
-            surfaces, generated keyframes, and the compiled ending artifact.
-          </p>
-        </aside>
-      </section>
-
-      <section class="shell player-section" aria-label="Playable demo video">
-        <div class="video-frame">
+        <div class="video-frame" aria-label="Playable demo video">
           <video
             controls
+            data-demo-video
+            playsinline
             preload="metadata"
             poster="./demo-video/admissions-trailer-contact.jpg"
             src="./demo-video/tiny-stories-admissions-demo-readme.mp4"
@@ -373,7 +384,10 @@
             ./demo-video/tiny-stories-admissions-demo-readme.mp4
           </video>
           <div class="video-actions">
-            <span>720p compressed MP4 with narration, optimized for web playback.</span>
+            <span>
+              <span class="video-kicker">Admissions reviewer cut</span>
+              75-second narrated demo, optimized for web playback.
+            </span>
             <span>
               <a href="./demo-video/tiny-stories-admissions-demo-readme.mp4">Open MP4</a>
               ·
@@ -453,5 +467,36 @@
         <a href="https://github.com/lishehao/RPG_Demo">View repository</a>
       </span>
     </footer>
+    <script>
+      const video = document.querySelector("[data-demo-video]");
+      const playButton = document.querySelector("[data-play-demo]");
+
+      playButton?.addEventListener("click", async () => {
+        if (!video) return;
+
+        video.muted = false;
+        video.volume = 1;
+        video.controls = true;
+
+        try {
+          await video.play();
+        } catch {
+          video.focus();
+          playButton.textContent = "Use the video play control";
+        }
+      });
+
+      video?.addEventListener("playing", () => {
+        if (playButton) playButton.textContent = "Playing with sound";
+      });
+
+      video?.addEventListener("pause", () => {
+        if (playButton && !video.ended) playButton.textContent = "Resume demo with sound";
+      });
+
+      video?.addEventListener("ended", () => {
+        if (playButton) playButton.textContent = "Replay demo with sound";
+      });
+    </script>
   </body>
 </html>

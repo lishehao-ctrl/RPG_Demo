@@ -1,16 +1,27 @@
 # Tiny Stories
 
 <p align="center">
-  <strong>An inspectable AI drama runtime: one seed becomes a playable 12-turn story with roles, state, advisor context, and a compiled ending.</strong>
+  <a href="https://lishehao.github.io/RPG_Demo/">
+    <img src="./docs/images/social-preview.jpg" alt="Tiny Stories - inspectable AI narrative runtime" width="100%" />
+  </a>
 </p>
 
 <p align="center">
-  <a href="./README.zh.md">中文</a> ·
-  <a href="#demo">Demo</a> ·
-  <a href="#innovation">Innovation</a> ·
-  <a href="#architecture">Architecture</a> ·
-  <a href="#run-locally">Run locally</a> ·
-  <a href="./ARCHITECTURE.md">Deep dive</a>
+  <strong>An inspectable AI narrative runtime, not another story chatbot.</strong>
+</p>
+
+<p align="center">
+  Type one premise. Tiny Stories compiles roles, hidden objectives, leverage,
+  state, advisor context, and a playable 12-turn ending path.
+</p>
+
+<p align="center">
+  <a href="https://lishehao.github.io/RPG_Demo/"><strong>Watch the demo</strong></a>
+  · <a href="./docs/demo-video/tiny-stories-admissions-demo-readme.mp4">MP4</a>
+  · <a href="#innovation">Innovation</a>
+  · <a href="#architecture">Architecture</a>
+  · <a href="#run-locally">Run locally</a>
+  · <a href="./README.zh.md">中文</a>
 </p>
 
 <p align="center">
@@ -18,8 +29,17 @@
   <img alt="Python 3.11+" src="https://img.shields.io/badge/python-3.11+-blue.svg" />
   <img alt="React 19" src="https://img.shields.io/badge/react-19-61dafb.svg" />
   <img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-runtime-009688.svg" />
+  <img alt="GitHub stars" src="https://img.shields.io/github/stars/lishehao/RPG_Demo?style=social" />
   <img alt="Status: portfolio case study" src="https://img.shields.io/badge/status-portfolio_case_study-6f42c1.svg" />
 </p>
+
+<table>
+  <tr>
+    <td><strong>Player-facing</strong><br/>A seed becomes a short interactive drama with role cards, choices, free-form action, advisor help, and a compiled ending.</td>
+    <td><strong>Runtime-driven</strong><br/>Deterministic schedulers shape pressure, state, inventory, and consequences before each LLM call.</td>
+    <td><strong>Reviewable</strong><br/>Portfolio and reviewer routes expose the contracts, state, and boundaries behind the polished demo.</td>
+  </tr>
+</table>
 
 ---
 

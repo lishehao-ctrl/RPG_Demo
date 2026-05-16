@@ -122,6 +122,54 @@ def test_quota_error_uses_frontend_error_envelope(monkeypatch) -> None:
     assert response.json()["error"]["code"] == "ip_llm_quota_exceeded"
 
 
+def test_invalid_turn_validation_runs_before_quota_debit(monkeypatch) -> None:
+    class RejectingNarrativeService:
+        estimated = False
+        advanced = False
+
+        def validate_advance_request(self, *_args, **_kwargs) -> None:
+            raise main_module.NarrativeServiceError(
+                code="option_out_of_range",
+                message="chosen_option_index 99 is out of range.",
+                status_code=422,
+            )
+
+        def estimate_advance_llm_operation_cost(self, *_args, **_kwargs) -> int:
+            self.estimated = True
+            return 1
+
+        def advance(self, *_args, **_kwargs):  # noqa: ANN202
+            self.advanced = True
+            raise AssertionError("advance should not run for invalid input")
+
+    monkeypatch.setenv("APP_PUBLIC_DEMO_DAILY_IP_LLM_LIMIT", "1")
+    monkeypatch.setenv("APP_PUBLIC_DEMO_DAILY_USER_LLM_LIMIT", "1")
+    main_module.get_settings.cache_clear()
+    original_service = main_module.narrative_service
+    original_limiter = main_module.llm_quota_limiter
+    fake_service = RejectingNarrativeService()
+    test_limiter = main_module.DailyQuotaLimiter()
+    main_module.narrative_service = fake_service
+    main_module.llm_quota_limiter = test_limiter
+    client = TestClient(app)
+    try:
+        ensure_authenticated_client(client, display_name="InvalidBeforeQuota")
+        response = client.post(
+            "/narrative/sessions/sess_invalid/story/turns",
+            json={"chosen_option_index": 99},
+        )
+    finally:
+        main_module.narrative_service = original_service
+        main_module.llm_quota_limiter = original_limiter
+        main_module.get_settings.cache_clear()
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "option_out_of_range"
+    assert fake_service.estimated is False
+    assert fake_service.advanced is False
+    assert test_limiter._counts == {}
+
+
 def test_logged_out_cannot_mutate_story_visibility(tmp_path) -> None:
     source = _publish_source("job-auth-mutate")
     library_service = StoryLibraryService(SQLiteStoryLibraryStorage(str(tmp_path / "stories.sqlite3")))

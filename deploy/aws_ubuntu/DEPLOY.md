@@ -190,8 +190,14 @@ Real product smoke:
 
 ```bash
 cd /srv/rpg-demo/app
-/srv/rpg-demo/venv/bin/python tools/http_product_smoke.py --base-url http://127.0.0.1:8010
+/srv/rpg-demo/venv/bin/python tools/http_product_smoke.py \
+  --base-url http://127.0.0.1:8010 \
+  --use-first-public-template
 ```
+
+This read/play smoke matches `APP_PUBLIC_DEMO_AUTHORING_ENABLED=false` and requires at
+least one public template already seeded. To exercise template creation in a private
+maintenance window, temporarily enable authoring and omit `--use-first-public-template`.
 
 If you temporarily enable benchmark diagnostics in a non-public environment:
 
@@ -199,6 +205,7 @@ If you temporarily enable benchmark diagnostics in a non-public environment:
 cd /srv/rpg-demo/app
 /srv/rpg-demo/venv/bin/python tools/http_product_smoke.py \
   --base-url http://127.0.0.1:8010 \
+  --use-first-public-template \
   --include-benchmark-diagnostics
 ```
 
@@ -219,7 +226,9 @@ Then rerun:
 
 ```bash
 cd /srv/rpg-demo/app
-/srv/rpg-demo/venv/bin/python tools/http_product_smoke.py --base-url http://127.0.0.1:8010
+/srv/rpg-demo/venv/bin/python tools/http_product_smoke.py \
+  --base-url http://127.0.0.1:8010 \
+  --use-first-public-template
 ```
 
 Portrait-specific repair/verification helper:

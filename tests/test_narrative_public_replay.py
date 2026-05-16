@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import pytest
+
 from rpg_backend.narrative.contracts import (
+    AdvanceTurnRequest,
     CastMember,
     FailureCondition,
     PlayerGoal,
@@ -9,7 +12,7 @@ from rpg_backend.narrative.contracts import (
     StoryOption,
 )
 from rpg_backend.narrative.repository import NarrativeRepository
-from rpg_backend.narrative.service import NarrativeService
+from rpg_backend.narrative.service import NarrativeService, NarrativeServiceError
 
 
 def _create_template_and_session(
@@ -128,7 +131,23 @@ def test_advance_quota_estimate_reserves_finalization_operations(tmp_path) -> No
     assert service.estimate_advance_llm_operation_cost(
         "sess_final_cost",
         player_user_id="local-dev",
-    ) == 4
+    ) == 7
+
+
+def test_advance_quota_estimate_reserves_regular_turn_retry(tmp_path) -> None:
+    repo = NarrativeRepository(str(tmp_path / "runtime.sqlite3"))
+    service = NarrativeService(repository=repo, gateway=None)
+    _create_template_and_session(
+        repo,
+        template_id="tmpl_regular_cost",
+        session_id="sess_regular_cost",
+        turn_budget=4,
+    )
+
+    assert service.estimate_advance_llm_operation_cost(
+        "sess_regular_cost",
+        player_user_id="local-dev",
+    ) == 2
 
 
 def test_advance_quota_estimate_reserves_gauntlet_failure_path(tmp_path) -> None:
@@ -152,4 +171,23 @@ def test_advance_quota_estimate_reserves_gauntlet_failure_path(tmp_path) -> None
     assert service.estimate_advance_llm_operation_cost(
         "sess_gauntlet_cost",
         player_user_id="local-dev",
-    ) == 5
+    ) == 7
+
+
+def test_advance_validation_rejects_out_of_range_option_before_llm(tmp_path) -> None:
+    repo = NarrativeRepository(str(tmp_path / "runtime.sqlite3"))
+    service = NarrativeService(repository=repo, gateway=None)
+    _create_template_and_session(
+        repo,
+        template_id="tmpl_invalid_action",
+        session_id="sess_invalid_action",
+    )
+
+    with pytest.raises(NarrativeServiceError) as excinfo:
+        service.validate_advance_request(
+            "sess_invalid_action",
+            AdvanceTurnRequest(chosen_option_index=99),
+            player_user_id="local-dev",
+        )
+
+    assert excinfo.value.code == "option_out_of_range"

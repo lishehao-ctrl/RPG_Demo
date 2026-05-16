@@ -36,6 +36,8 @@ class HttpProductSmokeConfig:
     request_timeout_seconds: float
     output_path: Path | None
     include_benchmark_diagnostics: bool
+    template_id: str | None
+    use_first_public_template: bool
     turn_budget: int = DEFAULT_TURN_BUDGET
     advisor_question: str = DEFAULT_ADVISOR_QUESTION
 
@@ -52,6 +54,15 @@ def parse_args(argv: list[str] | None = None) -> HttpProductSmokeConfig:
     parser.add_argument("--request-timeout-seconds", type=float, default=DEFAULT_REQUEST_TIMEOUT_SECONDS)
     parser.add_argument("--output-path")
     parser.add_argument(
+        "--template-id",
+        help="Use an existing public template and skip template creation. Useful when authoring is disabled.",
+    )
+    parser.add_argument(
+        "--use-first-public-template",
+        action="store_true",
+        help="Pick the first public template and skip template creation. Useful when authoring is disabled.",
+    )
+    parser.add_argument(
         "--include-benchmark-diagnostics",
         action="store_true",
         help="Accepted for backwards compatibility; the current narrative core has no benchmark endpoint.",
@@ -66,6 +77,8 @@ def parse_args(argv: list[str] | None = None) -> HttpProductSmokeConfig:
         request_timeout_seconds=max(float(args.request_timeout_seconds), 1.0),
         output_path=Path(args.output_path).expanduser().resolve() if args.output_path else None,
         include_benchmark_diagnostics=bool(args.include_benchmark_diagnostics),
+        template_id=str(args.template_id).strip() if args.template_id else None,
+        use_first_public_template=bool(args.use_first_public_template),
         turn_budget=max(4, min(int(args.turn_budget), 12)),
         advisor_question=str(args.advisor_question),
     )
@@ -188,29 +201,68 @@ def run_http_product_smoke(config: HttpProductSmokeConfig) -> dict[str, Any]:
         summary["steps"]["auth"] = {"authenticated": bool(auth_payload.get("authenticated"))}
         summary["contracts"]["auth_user_present"] = isinstance(auth_payload.get("user"), dict)
 
-        create_payload, create_elapsed = _request_json(
-            session,
-            "POST",
-            f"{config.base_url}/narrative/templates",
-            request_timeout_seconds=max(config.request_timeout_seconds, 120.0),
-            json={
-                "seed": config.prompt_seed,
-                "visibility": "public",
-                "turn_budget": config.turn_budget,
-                "difficulty": "story",
-                "language": "en",
-            },
-        )
-        template = dict(create_payload.get("template") or {})
-        owner_session = dict(create_payload.get("session") or {})
-        opening = dict(create_payload.get("opening") or {})
-        template_id = str(template["template_id"])
+        uses_existing_template = config.template_id is not None or config.use_first_public_template
+        if config.template_id is not None:
+            template_id = config.template_id
+            summary["steps"]["template_source"] = {
+                "mode": "existing_template_id",
+                "template_id": template_id,
+            }
+            summary["steps"]["create_template"] = {
+                "skipped": True,
+                "reason": "using_existing_template",
+            }
+        elif config.use_first_public_template:
+            list_payload, list_elapsed = _request_json(
+                session,
+                "GET",
+                f"{config.base_url}/narrative/templates",
+                request_timeout_seconds=config.request_timeout_seconds,
+            )
+            public_templates = list(list_payload.get("items") or [])
+            if not public_templates:
+                raise RuntimeError(
+                    "No public narrative templates found. Seed one before running "
+                    "--use-first-public-template, or run without that flag while authoring is enabled."
+                )
+            first_template = dict(public_templates[0])
+            template_id = str(first_template.get("template_id") or "")
+            if not template_id:
+                raise RuntimeError("First public template did not include template_id")
+            summary["steps"]["list_templates"] = {
+                "elapsed_seconds": list_elapsed,
+                "count": len(public_templates),
+            }
+            summary["steps"]["template_source"] = {
+                "mode": "first_public_template",
+                "template_id": template_id,
+            }
+            summary["steps"]["create_template"] = {
+                "skipped": True,
+                "reason": "using_first_public_template",
+            }
+        else:
+            create_payload, create_elapsed = _request_json(
+                session,
+                "POST",
+                f"{config.base_url}/narrative/templates",
+                request_timeout_seconds=max(config.request_timeout_seconds, 120.0),
+                json={
+                    "seed": config.prompt_seed,
+                    "visibility": "public",
+                    "turn_budget": config.turn_budget,
+                    "difficulty": "story",
+                    "language": "en",
+                },
+            )
+            created_template = dict(create_payload.get("template") or {})
+            owner_session = dict(create_payload.get("session") or {})
+            template_id = str(created_template["template_id"])
+            summary["ids"]["owner_session_id"] = owner_session.get("session_id")
+            summary["steps"]["create_template"] = {"elapsed_seconds": create_elapsed}
+            summary["contracts"]["template_language_en"] = created_template.get("language") == "en"
+
         summary["ids"]["template_id"] = template_id
-        summary["ids"]["owner_session_id"] = owner_session.get("session_id")
-        summary["steps"]["create_template"] = {"elapsed_seconds": create_elapsed}
-        summary["contracts"]["template_language_en"] = template.get("language") == "en"
-        summary["contracts"]["opening_has_options"] = bool(opening.get("options"))
-        summary["contracts"]["template_has_role_cards"] = bool(template.get("player_role_options"))
 
         detail_payload, detail_elapsed = _request_json(
             session,
@@ -218,8 +270,12 @@ def run_http_product_smoke(config: HttpProductSmokeConfig) -> dict[str, Any]:
             f"{config.base_url}/narrative/templates/{template_id}",
             request_timeout_seconds=config.request_timeout_seconds,
         )
+        template = dict(detail_payload)
         summary["steps"]["template_detail"] = {"elapsed_seconds": detail_elapsed}
         summary["contracts"]["detail_matches_template"] = detail_payload.get("template_id") == template_id
+        if uses_existing_template:
+            summary["contracts"]["template_language_known"] = template.get("language") in {"en", "zh"}
+        summary["contracts"]["template_has_role_cards"] = bool(template.get("player_role_options"))
 
         fork_payload, fork_elapsed = _request_json(
             session,
@@ -229,11 +285,13 @@ def run_http_product_smoke(config: HttpProductSmokeConfig) -> dict[str, Any]:
             json={"turn_budget": config.turn_budget, "difficulty": "story", "player_role_index": 1},
         )
         fork_session = dict(fork_payload.get("session") or {})
+        opening = dict(fork_payload.get("opening") or {})
         session_id = str(fork_session["session_id"])
         summary["ids"]["session_id"] = session_id
         summary["steps"]["start_session"] = {"elapsed_seconds": fork_elapsed}
         summary["contracts"]["fork_keeps_template_id"] = fork_session.get("template_id") == template_id
         summary["contracts"]["fork_has_role"] = isinstance(fork_session.get("player_role"), dict)
+        summary["contracts"]["opening_has_options"] = bool(opening.get("options"))
 
         for turn_number in range(1, config.turn_budget + 1):
             turn_payload, turn_elapsed = _advance_turn(

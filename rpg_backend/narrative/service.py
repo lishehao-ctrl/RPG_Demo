@@ -448,6 +448,39 @@ class NarrativeService:
             is_complete=ending_payload is not None,
         )
 
+    def validate_advance_request(
+        self,
+        session_id: str,
+        request: AdvanceTurnRequest,
+        *,
+        player_user_id: str,
+    ) -> None:
+        """Validate non-LLM turn semantics before public quota is debited."""
+        session = self._load_session_for_player(session_id, player_user_id)
+        if session.ending_label is not None:
+            raise NarrativeServiceError(
+                code="session_complete",
+                message="这一局故事已经走完了——去看你的结局吧。",
+                status_code=409,
+            )
+        history = self._repo.list_story_messages(session_id)
+        if not history:
+            raise NarrativeServiceError(
+                code="no_opening", message="Story has no opening yet.", status_code=409
+            )
+        last_narrator = next((m for m in reversed(history) if m.role == "narrator"), None)
+        if last_narrator is None:
+            raise NarrativeServiceError(
+                code="no_narrator", message="No narrator message in history.", status_code=409
+            )
+        if last_narrator.chosen_option_index is not None and history[-1].role == "player":
+            raise NarrativeServiceError(
+                code="turn_already_advanced",
+                message="The last narrator beat already has a player choice; refresh and continue.",
+                status_code=409,
+            )
+        self._resolve_player_action(request, last_narrator)
+
     def estimate_advance_llm_operation_cost(
         self,
         session_id: str,
@@ -472,12 +505,16 @@ class NarrativeService:
         upcoming_turn_index = session.turn_count + 1
         is_final_turn = upcoming_turn_index >= session.turn_budget
         if is_final_turn:
-            # advance_turn + ending + highlights + branches
-            return 4
+            # advance_turn can retry once, ending can retry once, highlights
+            # runs once, and branches can retry once: 2 + 2 + 1 + 2.
+            return 7
         if session.difficulty == "gauntlet" and template.failure_conditions:
-            # advance_turn + judge_failure + possible early ending/highlights/branches
-            return 5
-        return 1
+            # Non-final gauntlet turns may advance with one retry, judge
+            # failure, then synthesize an early ending, highlights, and up to
+            # two branch attempts: 2 + 1 + 1 + 1 + 2.
+            return 7
+        # Regular turns still reserve the advance_turn retry path.
+        return 2
 
     def _finalize_session(
         self,

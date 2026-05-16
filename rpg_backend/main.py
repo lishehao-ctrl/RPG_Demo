@@ -622,6 +622,11 @@ def advance_narrative_turn(
     request: Request,
     user=Depends(get_required_request_user),
 ) -> AdvanceTurnResponse:
+    narrative_service.validate_advance_request(
+        session_id,
+        payload,
+        player_user_id=user.user_id,
+    )
     operation_cost = narrative_service.estimate_advance_llm_operation_cost(
         session_id,
         player_user_id=user.user_id,

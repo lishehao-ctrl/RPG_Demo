@@ -71,6 +71,6 @@ The public demo is deliberately demo-grade:
 - Username-only auth is used for portfolio friction, not account security.
 - Anonymous visitors can browse public content, start/fork play sessions, and view replay links.
 - Write paths require a real session: story/template creation, publishing, visibility changes, deletes, and `/me/*`.
-- LLM calls are guarded by `APP_PUBLIC_DEMO_DAILY_IP_LLM_LIMIT` and `APP_PUBLIC_DEMO_DAILY_USER_LLM_LIMIT`.
+- LLM calls are guarded by `APP_PUBLIC_DEMO_DAILY_IP_LLM_LIMIT` and `APP_PUBLIC_DEMO_DAILY_USER_LLM_LIMIT`; forwarded client IP headers are only trusted from `APP_TRUSTED_PROXY_IPS`.
 - Benchmark diagnostics remain disabled unless `APP_ENABLE_BENCHMARK_API=1`.
 - SQLite is supported for the single-process deployment described in `deploy/aws_ubuntu/DEPLOY.md`; multi-instance production would need shared locks and centralized counters.

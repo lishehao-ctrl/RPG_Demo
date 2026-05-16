@@ -125,6 +125,37 @@ def test_client_ip_key_prefers_nginx_real_ip_over_spoofed_forwarded_for() -> Non
     assert main_module._client_ip_key(request) == "203.0.113.8"
 
 
+def test_client_ip_key_ignores_forwarded_headers_from_untrusted_peer(monkeypatch) -> None:
+    monkeypatch.setenv("APP_TRUSTED_PROXY_IPS", "127.0.0.1,::1")
+    get_settings.cache_clear()
+    try:
+        request = _request_with_headers(
+            [
+                (b"x-forwarded-for", b"198.51.100.250, 203.0.113.8"),
+                (b"x-real-ip", b"203.0.113.8"),
+            ],
+            client_host="198.51.100.10",
+        )
+
+        assert main_module._client_ip_key(request) == "198.51.100.10"
+    finally:
+        get_settings.cache_clear()
+
+
+def test_client_ip_key_honors_forwarded_headers_from_cidr_trusted_proxy(monkeypatch) -> None:
+    monkeypatch.setenv("APP_TRUSTED_PROXY_IPS", "10.0.0.0/8")
+    get_settings.cache_clear()
+    try:
+        request = _request_with_headers(
+            [(b"x-real-ip", b"203.0.113.8")],
+            client_host="10.12.3.4",
+        )
+
+        assert main_module._client_ip_key(request) == "203.0.113.8"
+    finally:
+        get_settings.cache_clear()
+
+
 def test_client_ip_key_uses_trusted_proxy_side_of_forwarded_chain() -> None:
     request = _request_with_headers(
         [(b"x-forwarded-for", b"198.51.100.250, 203.0.113.9")]

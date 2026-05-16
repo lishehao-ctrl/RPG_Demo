@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import ipaddress
+
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 
@@ -89,16 +91,41 @@ def _require_authoring_enabled() -> None:
         raise HTTPException(status_code=404, detail="Not found")
 
 
+def _is_trusted_proxy_peer(peer_host: str | None) -> bool:
+    if not peer_host:
+        return False
+
+    try:
+        peer_ip = ipaddress.ip_address(peer_host)
+    except ValueError:
+        peer_ip = None
+
+    for raw_entry in get_settings().trusted_proxy_ips.split(","):
+        entry = raw_entry.strip()
+        if not entry:
+            continue
+        if entry == peer_host:
+            return True
+        if peer_ip is None:
+            continue
+        try:
+            if peer_ip in ipaddress.ip_network(entry, strict=False):
+                return True
+        except ValueError:
+            continue
+    return False
+
+
 def _client_ip_key(request: Request) -> str:
-    real_ip = request.headers.get("x-real-ip")
-    if real_ip and real_ip.strip():
-        return real_ip.strip()
-    forwarded_for = request.headers.get("x-forwarded-for")
-    if forwarded_for:
-        return forwarded_for.rsplit(",", 1)[-1].strip() or "unknown"
-    if request.client is None:
-        return "unknown"
-    return request.client.host or "unknown"
+    peer_host = request.client.host if request.client is not None else None
+    if _is_trusted_proxy_peer(peer_host):
+        real_ip = request.headers.get("x-real-ip")
+        if real_ip and real_ip.strip():
+            return real_ip.strip()
+        forwarded_for = request.headers.get("x-forwarded-for")
+        if forwarded_for:
+            return forwarded_for.rsplit(",", 1)[-1].strip() or peer_host or "unknown"
+    return peer_host or "unknown"
 
 
 def _llm_user_quota_key(user_id: str) -> str | None:

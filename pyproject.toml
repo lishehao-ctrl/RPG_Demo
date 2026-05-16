@@ -40,10 +40,10 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/your-handle/tiny-stories"
-Repository = "https://github.com/your-handle/tiny-stories"
-Issues = "https://github.com/your-handle/tiny-stories/issues"
-Architecture = "https://github.com/your-handle/tiny-stories/blob/main/ARCHITECTURE.md"
+Homepage = "https://lishehao.github.io/RPG_Demo/"
+Repository = "https://github.com/lishehao/RPG_Demo"
+Issues = "https://github.com/lishehao/RPG_Demo/issues"
+Architecture = "https://github.com/lishehao/RPG_Demo/blob/main/ARCHITECTURE.md"
 
 [project.optional-dependencies]
 dev = [

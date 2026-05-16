@@ -448,6 +448,74 @@ class NarrativeService:
             is_complete=ending_payload is not None,
         )
 
+    def validate_advance_request(
+        self,
+        session_id: str,
+        request: AdvanceTurnRequest,
+        *,
+        player_user_id: str,
+    ) -> None:
+        """Validate non-LLM turn semantics before public quota is debited."""
+        session = self._load_session_for_player(session_id, player_user_id)
+        if session.ending_label is not None:
+            raise NarrativeServiceError(
+                code="session_complete",
+                message="这一局故事已经走完了——去看你的结局吧。",
+                status_code=409,
+            )
+        history = self._repo.list_story_messages(session_id)
+        if not history:
+            raise NarrativeServiceError(
+                code="no_opening", message="Story has no opening yet.", status_code=409
+            )
+        last_narrator = next((m for m in reversed(history) if m.role == "narrator"), None)
+        if last_narrator is None:
+            raise NarrativeServiceError(
+                code="no_narrator", message="No narrator message in history.", status_code=409
+            )
+        if last_narrator.chosen_option_index is not None and history[-1].role == "player":
+            raise NarrativeServiceError(
+                code="turn_already_advanced",
+                message="The last narrator beat already has a player choice; refresh and continue.",
+                status_code=409,
+            )
+        self._resolve_player_action(request, last_narrator)
+
+    def estimate_advance_llm_operation_cost(
+        self,
+        session_id: str,
+        *,
+        player_user_id: str,
+    ) -> int:
+        """Conservative quota reservation for one advance request.
+
+        The actual LLM calls happen below the HTTP route, inside the narrative
+        engine. Public demo quota therefore reserves the maximum plausible
+        calls before invoking the service so finalization cannot bypass the
+        daily cap.
+        """
+        session = self._load_session_for_player(session_id, player_user_id)
+        if session.ending_label is not None:
+            raise NarrativeServiceError(
+                code="session_complete",
+                message="这一局故事已经走完了——去看你的结局吧。",
+                status_code=409,
+            )
+        template = self._repo.get_template(session.template_id)
+        upcoming_turn_index = session.turn_count + 1
+        is_final_turn = upcoming_turn_index >= session.turn_budget
+        if is_final_turn:
+            # advance_turn can retry once, ending can retry once, highlights
+            # runs once, and branches can retry once: 2 + 2 + 1 + 2.
+            return 7
+        if session.difficulty == "gauntlet" and template.failure_conditions:
+            # Non-final gauntlet turns may advance with one retry, judge
+            # failure, then synthesize an early ending, highlights, and up to
+            # two branch attempts: 2 + 1 + 1 + 1 + 2.
+            return 7
+        # Regular turns still reserve the advance_turn retry path.
+        return 2
+
     def _finalize_session(
         self,
         session_id: str,
@@ -521,6 +589,7 @@ class NarrativeService:
             highlights=highlights or None,
             branches=branches or None,
         )
+        completed_session = self._repo.get_session(session_id)
         _emit_metric(
             "session_completed",
             session_id=session_id,
@@ -528,6 +597,8 @@ class NarrativeService:
             ending_label=result.label,
             tier=tier,
             early=0,
+            turn_count=completed_session.turn_count,
+            turn_budget=completed_session.turn_budget,
             num_highlights=len(highlights),
             num_branches=len(branches),
         )
@@ -618,6 +689,7 @@ class NarrativeService:
             highlights=highlights or None,
             branches=branches or None,
         )
+        completed_session = self._repo.get_session(session_id)
         _emit_metric(
             "session_completed",
             session_id=session_id,
@@ -626,6 +698,8 @@ class NarrativeService:
             tier=tier,
             early=1,
             trigger=failure_trigger,
+            turn_count=completed_session.turn_count,
+            turn_budget=completed_session.turn_budget,
             num_highlights=len(highlights),
             num_branches=len(branches),
         )
@@ -678,9 +752,6 @@ class NarrativeService:
         )
 
     def get_public_replay(self, session_id: str) -> PublicReplayResponse:
-        # Emit a metric so we can see how often replays are viewed —
-        # proxy for share virality.
-        _emit_metric("replay_viewed", session_id=session_id)
         """Public, auth-free read of a completed (or in-progress) session.
 
         Anyone with the session_id URL can see the full playthrough — that's
@@ -693,6 +764,12 @@ class NarrativeService:
                 message=f"Narrative session not found: {session_id}",
                 status_code=404,
             ) from exc
+        _emit_metric(
+            "replay_viewed",
+            session_id=session_id,
+            template_id=session.template_id,
+            completed=int(session.ending_label is not None),
+        )
         try:
             template = self._repo.get_template(session.template_id)
         except NarrativeNotFoundError as exc:
@@ -720,6 +797,8 @@ class NarrativeService:
             )
         return PublicReplayResponse(
             session_id=session.session_id,
+            template_id=session.template_id,
+            template_forkable=template.visibility != "private",
             template_title=template.title,
             template_seed=template.seed,
             cast=template.cast,
@@ -840,6 +919,12 @@ class NarrativeService:
                 template_id=template.template_id,
                 new_budget=new_budget,
             )
+        _emit_metric(
+            "advisor_used",
+            session_id=session_id,
+            template_id=template.template_id,
+            oracle=int(is_oracle),
+        )
 
         return AdvisorAskResponse(
             player_message=player_message,

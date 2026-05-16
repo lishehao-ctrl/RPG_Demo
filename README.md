@@ -20,6 +20,8 @@
   · <a href="./docs/demo-video/tiny-stories-admissions-demo-readme.mp4">MP4</a>
   · <a href="#innovation">Innovation</a>
   · <a href="#architecture">Architecture</a>
+  · <a href="./docs/CURRENT_SYSTEM_MAP.md">System map</a>
+  · <a href="./docs/CASE_STUDY.md">Case study</a>
   · <a href="#run-locally">Run locally</a>
   · <a href="./README.zh.md">中文</a>
 </p>
@@ -85,6 +87,9 @@ LLM writes prose, but the interesting work is the runtime around it:
 typed contracts, deterministic schedulers, persisted state, visible
 inspection surfaces, and a final artifact generated from the path
 actually played.
+
+For the current active chain versus legacy experimental folders, see
+[Current System Map](./docs/CURRENT_SYSTEM_MAP.md).
 
 ---
 
@@ -192,6 +197,7 @@ Each turn follows the same control pattern:
 | Runtime orchestration | `rpg_backend/narrative/engine.py` |
 | Persistence | `rpg_backend/narrative/repository.py` |
 | HTTP/session flow | `rpg_backend/narrative/service.py`, `rpg_backend/main.py` |
+| Auth, quota, migration safety | `rpg_backend/main.py`, `rpg_backend/quotas.py`, `rpg_backend/auth/storage.py`, `rpg_backend/library/storage.py` |
 | Play UI | `frontend2/src/pages/play/play-page.tsx` |
 | Reviewer layer | `frontend2/src/pages/portfolio/` |
 | Programmatic demo | `remotion-demo/src/AdmissionsDemoTrailer.tsx` |
@@ -208,6 +214,9 @@ Key engineering decisions:
   have different authority and context.
 - **Reviewer observability**: the portfolio path exposes runtime state
   that a normal player does not need to see.
+- **Demo safety rails**: anonymous visitors can browse and play shared
+  sessions, while authoring/write routes require a real session; public
+  deployments can disable authoring and enforce per-IP/per-user LLM quotas.
 
 ---
 
@@ -244,6 +253,7 @@ Open `http://localhost:5173`. For the curated portfolio path, open
 Useful checks:
 
 ```bash
+python tools/narrative_release_gate.py --mode fake
 pytest -q
 
 cd frontend2
@@ -253,6 +263,13 @@ npm run build
 cd ../remotion-demo
 npm run check
 npm run render:admissions
+```
+
+For a configured live backend, the HTTP smoke follows the same current
+`/narrative/*` product path:
+
+```bash
+python tools/http_product_smoke.py --base-url http://127.0.0.1:8000
 ```
 
 ---

@@ -73,6 +73,257 @@ def test_logged_out_can_read_public_stories(tmp_path) -> None:
     assert public_detail.status_code == 200
 
 
+def test_logged_out_cannot_create_narrative_template() -> None:
+    client = TestClient(app)
+    response = client.post(
+        "/narrative/templates",
+        json={"seed": "A reviewer finds a hidden palace audit log."},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "auth_session_required"
+
+
+def test_authoring_disabled_blocks_signed_in_narrative_template_create(monkeypatch) -> None:
+    monkeypatch.setenv("APP_PUBLIC_DEMO_AUTHORING_ENABLED", "false")
+    main_module.get_settings.cache_clear()
+    client = TestClient(app)
+    try:
+        ensure_authenticated_client(client, display_name="AuthoringOff")
+        response = client.post(
+            "/narrative/templates",
+            json={"seed": "A reviewer finds a hidden palace audit log."},
+        )
+    finally:
+        main_module.get_settings.cache_clear()
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Not found"
+
+
+def test_quota_error_uses_frontend_error_envelope(monkeypatch) -> None:
+    monkeypatch.setenv("APP_PUBLIC_DEMO_DAILY_IP_LLM_LIMIT", "2")
+    monkeypatch.setenv("APP_PUBLIC_DEMO_DAILY_USER_LLM_LIMIT", "2")
+    main_module.get_settings.cache_clear()
+    original_limiter = main_module.llm_quota_limiter
+    main_module.llm_quota_limiter = main_module.DailyQuotaLimiter()
+    client = TestClient(app)
+    try:
+        ensure_authenticated_client(client, display_name="QuotaEnvelope")
+        response = client.post(
+            "/narrative/templates",
+            json={"seed": "A reviewer finds a hidden palace audit log."},
+        )
+    finally:
+        main_module.llm_quota_limiter = original_limiter
+        main_module.get_settings.cache_clear()
+
+    assert response.status_code == 429
+    assert response.json()["error"]["code"] == "ip_llm_quota_exceeded"
+
+
+def test_whitespace_template_seed_rejected_before_quota_debit() -> None:
+    original_limiter = main_module.llm_quota_limiter
+    test_limiter = main_module.DailyQuotaLimiter()
+    main_module.llm_quota_limiter = test_limiter
+    client = TestClient(app)
+    try:
+        ensure_authenticated_client(client, display_name="BlankSeed")
+        response = client.post("/narrative/templates", json={"seed": "   "})
+    finally:
+        main_module.llm_quota_limiter = original_limiter
+
+    assert response.status_code == 422
+    assert test_limiter._counts == {}
+
+
+def test_whitespace_advisor_question_rejected_before_quota_debit() -> None:
+    original_limiter = main_module.llm_quota_limiter
+    test_limiter = main_module.DailyQuotaLimiter()
+    main_module.llm_quota_limiter = test_limiter
+    client = TestClient(app)
+    try:
+        ensure_authenticated_client(client, display_name="BlankAdvisor")
+        response = client.post(
+            "/narrative/sessions/session_blank/advisor",
+            json={"question": "   "},
+        )
+    finally:
+        main_module.llm_quota_limiter = original_limiter
+
+    assert response.status_code == 422
+    assert test_limiter._counts == {}
+
+
+def test_invalid_turn_validation_runs_before_quota_debit(monkeypatch) -> None:
+    class RejectingNarrativeService:
+        estimated = False
+        advanced = False
+
+        def validate_advance_request(self, *_args, **_kwargs) -> None:
+            raise main_module.NarrativeServiceError(
+                code="option_out_of_range",
+                message="chosen_option_index 99 is out of range.",
+                status_code=422,
+            )
+
+        def estimate_advance_llm_operation_cost(self, *_args, **_kwargs) -> int:
+            self.estimated = True
+            return 1
+
+        def advance(self, *_args, **_kwargs):  # noqa: ANN202
+            self.advanced = True
+            raise AssertionError("advance should not run for invalid input")
+
+    monkeypatch.setenv("APP_PUBLIC_DEMO_DAILY_IP_LLM_LIMIT", "1")
+    monkeypatch.setenv("APP_PUBLIC_DEMO_DAILY_USER_LLM_LIMIT", "1")
+    main_module.get_settings.cache_clear()
+    original_service = main_module.narrative_service
+    original_limiter = main_module.llm_quota_limiter
+    fake_service = RejectingNarrativeService()
+    test_limiter = main_module.DailyQuotaLimiter()
+    main_module.narrative_service = fake_service
+    main_module.llm_quota_limiter = test_limiter
+    client = TestClient(app)
+    try:
+        ensure_authenticated_client(client, display_name="InvalidBeforeQuota")
+        response = client.post(
+            "/narrative/sessions/sess_invalid/story/turns",
+            json={"chosen_option_index": 99},
+        )
+    finally:
+        main_module.narrative_service = original_service
+        main_module.llm_quota_limiter = original_limiter
+        main_module.get_settings.cache_clear()
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "option_out_of_range"
+    assert fake_service.estimated is False
+    assert fake_service.advanced is False
+    assert test_limiter._counts == {}
+
+
+def test_author_job_reserves_full_pipeline_quota(monkeypatch) -> None:
+    class FakeAuthorService:
+        called = False
+
+        def create_job(self, *_args, **_kwargs):  # noqa: ANN202
+            self.called = True
+            raise AssertionError("author job should not start when full quota is unavailable")
+
+    monkeypatch.setenv("APP_PUBLIC_DEMO_DAILY_IP_LLM_LIMIT", "6")
+    monkeypatch.setenv("APP_PUBLIC_DEMO_DAILY_USER_LLM_LIMIT", "6")
+    main_module.get_settings.cache_clear()
+    original_limiter = main_module.llm_quota_limiter
+    original_author_service = main_module.author_job_service
+    test_limiter = main_module.DailyQuotaLimiter()
+    fake_service = FakeAuthorService()
+    main_module.llm_quota_limiter = test_limiter
+    main_module.author_job_service = fake_service
+    client = TestClient(app)
+    try:
+        ensure_authenticated_client(client, display_name="AuthorQuota")
+        response = client.post("/author/jobs", json={"prompt_seed": "seed"})
+    finally:
+        main_module.llm_quota_limiter = original_limiter
+        main_module.author_job_service = original_author_service
+        main_module.get_settings.cache_clear()
+
+    assert response.status_code == 429
+    assert response.json()["error"]["code"] == "ip_llm_quota_exceeded"
+    assert fake_service.called is False
+    assert test_limiter._counts == {}
+
+
+def test_author_preview_reserves_retry_quota(monkeypatch) -> None:
+    class FakeAuthorService:
+        called = False
+
+        def create_preview(self, *_args, **_kwargs):  # noqa: ANN202
+            self.called = True
+            raise AssertionError("preview should not start when retry quota is unavailable")
+
+    monkeypatch.setenv("APP_PUBLIC_DEMO_DAILY_IP_LLM_LIMIT", "2")
+    monkeypatch.setenv("APP_PUBLIC_DEMO_DAILY_USER_LLM_LIMIT", "2")
+    main_module.get_settings.cache_clear()
+    original_limiter = main_module.llm_quota_limiter
+    original_author_service = main_module.author_job_service
+    test_limiter = main_module.DailyQuotaLimiter()
+    fake_service = FakeAuthorService()
+    main_module.llm_quota_limiter = test_limiter
+    main_module.author_job_service = fake_service
+    client = TestClient(app)
+    try:
+        ensure_authenticated_client(client, display_name="PreviewQuota")
+        response = client.post("/author/story-previews", json={"prompt_seed": "seed"})
+    finally:
+        main_module.llm_quota_limiter = original_limiter
+        main_module.author_job_service = original_author_service
+        main_module.get_settings.cache_clear()
+
+    assert response.status_code == 429
+    assert response.json()["error"]["code"] == "ip_llm_quota_exceeded"
+    assert fake_service.called is False
+    assert test_limiter._counts == {}
+
+
+def test_author_job_without_preview_reserves_preview_and_pipeline_quota(monkeypatch) -> None:
+    class FakeAuthorService:
+        called = False
+
+        def create_job(self, *_args, **_kwargs):  # noqa: ANN202
+            self.called = True
+            raise AssertionError("direct job should not start when preview plus pipeline quota is unavailable")
+
+    monkeypatch.setenv("APP_PUBLIC_DEMO_DAILY_IP_LLM_LIMIT", "9")
+    monkeypatch.setenv("APP_PUBLIC_DEMO_DAILY_USER_LLM_LIMIT", "9")
+    main_module.get_settings.cache_clear()
+    original_limiter = main_module.llm_quota_limiter
+    original_author_service = main_module.author_job_service
+    test_limiter = main_module.DailyQuotaLimiter()
+    fake_service = FakeAuthorService()
+    main_module.llm_quota_limiter = test_limiter
+    main_module.author_job_service = fake_service
+    client = TestClient(app)
+    try:
+        ensure_authenticated_client(client, display_name="DirectJobQuota")
+        response = client.post("/author/jobs", json={"prompt_seed": "seed"})
+    finally:
+        main_module.llm_quota_limiter = original_limiter
+        main_module.author_job_service = original_author_service
+        main_module.get_settings.cache_clear()
+
+    assert response.status_code == 429
+    assert response.json()["error"]["code"] == "ip_llm_quota_exceeded"
+    assert fake_service.called is False
+    assert test_limiter._counts == {}
+
+
+def test_logged_out_cannot_mutate_story_visibility(tmp_path) -> None:
+    source = _publish_source("job-auth-mutate")
+    library_service = StoryLibraryService(SQLiteStoryLibraryStorage(str(tmp_path / "stories.sqlite3")))
+    original_author_service = main_module.author_job_service
+    original_library_service = main_module.story_library_service
+    main_module.author_job_service = _FakeAuthorJobService(source)
+    main_module.story_library_service = library_service
+    owner_client = TestClient(app)
+    anon_client = TestClient(app)
+    try:
+        ensure_authenticated_client(owner_client, display_name="Mutation Owner")
+        published = owner_client.post(f"/author/jobs/{source.source_job_id}/publish?visibility=public")
+        response = anon_client.patch(
+            f"/stories/{published.json()['story_id']}/visibility",
+            json={"visibility": "private"},
+        )
+    finally:
+        main_module.author_job_service = original_author_service
+        main_module.story_library_service = original_library_service
+
+    assert published.status_code == 200
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "auth_session_required"
+
+
 def test_logged_out_cannot_read_private_story_detail(tmp_path) -> None:
     source = _publish_source("job-auth-private")
     library_service = StoryLibraryService(SQLiteStoryLibraryStorage(str(tmp_path / "stories.sqlite3")))

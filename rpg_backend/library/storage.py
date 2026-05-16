@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import json
 import re
 import sqlite3
@@ -88,6 +89,7 @@ class SQLiteStoryLibraryStorage:
             )
             """
         )
+        self._ensure_migration_archive(connection)
         self._migrate_story_columns(connection)
         self._purge_non_v2_records(connection)
         self._backfill_owner_visibility(connection)
@@ -111,12 +113,85 @@ class SQLiteStoryLibraryStorage:
         self._ensure_search_index(connection)
         connection.commit()
 
+    def _ensure_migration_archive(self, connection: sqlite3.Connection) -> None:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS published_story_migration_archive (
+                archive_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                story_id TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                archived_at TEXT NOT NULL,
+                row_json TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_published_story_archive_story_id
+            ON published_story_migration_archive (story_id, archived_at DESC)
+            """
+        )
+
+    @staticmethod
+    def _row_to_archive_payload(row: sqlite3.Row) -> str:
+        return json.dumps({key: row[key] for key in row.keys()}, ensure_ascii=False)
+
+    def _archive_and_remove_story_ids(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        story_ids: list[str],
+        reason: str,
+    ) -> None:
+        if not story_ids:
+            return
+        archived_at = datetime.now(timezone.utc).isoformat()
+        for start in range(0, len(story_ids), 500):
+            batch_ids = story_ids[start : start + 500]
+            rows_by_id = {
+                str(row["story_id"]): row
+                for row in connection.execute(
+                    """
+                    SELECT *
+                    FROM published_stories
+                    WHERE story_id IN ({})
+                    """.format(",".join("?" for _ in batch_ids)),
+                    batch_ids,
+                ).fetchall()
+            }
+            archive_rows = [
+                (story_id, reason, archived_at, self._row_to_archive_payload(row))
+                for story_id, row in rows_by_id.items()
+            ]
+            if archive_rows:
+                connection.executemany(
+                    """
+                    INSERT INTO published_story_migration_archive (
+                        story_id, reason, archived_at, row_json
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    archive_rows,
+                )
+        connection.executemany(
+            "DELETE FROM published_stories WHERE story_id = ?",
+            [(story_id,) for story_id in story_ids],
+        )
+        if self._fts_enabled:
+            try:
+                connection.executemany(
+                    "DELETE FROM published_story_search WHERE story_id = ?",
+                    [(story_id,) for story_id in story_ids],
+                )
+            except sqlite3.OperationalError:
+                self._fts_enabled = False
+
     def _purge_unreadable_records(self, connection: sqlite3.Connection) -> None:
-        """Delete rows whose bundle no longer validates against the current package shape.
+        """Archive rows whose bundle no longer validates against the current package shape.
 
         Pre-pivot stories accumulate as the contract evolves; the list endpoint
         skips them at read time, but they still inflate `total` and clutter
-        searches. Run once on schema migration to prune them definitively.
+        searches. We remove them from the active table only after writing the
+        full row into published_story_migration_archive.
         """
         rows = connection.execute("SELECT story_id, bundle_json FROM published_stories").fetchall()
         bad_ids: list[str] = []
@@ -131,18 +206,11 @@ class SQLiteStoryLibraryStorage:
                 bad_ids.append(str(row["story_id"]))
         if not bad_ids:
             return
-        connection.executemany(
-            "DELETE FROM published_stories WHERE story_id = ?",
-            [(story_id,) for story_id in bad_ids],
+        self._archive_and_remove_story_ids(
+            connection,
+            story_ids=bad_ids,
+            reason="unreadable_current_package",
         )
-        if self._fts_enabled:
-            try:
-                connection.executemany(
-                    "DELETE FROM published_story_search WHERE story_id = ?",
-                    [(story_id,) for story_id in bad_ids],
-                )
-            except sqlite3.OperationalError:
-                self._fts_enabled = False
 
     def _purge_non_v2_records(self, connection: sqlite3.Connection) -> None:
         story_rows = connection.execute(
@@ -155,18 +223,11 @@ class SQLiteStoryLibraryStorage:
         story_ids = [str(row["story_id"]) for row in story_rows]
         if not story_ids:
             return
-        connection.executemany(
-            "DELETE FROM published_stories WHERE story_id = ?",
-            [(story_id,) for story_id in story_ids],
+        self._archive_and_remove_story_ids(
+            connection,
+            story_ids=story_ids,
+            reason="non_relationship_drama_v2",
         )
-        if self._fts_enabled:
-            try:
-                connection.executemany(
-                    "DELETE FROM published_story_search WHERE story_id = ?",
-                    [(story_id,) for story_id in story_ids],
-                )
-            except sqlite3.OperationalError:
-                self._fts_enabled = False
 
     def _migrate_story_columns(self, connection: sqlite3.Connection) -> None:
         required_columns = {
@@ -978,17 +1039,10 @@ class SQLiteStoryLibraryStorage:
             story_ids = [str(row["story_id"]) for row in rows]
             if not story_ids:
                 return []
-            connection.executemany(
-                "DELETE FROM published_stories WHERE story_id = ?",
-                [(story_id,) for story_id in story_ids],
+            self._archive_and_remove_story_ids(
+                connection,
+                story_ids=story_ids,
+                reason="manual_non_relationship_drama_v2_cleanup",
             )
-            if self._fts_enabled:
-                try:
-                    connection.executemany(
-                        "DELETE FROM published_story_search WHERE story_id = ?",
-                        [(story_id,) for story_id in story_ids],
-                    )
-                except sqlite3.OperationalError:
-                    self._fts_enabled = False
             connection.commit()
             return story_ids

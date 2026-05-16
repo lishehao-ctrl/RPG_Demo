@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import ipaddress
+
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 
@@ -67,6 +69,7 @@ from rpg_backend.narrative.contracts import (
     UpdateTemplateVisibilityRequest,
 )
 from rpg_backend.narrative.service import NarrativeServiceError, get_narrative_service
+from rpg_backend.quotas import DailyQuotaLimiter, QuotaExceededError
 
 app = FastAPI(title="rpg-demo-rebuild")
 settings = get_settings()
@@ -75,11 +78,84 @@ author_job_service = ProductAuthorJobService(settings=settings)
 story_library_service = get_story_library_service(settings)
 play_session_service = PlaySessionService(story_library_service=story_library_service, settings=settings)
 narrative_service = get_narrative_service(settings)
+llm_quota_limiter = DailyQuotaLimiter()
+AUTHOR_PREVIEW_LLM_OPERATION_COST = 3
+AUTHOR_JOB_LLM_OPERATION_COST = 7
 
 
 def _require_benchmark_api() -> None:
     if not get_settings().enable_benchmark_api:
         raise HTTPException(status_code=404, detail="Not found")
+
+
+def _require_authoring_enabled() -> None:
+    if not get_settings().public_demo_authoring_enabled:
+        raise HTTPException(status_code=404, detail="Not found")
+
+
+def _is_trusted_proxy_peer(peer_host: str | None) -> bool:
+    if not peer_host:
+        return False
+
+    try:
+        peer_ip = ipaddress.ip_address(peer_host)
+    except ValueError:
+        peer_ip = None
+
+    for raw_entry in get_settings().trusted_proxy_ips.split(","):
+        entry = raw_entry.strip()
+        if not entry:
+            continue
+        if entry == peer_host:
+            return True
+        if peer_ip is None:
+            continue
+        try:
+            if peer_ip in ipaddress.ip_network(entry, strict=False):
+                return True
+        except ValueError:
+            continue
+    return False
+
+
+def _client_ip_key(request: Request) -> str:
+    peer_host = request.client.host if request.client is not None else None
+    if _is_trusted_proxy_peer(peer_host):
+        real_ip = request.headers.get("x-real-ip")
+        if real_ip and real_ip.strip():
+            return real_ip.strip()
+        forwarded_for = request.headers.get("x-forwarded-for")
+        if forwarded_for:
+            return forwarded_for.rsplit(",", 1)[-1].strip() or peer_host or "unknown"
+    return peer_host or "unknown"
+
+
+def _llm_user_quota_key(user_id: str) -> str | None:
+    anonymous_user_id = get_settings().default_actor_id or "anonymous"
+    if user_id == anonymous_user_id:
+        return None
+    return user_id
+
+
+def _enforce_llm_quota(request: Request, *, user_id: str, operation_cost: int = 1) -> None:
+    active_settings = get_settings()
+    llm_quota_limiter.check_and_increment(
+        ip_key=_client_ip_key(request),
+        user_key=_llm_user_quota_key(user_id),
+        ip_limit=active_settings.public_demo_daily_ip_llm_limit,
+        user_limit=active_settings.public_demo_daily_user_llm_limit,
+        amount=operation_cost,
+    )
+
+
+def _require_non_blank_llm_input(value: str, *, code: str, message: str) -> None:
+    if not value.strip():
+        raise NarrativeServiceError(code=code, message=message, status_code=422)
+
+
+def _author_job_llm_operation_cost(payload: AuthorJobCreateRequest) -> int:
+    preview_cost = 0 if payload.preview_id else AUTHOR_PREVIEW_LLM_OPERATION_COST
+    return AUTHOR_JOB_LLM_OPERATION_COST + preview_cost
 
 
 def _apply_session_cookie(response: Response, session: AuthenticatedSession) -> None:
@@ -186,6 +262,19 @@ def handle_narrative_error(_: Request, exc: NarrativeServiceError) -> JSONRespon
     )
 
 
+@app.exception_handler(QuotaExceededError)
+def handle_quota_error(_: Request, exc: QuotaExceededError) -> JSONResponse:
+    return JSONResponse(
+        status_code=429,
+        content={
+            "error": {
+                "code": f"{exc.scope}_llm_quota_exceeded",
+                "message": f"{exc.scope} daily LLM quota exceeded; try again tomorrow.",
+            }
+        },
+    )
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -232,32 +321,51 @@ def get_current_actor(user=Depends(get_required_request_user)) -> CurrentActorRe
 @app.post("/author/story-previews", response_model=AuthorPreviewResponse)
 def create_story_preview(
     payload: AuthorPreviewRequest,
-    user=Depends(get_required_request_user),
+    request: Request,
+    session: AuthenticatedSession = Depends(get_required_request_session),
 ) -> AuthorPreviewResponse:
-    return author_job_service.create_preview(payload, actor_user_id=user.user_id)
+    _require_authoring_enabled()
+    _enforce_llm_quota(
+        request,
+        user_id=session.user.user_id,
+        operation_cost=AUTHOR_PREVIEW_LLM_OPERATION_COST,
+    )
+    return author_job_service.create_preview(payload, actor_user_id=session.user.user_id)
 
 
 @app.post("/author/jobs", response_model=AuthorJobStatusResponse)
 def create_author_job(
     payload: AuthorJobCreateRequest,
-    user=Depends(get_required_request_user),
+    request: Request,
+    session: AuthenticatedSession = Depends(get_required_request_session),
 ) -> AuthorJobStatusResponse:
-    return author_job_service.create_job(payload, actor_user_id=user.user_id)
+    _require_authoring_enabled()
+    _enforce_llm_quota(
+        request,
+        user_id=session.user.user_id,
+        operation_cost=_author_job_llm_operation_cost(payload),
+    )
+    return author_job_service.create_job(payload, actor_user_id=session.user.user_id)
 
 
 @app.get("/author/jobs/{job_id}", response_model=AuthorJobStatusResponse)
-def get_author_job(job_id: str, user=Depends(get_required_request_user)) -> AuthorJobStatusResponse:
-    return author_job_service.get_job(job_id, actor_user_id=user.user_id)
+def get_author_job(
+    job_id: str,
+    session: AuthenticatedSession = Depends(get_required_request_session),
+) -> AuthorJobStatusResponse:
+    _require_authoring_enabled()
+    return author_job_service.get_job(job_id, actor_user_id=session.user.user_id)
 
 
 @app.get("/author/jobs/{job_id}/events")
 def stream_author_job_events(
     job_id: str,
     last_event_id: int | None = None,
-    user=Depends(get_required_request_user),
+    session: AuthenticatedSession = Depends(get_required_request_session),
 ) -> StreamingResponse:
+    _require_authoring_enabled()
     return StreamingResponse(
-        author_job_service.stream_job_events(job_id, actor_user_id=user.user_id, last_event_id=last_event_id),
+        author_job_service.stream_job_events(job_id, actor_user_id=session.user.user_id, last_event_id=last_event_id),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -268,19 +376,24 @@ def stream_author_job_events(
 
 
 @app.get("/author/jobs/{job_id}/result", response_model=AuthorJobResultResponse)
-def get_author_job_result(job_id: str, user=Depends(get_required_request_user)) -> AuthorJobResultResponse:
-    return author_job_service.get_job_result(job_id, actor_user_id=user.user_id)
+def get_author_job_result(
+    job_id: str,
+    session: AuthenticatedSession = Depends(get_required_request_session),
+) -> AuthorJobResultResponse:
+    _require_authoring_enabled()
+    return author_job_service.get_job_result(job_id, actor_user_id=session.user.user_id)
 
 
 @app.post("/author/jobs/{job_id}/publish", response_model=PublishedStoryCard)
 def publish_author_job(
     job_id: str,
     visibility: StoryVisibility = Query(default="private"),
-    user=Depends(get_required_request_user),
+    session: AuthenticatedSession = Depends(get_required_request_session),
 ) -> PublishedStoryCard:
-    source = author_job_service.get_publishable_job_source(job_id, actor_user_id=user.user_id)
+    _require_authoring_enabled()
+    source = author_job_service.get_publishable_job_source(job_id, actor_user_id=session.user.user_id)
     return story_library_service.publish_story(
-        owner_user_id=user.user_id,
+        owner_user_id=session.user.user_id,
         source_job_id=source.source_job_id,
         prompt_seed=source.prompt_seed,
         summary=source.summary,
@@ -296,10 +409,10 @@ def publish_author_job(
 )
 def get_author_job_diagnostics(
     job_id: str,
-    user=Depends(get_required_request_user),
+    session: AuthenticatedSession = Depends(get_required_request_session),
 ) -> BenchmarkAuthorJobDiagnosticsResponse:
     _require_benchmark_api()
-    return author_job_service.get_job_diagnostics(job_id, actor_user_id=user.user_id)
+    return author_job_service.get_job_diagnostics(job_id, actor_user_id=session.user.user_id)
 
 
 @app.get("/stories", response_model=PublishedStoryListResponse)
@@ -338,10 +451,10 @@ def get_story(
 def update_story_visibility(
     story_id: str,
     payload: UpdateStoryVisibilityRequest,
-    user=Depends(get_required_request_user),
+    session: AuthenticatedSession = Depends(get_required_request_session),
 ) -> PublishedStoryCard:
     return story_library_service.update_story_visibility(
-        actor_user_id=user.user_id,
+        actor_user_id=session.user.user_id,
         story_id=story_id,
         request=payload,
     )
@@ -350,10 +463,10 @@ def update_story_visibility(
 @app.delete("/stories/{story_id}", response_model=DeleteStoryResponse)
 def delete_story(
     story_id: str,
-    user=Depends(get_required_request_user),
+    session: AuthenticatedSession = Depends(get_required_request_session),
 ) -> DeleteStoryResponse:
     play_session_service.delete_sessions_for_story(story_id=story_id)
-    story_library_service.delete_story(actor_user_id=user.user_id, story_id=story_id)
+    story_library_service.delete_story(actor_user_id=session.user.user_id, story_id=story_id)
     return DeleteStoryResponse(story_id=story_id, deleted=True)
 
 
@@ -433,10 +546,10 @@ def list_my_worlds(
 )
 def get_play_session_diagnostics(
     session_id: str,
-    user=Depends(get_required_request_user),
+    session: AuthenticatedSession = Depends(get_required_request_session),
 ) -> BenchmarkPlaySessionDiagnosticsResponse:
     _require_benchmark_api()
-    return play_session_service.get_session_diagnostics(session_id, actor_user_id=user.user_id)
+    return play_session_service.get_session_diagnostics(session_id, actor_user_id=session.user.user_id)
 
 
 # --------------------------------------------------------------------------
@@ -449,10 +562,18 @@ def get_play_session_diagnostics(
 @app.post("/narrative/templates", response_model=CreateTemplateResponse)
 def create_narrative_template(
     payload: CreateTemplateRequest,
-    user=Depends(get_required_request_user),
+    request: Request,
+    session: AuthenticatedSession = Depends(get_required_request_session),
 ) -> CreateTemplateResponse:
     """Create a new story template (and auto-spawn the creator's first session)."""
-    return narrative_service.create_template(payload, owner_user_id=user.user_id)
+    _require_authoring_enabled()
+    _require_non_blank_llm_input(
+        payload.seed,
+        code="seed_required",
+        message="Seed must not be empty.",
+    )
+    _enforce_llm_quota(request, user_id=session.user.user_id, operation_cost=3)
+    return narrative_service.create_template(payload, owner_user_id=session.user.user_id)
 
 
 @app.get("/narrative/templates", response_model=TemplateListResponse)
@@ -478,10 +599,10 @@ def get_narrative_template(
 def update_narrative_template_visibility(
     template_id: str,
     payload: UpdateTemplateVisibilityRequest,
-    user=Depends(get_required_request_user),
+    session: AuthenticatedSession = Depends(get_required_request_session),
 ) -> NarrativeTemplateSummary:
     return narrative_service.update_visibility(
-        template_id, payload, owner_user_id=user.user_id
+        template_id, payload, owner_user_id=session.user.user_id
     )
 
 
@@ -523,8 +644,19 @@ def get_narrative_story(
 def advance_narrative_turn(
     session_id: str,
     payload: AdvanceTurnRequest,
+    request: Request,
     user=Depends(get_required_request_user),
 ) -> AdvanceTurnResponse:
+    narrative_service.validate_advance_request(
+        session_id,
+        payload,
+        player_user_id=user.user_id,
+    )
+    operation_cost = narrative_service.estimate_advance_llm_operation_cost(
+        session_id,
+        player_user_id=user.user_id,
+    )
+    _enforce_llm_quota(request, user_id=user.user_id, operation_cost=operation_cost)
     return narrative_service.advance(session_id, payload, player_user_id=user.user_id)
 
 
@@ -535,8 +667,15 @@ def advance_narrative_turn(
 def ask_narrative_advisor(
     session_id: str,
     payload: AdvisorAskRequest,
+    request: Request,
     user=Depends(get_required_request_user),
 ) -> AdvisorAskResponse:
+    _require_non_blank_llm_input(
+        payload.question,
+        code="question_required",
+        message="Question must not be empty.",
+    )
+    _enforce_llm_quota(request, user_id=user.user_id)
     return narrative_service.ask_advisor(session_id, payload, player_user_id=user.user_id)
 
 
@@ -553,18 +692,18 @@ def get_narrative_advisor_history(
 
 @app.get("/me/narrative/templates", response_model=TemplateListResponse)
 def list_my_narrative_templates(
-    user=Depends(get_required_request_user),
+    session: AuthenticatedSession = Depends(get_required_request_session),
 ) -> TemplateListResponse:
     """Templates I created."""
-    return narrative_service.list_my_templates(owner_user_id=user.user_id)
+    return narrative_service.list_my_templates(owner_user_id=session.user.user_id)
 
 
 @app.get("/me/narrative/sessions", response_model=SessionListResponse)
 def list_my_narrative_sessions(
-    user=Depends(get_required_request_user),
+    session: AuthenticatedSession = Depends(get_required_request_session),
 ) -> SessionListResponse:
     """Sessions I'm playing (mine + ones I forked from public templates)."""
-    return narrative_service.list_my_sessions(player_user_id=user.user_id)
+    return narrative_service.list_my_sessions(player_user_id=session.user.user_id)
 
 
 @app.get("/narrative/sessions/{session_id}/ending", response_model=NarrativeEnding | None)

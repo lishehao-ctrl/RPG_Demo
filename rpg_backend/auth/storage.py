@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from rpg_backend.sqlite_utils import connect_sqlite
@@ -21,14 +21,15 @@ class SQLiteAuthStorage:
         return connection
 
     def _ensure_schema(self, connection: sqlite3.Connection) -> None:
-        # Migration: drop legacy schema (with email/password) so we can recreate it.
+        # Migration: archive the legacy email/password schema before creating the
+        # username-only demo schema. Older versions dropped these tables outright;
+        # keeping a timestamped copy makes startup idempotent and production-safe.
         legacy_cols = {
             row[1]
             for row in connection.execute("PRAGMA table_info(auth_users)").fetchall()
         }
         if legacy_cols and ("password_hash" in legacy_cols or "normalized_email" in legacy_cols):
-            connection.execute("DROP TABLE IF EXISTS auth_sessions")
-            connection.execute("DROP TABLE IF EXISTS auth_users")
+            self._archive_legacy_auth_schema(connection)
             connection.commit()
 
         connection.execute(
@@ -61,6 +62,26 @@ class SQLiteAuthStorage:
             "CREATE INDEX IF NOT EXISTS idx_auth_sessions_expires_at ON auth_sessions (expires_at)"
         )
         connection.commit()
+
+    @staticmethod
+    def _archive_legacy_auth_schema(connection: sqlite3.Connection) -> None:
+        suffix = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
+        existing_tables = {
+            str(row["name"])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        for index_name in ("idx_auth_sessions_user_id", "idx_auth_sessions_expires_at"):
+            connection.execute(f"DROP INDEX IF EXISTS {index_name}")
+        if "auth_sessions" in existing_tables:
+            connection.execute(
+                f"ALTER TABLE auth_sessions RENAME TO auth_sessions_legacy_{suffix}"
+            )
+        if "auth_users" in existing_tables:
+            connection.execute(
+                f"ALTER TABLE auth_users RENAME TO auth_users_legacy_{suffix}"
+            )
 
     def create_user(
         self,

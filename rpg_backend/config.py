@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     auth_session_cookie_samesite: str = "lax"
     play_session_ttl_seconds: int = Field(default=900, ge=60)
     enable_benchmark_api: bool = False
+    public_demo_authoring_enabled: bool = True
+    public_demo_daily_ip_llm_limit: int | None = Field(default=500, ge=1)
+    public_demo_daily_user_llm_limit: int | None = Field(default=120, ge=1)
+    trusted_proxy_ips: str = "127.0.0.1,::1"
     author_product_run_mode: str = "deterministic"
     author_v3_enabled: bool = False
     author_v3_run_mode: str = "deterministic"

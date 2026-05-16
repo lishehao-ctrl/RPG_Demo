@@ -700,6 +700,8 @@ export type NarrativeEndingDistributionResponse = {
 
 export type NarrativePublicReplayResponse = {
   session_id: string
+  template_id: string
+  template_forkable: boolean
   template_title: string
   template_seed: string
   cast: NarrativeCastMember[]

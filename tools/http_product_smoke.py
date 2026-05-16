@@ -14,6 +14,7 @@ import requests
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 60
 DEFAULT_POLL_INTERVAL_SECONDS = 0.5
 DEFAULT_POLL_TIMEOUT_SECONDS = 180
+DEFAULT_TURN_BUDGET = 4
 DEFAULT_SEED = (
     "A municipal archivist finds the blackout ration rolls were altered to punish districts "
     "that backed the reform slate."
@@ -22,6 +23,7 @@ DEFAULT_TURN_INPUT = (
     "I force the emergency council to compare the sealed ration rolls in public before any "
     "clerk can revise them again."
 )
+DEFAULT_ADVISOR_QUESTION = "Is the chair stalling, or is someone else controlling the room?"
 
 
 @dataclass(frozen=True)
@@ -34,18 +36,37 @@ class HttpProductSmokeConfig:
     request_timeout_seconds: float
     output_path: Path | None
     include_benchmark_diagnostics: bool
+    template_id: str | None
+    use_first_public_template: bool
+    turn_budget: int = DEFAULT_TURN_BUDGET
+    advisor_question: str = DEFAULT_ADVISOR_QUESTION
 
 
 def parse_args(argv: list[str] | None = None) -> HttpProductSmokeConfig:
-    parser = argparse.ArgumentParser(description="Run a real HTTP author->publish->play smoke test.")
+    parser = argparse.ArgumentParser(description="Run a live HTTP smoke test against the current narrative core.")
     parser.add_argument("--base-url", default="http://127.0.0.1:8000")
     parser.add_argument("--prompt-seed", default=DEFAULT_SEED)
     parser.add_argument("--first-turn-input", default=DEFAULT_TURN_INPUT)
+    parser.add_argument("--turn-budget", type=int, default=DEFAULT_TURN_BUDGET)
+    parser.add_argument("--advisor-question", default=DEFAULT_ADVISOR_QUESTION)
     parser.add_argument("--poll-interval-seconds", type=float, default=DEFAULT_POLL_INTERVAL_SECONDS)
     parser.add_argument("--poll-timeout-seconds", type=float, default=DEFAULT_POLL_TIMEOUT_SECONDS)
     parser.add_argument("--request-timeout-seconds", type=float, default=DEFAULT_REQUEST_TIMEOUT_SECONDS)
     parser.add_argument("--output-path")
-    parser.add_argument("--include-benchmark-diagnostics", action="store_true")
+    parser.add_argument(
+        "--template-id",
+        help="Use an existing public template and skip template creation. Useful when authoring is disabled.",
+    )
+    parser.add_argument(
+        "--use-first-public-template",
+        action="store_true",
+        help="Pick the first public template and skip template creation. Useful when authoring is disabled.",
+    )
+    parser.add_argument(
+        "--include-benchmark-diagnostics",
+        action="store_true",
+        help="Accepted for backwards compatibility; the current narrative core has no benchmark endpoint.",
+    )
     args = parser.parse_args(argv)
     return HttpProductSmokeConfig(
         base_url=args.base_url.rstrip("/"),
@@ -56,6 +77,10 @@ def parse_args(argv: list[str] | None = None) -> HttpProductSmokeConfig:
         request_timeout_seconds=max(float(args.request_timeout_seconds), 1.0),
         output_path=Path(args.output_path).expanduser().resolve() if args.output_path else None,
         include_benchmark_diagnostics=bool(args.include_benchmark_diagnostics),
+        template_id=str(args.template_id).strip() if args.template_id else None,
+        use_first_public_template=bool(args.use_first_public_template),
+        turn_budget=max(4, min(int(args.turn_budget), 12)),
+        advisor_question=str(args.advisor_question),
     )
 
 
@@ -97,42 +122,16 @@ def _authenticate_session(
     session: requests.Session,
     config: HttpProductSmokeConfig,
 ) -> dict[str, Any]:
-    response = session.post(
-        f"{config.base_url}/auth/register",
-        timeout=config.request_timeout_seconds,
-        json={
-            "display_name": "HTTP Smoke",
-            "email": f"http-smoke-{secrets.token_hex(6)}@bench.local",
-            "password": "BenchPass123!",
-        },
+    payload, _elapsed = _request_json(
+        session,
+        "POST",
+        f"{config.base_url}/auth/login",
+        request_timeout_seconds=config.request_timeout_seconds,
+        json={"username": f"smoke_{secrets.token_hex(5)}"},
     )
-    if not response.ok:
-        raise RuntimeError(f"POST {config.base_url}/auth/register: {_error_message(response)}")
-    payload = response.json()
-    if not isinstance(payload, dict) or not payload.get("authenticated"):
-        raise RuntimeError("smoke auth registration did not return an authenticated session")
+    if not payload.get("authenticated"):
+        raise RuntimeError("smoke auth login did not return an authenticated session")
     return payload
-
-
-def _optional_request_json(
-    session: requests.Session,
-    method: str,
-    url: str,
-    *,
-    request_timeout_seconds: float,
-    **kwargs: Any,
-) -> tuple[dict[str, Any] | None, float]:
-    started_at = time.perf_counter()
-    response = session.request(method, url, timeout=request_timeout_seconds, **kwargs)
-    elapsed_seconds = round(time.perf_counter() - started_at, 3)
-    if response.status_code == 404:
-        return None, elapsed_seconds
-    if not response.ok:
-        raise RuntimeError(f"{method} {url}: {_error_message(response)}")
-    payload = response.json()
-    if not isinstance(payload, dict):
-        raise RuntimeError(f"{method} {url}: expected JSON object payload")
-    return payload, elapsed_seconds
 
 
 def _stage_timings_summary(diagnostics: dict[str, Any] | None) -> list[dict[str, Any]]:
@@ -151,35 +150,31 @@ def _stage_timings_summary(diagnostics: dict[str, Any] | None) -> list[dict[str,
     return rows
 
 
-def _poll_author_job(
+def _advance_turn(
     session: requests.Session,
     config: HttpProductSmokeConfig,
     *,
-    job_id: str,
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    started_at = time.perf_counter()
-    poll_count = 0
-    last_payload: dict[str, Any] | None = None
-    while True:
-        status_payload, _elapsed = _request_json(
-            session,
-            "GET",
-            f"{config.base_url}/author/jobs/{job_id}",
-            request_timeout_seconds=config.request_timeout_seconds,
-        )
-        last_payload = status_payload
-        poll_count += 1
-        if status_payload.get("status") in {"completed", "failed"}:
-            return status_payload, {
-                "poll_count": poll_count,
-                "poll_elapsed_seconds": round(time.perf_counter() - started_at, 3),
-            }
-        if time.perf_counter() - started_at >= config.poll_timeout_seconds:
-            raise RuntimeError(
-                f"author job '{job_id}' did not reach terminal state within {config.poll_timeout_seconds:.1f}s "
-                f"(last_status={last_payload.get('status') if last_payload else 'unknown'})"
-            )
-        time.sleep(config.poll_interval_seconds)
+    session_id: str,
+    turn_number: int,
+) -> tuple[dict[str, Any], float]:
+    if turn_number == 1:
+        body: dict[str, Any] = {
+            "free_input": config.first_turn_input,
+            "diary": "Keep the evidence visible and the room accountable.",
+        }
+    elif turn_number == config.turn_budget:
+        body = {
+            "free_input": "I keep the record public and ask every witness to confirm the timeline."
+        }
+    else:
+        body = {"chosen_option_index": 0}
+    return _request_json(
+        session,
+        "POST",
+        f"{config.base_url}/narrative/sessions/{session_id}/story/turns",
+        request_timeout_seconds=max(config.request_timeout_seconds, 120.0),
+        json=body,
+    )
 
 
 def run_http_product_smoke(config: HttpProductSmokeConfig) -> dict[str, Any]:
@@ -191,8 +186,7 @@ def run_http_product_smoke(config: HttpProductSmokeConfig) -> dict[str, Any]:
         "steps": {},
         "contracts": {},
         "ids": {},
-        "author": {},
-        "play": {},
+        "narrative": {},
         "benchmark": {},
     }
     with requests.Session() as session:
@@ -207,130 +201,174 @@ def run_http_product_smoke(config: HttpProductSmokeConfig) -> dict[str, Any]:
         summary["steps"]["auth"] = {"authenticated": bool(auth_payload.get("authenticated"))}
         summary["contracts"]["auth_user_present"] = isinstance(auth_payload.get("user"), dict)
 
-        preview_payload, preview_elapsed = _request_json(
-            session,
-            "POST",
-            f"{config.base_url}/author/story-previews",
-            request_timeout_seconds=config.request_timeout_seconds,
-            json={"prompt_seed": config.prompt_seed},
-        )
-        summary["steps"]["preview"] = {"elapsed_seconds": preview_elapsed}
-        summary["ids"]["preview_id"] = preview_payload.get("preview_id")
-        summary["contracts"]["preview_has_flashcards"] = bool(preview_payload.get("flashcards") is not None)
-        summary["contracts"]["preview_has_story"] = isinstance(preview_payload.get("story"), dict)
+        uses_existing_template = config.template_id is not None or config.use_first_public_template
+        if config.template_id is not None:
+            template_id = config.template_id
+            summary["steps"]["template_source"] = {
+                "mode": "existing_template_id",
+                "template_id": template_id,
+            }
+            summary["steps"]["create_template"] = {
+                "skipped": True,
+                "reason": "using_existing_template",
+            }
+        elif config.use_first_public_template:
+            list_payload, list_elapsed = _request_json(
+                session,
+                "GET",
+                f"{config.base_url}/narrative/templates",
+                request_timeout_seconds=config.request_timeout_seconds,
+            )
+            public_templates = list(list_payload.get("items") or [])
+            if not public_templates:
+                raise RuntimeError(
+                    "No public narrative templates found. Seed one before running "
+                    "--use-first-public-template, or run without that flag while authoring is enabled."
+                )
+            first_template = dict(public_templates[0])
+            template_id = str(first_template.get("template_id") or "")
+            if not template_id:
+                raise RuntimeError("First public template did not include template_id")
+            summary["steps"]["list_templates"] = {
+                "elapsed_seconds": list_elapsed,
+                "count": len(public_templates),
+            }
+            summary["steps"]["template_source"] = {
+                "mode": "first_public_template",
+                "template_id": template_id,
+            }
+            summary["steps"]["create_template"] = {
+                "skipped": True,
+                "reason": "using_first_public_template",
+            }
+        else:
+            create_payload, create_elapsed = _request_json(
+                session,
+                "POST",
+                f"{config.base_url}/narrative/templates",
+                request_timeout_seconds=max(config.request_timeout_seconds, 120.0),
+                json={
+                    "seed": config.prompt_seed,
+                    "visibility": "public",
+                    "turn_budget": config.turn_budget,
+                    "difficulty": "story",
+                    "language": "en",
+                },
+            )
+            created_template = dict(create_payload.get("template") or {})
+            owner_session = dict(create_payload.get("session") or {})
+            template_id = str(created_template["template_id"])
+            summary["ids"]["owner_session_id"] = owner_session.get("session_id")
+            summary["steps"]["create_template"] = {"elapsed_seconds": create_elapsed}
+            summary["contracts"]["template_language_en"] = created_template.get("language") == "en"
 
-        job_payload, create_job_elapsed = _request_json(
-            session,
-            "POST",
-            f"{config.base_url}/author/jobs",
-            request_timeout_seconds=config.request_timeout_seconds,
-            json={
-                "prompt_seed": config.prompt_seed,
-                "preview_id": preview_payload["preview_id"],
-            },
-        )
-        job_id = str(job_payload["job_id"])
-        summary["ids"]["job_id"] = job_id
-        summary["steps"]["create_job"] = {"elapsed_seconds": create_job_elapsed}
-
-        author_status, poll_summary = _poll_author_job(session, config, job_id=job_id)
-        summary["steps"]["poll_author"] = poll_summary
-        summary["author"]["status"] = author_status.get("status")
-        summary["author"]["stage"] = dict(author_status.get("progress") or {}).get("stage")
-
-        result_payload, result_elapsed = _request_json(
-            session,
-            "GET",
-            f"{config.base_url}/author/jobs/{job_id}/result",
-            request_timeout_seconds=config.request_timeout_seconds,
-        )
-        summary["steps"]["get_result"] = {"elapsed_seconds": result_elapsed}
-        summary["contracts"]["result_has_summary"] = result_payload.get("summary") is not None
-        summary["contracts"]["result_has_bundle"] = result_payload.get("bundle") is not None
-
-        if author_status.get("status") != "completed":
-            raise RuntimeError(f"author job '{job_id}' ended with status={author_status.get('status')}")
-
-        publish_payload, publish_elapsed = _request_json(
-            session,
-            "POST",
-            f"{config.base_url}/author/jobs/{job_id}/publish",
-            request_timeout_seconds=config.request_timeout_seconds,
-        )
-        story_id = str(publish_payload["story_id"])
-        summary["ids"]["story_id"] = story_id
-        summary["steps"]["publish"] = {"elapsed_seconds": publish_elapsed}
-        summary["author"]["published_title"] = publish_payload.get("title")
+        summary["ids"]["template_id"] = template_id
 
         detail_payload, detail_elapsed = _request_json(
             session,
             "GET",
-            f"{config.base_url}/stories/{story_id}",
+            f"{config.base_url}/narrative/templates/{template_id}",
             request_timeout_seconds=config.request_timeout_seconds,
         )
-        summary["steps"]["story_detail"] = {"elapsed_seconds": detail_elapsed}
-        summary["contracts"]["detail_has_play_overview"] = detail_payload.get("play_overview") is not None
-        summary["contracts"]["detail_has_presentation"] = detail_payload.get("presentation") is not None
-        summary["play"]["runtime_profile"] = dict(detail_payload.get("play_overview") or {}).get("runtime_profile")
+        template = dict(detail_payload)
+        summary["steps"]["template_detail"] = {"elapsed_seconds": detail_elapsed}
+        summary["contracts"]["detail_matches_template"] = detail_payload.get("template_id") == template_id
+        if uses_existing_template:
+            summary["contracts"]["template_language_known"] = template.get("language") in {"en", "zh"}
+        summary["contracts"]["template_has_role_cards"] = bool(template.get("player_role_options"))
 
-        created_session, create_session_elapsed = _request_json(
+        fork_payload, fork_elapsed = _request_json(
             session,
             "POST",
-            f"{config.base_url}/play/sessions",
+            f"{config.base_url}/narrative/templates/{template_id}/sessions",
             request_timeout_seconds=config.request_timeout_seconds,
-            json={"story_id": story_id},
+            json={"turn_budget": config.turn_budget, "difficulty": "story", "player_role_index": 1},
         )
-        session_id = str(created_session["session_id"])
+        fork_session = dict(fork_payload.get("session") or {})
+        opening = dict(fork_payload.get("opening") or {})
+        session_id = str(fork_session["session_id"])
         summary["ids"]["session_id"] = session_id
-        summary["steps"]["create_session"] = {"elapsed_seconds": create_session_elapsed}
-        summary["play"]["opening_status"] = created_session.get("status")
-        summary["play"]["opening_beat"] = created_session.get("beat_title")
+        summary["steps"]["start_session"] = {"elapsed_seconds": fork_elapsed}
+        summary["contracts"]["fork_keeps_template_id"] = fork_session.get("template_id") == template_id
+        summary["contracts"]["fork_has_role"] = isinstance(fork_session.get("player_role"), dict)
+        summary["contracts"]["opening_has_options"] = bool(opening.get("options"))
 
-        turn_payload, submit_turn_elapsed = _request_json(
-            session,
-            "POST",
-            f"{config.base_url}/play/sessions/{session_id}/turns",
-            request_timeout_seconds=max(config.request_timeout_seconds, 120.0),
-            json={"input_text": config.first_turn_input},
-        )
-        summary["steps"]["submit_turn"] = {"elapsed_seconds": submit_turn_elapsed}
-        summary["play"]["post_turn_status"] = turn_payload.get("status")
-        summary["play"]["post_turn_turn_index"] = turn_payload.get("turn_index")
-        summary["play"]["post_turn_beat"] = turn_payload.get("beat_title")
-        summary["contracts"]["turn_has_feedback"] = turn_payload.get("feedback") is not None
-        summary["contracts"]["turn_has_suggested_actions"] = bool(turn_payload.get("suggested_actions"))
+        for turn_number in range(1, config.turn_budget + 1):
+            turn_payload, turn_elapsed = _advance_turn(
+                session,
+                config,
+                session_id=session_id,
+                turn_number=turn_number,
+            )
+            summary["steps"][f"turn_{turn_number}"] = {"elapsed_seconds": turn_elapsed}
+            summary["narrative"][f"turn_{turn_number}_complete"] = bool(turn_payload.get("is_complete"))
+            if turn_number == 2:
+                advisor_payload, advisor_elapsed = _request_json(
+                    session,
+                    "POST",
+                    f"{config.base_url}/narrative/sessions/{session_id}/advisor",
+                    request_timeout_seconds=max(config.request_timeout_seconds, 120.0),
+                    json={"question": config.advisor_question},
+                )
+                advisor_message = dict(advisor_payload.get("advisor_message") or {})
+                summary["steps"]["advisor"] = {"elapsed_seconds": advisor_elapsed}
+                summary["contracts"]["advisor_replied"] = bool(advisor_message.get("content"))
+            if turn_number == config.turn_budget:
+                summary["contracts"]["final_turn_completed"] = bool(turn_payload.get("is_complete"))
+                summary["contracts"]["final_turn_has_ending"] = isinstance(turn_payload.get("ending"), dict)
 
         history_payload, history_elapsed = _request_json(
             session,
             "GET",
-            f"{config.base_url}/play/sessions/{session_id}/history",
+            f"{config.base_url}/narrative/sessions/{session_id}/story",
             request_timeout_seconds=config.request_timeout_seconds,
         )
         summary["steps"]["history"] = {"elapsed_seconds": history_elapsed}
-        summary["contracts"]["history_entry_count"] = len(list(history_payload.get("entries") or []))
+        history_message_count = len(list(history_payload.get("messages") or []))
+        summary["narrative"]["history_message_count"] = history_message_count
+        summary["contracts"]["history_has_completed_run"] = history_message_count >= config.turn_budget * 2 + 1
+
+        ending_payload, ending_elapsed = _request_json(
+            session,
+            "GET",
+            f"{config.base_url}/narrative/sessions/{session_id}/ending",
+            request_timeout_seconds=config.request_timeout_seconds,
+        )
+        summary["steps"]["ending"] = {"elapsed_seconds": ending_elapsed}
+        summary["contracts"]["ending_persisted"] = bool(ending_payload.get("label"))
+
+        replay_payload, replay_elapsed = _request_json(
+            session,
+            "GET",
+            f"{config.base_url}/narrative/sessions/{session_id}/replay",
+            request_timeout_seconds=config.request_timeout_seconds,
+        )
+        summary["steps"]["replay"] = {"elapsed_seconds": replay_elapsed}
+        summary["contracts"]["replay_has_template_id"] = replay_payload.get("template_id") == template_id
+        summary["contracts"]["replay_completed"] = replay_payload.get("completed") is True
+        summary["contracts"]["replay_has_advisor"] = len(list(replay_payload.get("advisor_messages") or [])) >= 2
+
+        distribution_payload, distribution_elapsed = _request_json(
+            session,
+            "GET",
+            f"{config.base_url}/narrative/templates/{template_id}/ending-distribution",
+            request_timeout_seconds=config.request_timeout_seconds,
+        )
+        summary["steps"]["ending_distribution"] = {"elapsed_seconds": distribution_elapsed}
+        summary["contracts"]["distribution_counts_completed_run"] = (
+            int(distribution_payload.get("total_completed") or 0) >= 1
+        )
 
         if config.include_benchmark_diagnostics:
-            author_diag, author_diag_elapsed = _optional_request_json(
-                session,
-                "GET",
-                f"{config.base_url}/benchmark/author/jobs/{job_id}/diagnostics",
-                request_timeout_seconds=config.request_timeout_seconds,
-            )
-            play_diag, play_diag_elapsed = _optional_request_json(
-                session,
-                "GET",
-                f"{config.base_url}/benchmark/play/sessions/{session_id}/diagnostics",
-                request_timeout_seconds=config.request_timeout_seconds,
-            )
             summary["benchmark"] = {
-                "author_diagnostics_available": author_diag is not None,
-                "play_diagnostics_available": play_diag is not None,
-                "author_diagnostics_elapsed_seconds": author_diag_elapsed,
-                "play_diagnostics_elapsed_seconds": play_diag_elapsed,
-                "author_stage_timings": _stage_timings_summary(author_diag),
-                "play_summary": dict((play_diag or {}).get("summary") or {}),
+                "available": False,
+                "reason": "The current narrative core does not expose benchmark diagnostics endpoints.",
             }
 
+    failed = [name for name, ok in summary["contracts"].items() if not ok]
+    if failed:
+        summary["failed_contracts"] = failed
+        raise RuntimeError(f"HTTP narrative smoke failed contracts: {', '.join(failed)}")
     summary["ok"] = True
     return summary
 

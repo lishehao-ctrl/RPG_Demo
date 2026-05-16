@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 AxisKind = Literal["pressure", "resource", "relationship", "exposure", "time"]
 StoryFunction = Literal["advance", "reveal", "stabilize", "detour", "pay_cost"]
@@ -500,6 +500,14 @@ class AuthorPreviewRequest(BaseModel):
     play_length_preset: PlayLengthPresetId | None = None
     target_gender_pref: Literal["male", "female"] | None = None
 
+    @field_validator("prompt_seed")
+    @classmethod
+    def _strip_prompt_seed(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("Prompt seed must not be empty.")
+        return stripped
+
 
 class AuthorPreviewFlashcard(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -644,6 +652,14 @@ class AuthorJobCreateRequest(BaseModel):
     random_seed: int | None = None
     preview_id: str | None = None
     play_length_preset: PlayLengthPresetId | None = None
+
+    @field_validator("prompt_seed")
+    @classmethod
+    def _strip_prompt_seed(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("Prompt seed must not be empty.")
+        return stripped
 
 
 class AuthorJobStatusResponse(BaseModel):

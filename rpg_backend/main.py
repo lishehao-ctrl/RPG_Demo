@@ -79,6 +79,7 @@ story_library_service = get_story_library_service(settings)
 play_session_service = PlaySessionService(story_library_service=story_library_service, settings=settings)
 narrative_service = get_narrative_service(settings)
 llm_quota_limiter = DailyQuotaLimiter()
+AUTHOR_PREVIEW_LLM_OPERATION_COST = 3
 AUTHOR_JOB_LLM_OPERATION_COST = 7
 
 
@@ -150,6 +151,11 @@ def _enforce_llm_quota(request: Request, *, user_id: str, operation_cost: int = 
 def _require_non_blank_llm_input(value: str, *, code: str, message: str) -> None:
     if not value.strip():
         raise NarrativeServiceError(code=code, message=message, status_code=422)
+
+
+def _author_job_llm_operation_cost(payload: AuthorJobCreateRequest) -> int:
+    preview_cost = 0 if payload.preview_id else AUTHOR_PREVIEW_LLM_OPERATION_COST
+    return AUTHOR_JOB_LLM_OPERATION_COST + preview_cost
 
 
 def _apply_session_cookie(response: Response, session: AuthenticatedSession) -> None:
@@ -319,7 +325,11 @@ def create_story_preview(
     session: AuthenticatedSession = Depends(get_required_request_session),
 ) -> AuthorPreviewResponse:
     _require_authoring_enabled()
-    _enforce_llm_quota(request, user_id=session.user.user_id)
+    _enforce_llm_quota(
+        request,
+        user_id=session.user.user_id,
+        operation_cost=AUTHOR_PREVIEW_LLM_OPERATION_COST,
+    )
     return author_job_service.create_preview(payload, actor_user_id=session.user.user_id)
 
 
@@ -333,7 +343,7 @@ def create_author_job(
     _enforce_llm_quota(
         request,
         user_id=session.user.user_id,
-        operation_cost=AUTHOR_JOB_LLM_OPERATION_COST,
+        operation_cost=_author_job_llm_operation_cost(payload),
     )
     return author_job_service.create_job(payload, actor_user_id=session.user.user_id)
 

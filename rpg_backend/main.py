@@ -147,6 +147,11 @@ def _enforce_llm_quota(request: Request, *, user_id: str, operation_cost: int = 
     )
 
 
+def _require_non_blank_llm_input(value: str, *, code: str, message: str) -> None:
+    if not value.strip():
+        raise NarrativeServiceError(code=code, message=message, status_code=422)
+
+
 def _apply_session_cookie(response: Response, session: AuthenticatedSession) -> None:
     response.set_cookie(
         key=settings.auth_session_cookie_name,
@@ -552,6 +557,11 @@ def create_narrative_template(
 ) -> CreateTemplateResponse:
     """Create a new story template (and auto-spawn the creator's first session)."""
     _require_authoring_enabled()
+    _require_non_blank_llm_input(
+        payload.seed,
+        code="seed_required",
+        message="Seed must not be empty.",
+    )
     _enforce_llm_quota(request, user_id=session.user.user_id, operation_cost=3)
     return narrative_service.create_template(payload, owner_user_id=session.user.user_id)
 
@@ -650,6 +660,11 @@ def ask_narrative_advisor(
     request: Request,
     user=Depends(get_required_request_user),
 ) -> AdvisorAskResponse:
+    _require_non_blank_llm_input(
+        payload.question,
+        code="question_required",
+        message="Question must not be empty.",
+    )
     _enforce_llm_quota(request, user_id=user.user_id)
     return narrative_service.ask_advisor(session_id, payload, player_user_id=user.user_id)
 

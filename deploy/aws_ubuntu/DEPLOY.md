@@ -102,7 +102,7 @@ Minimum required values:
 - `APP_ENABLE_BENCHMARK_API=0`
 - `APP_AUTH_SESSION_COOKIE_SECURE=true`
 - `APP_AUTH_SESSION_COOKIE_SAMESITE=lax`
-- `APP_PUBLIC_DEMO_AUTHORING_ENABLED=false`
+- `APP_PUBLIC_DEMO_AUTHORING_ENABLED=false` for public demos; use the read/play smoke below, or temporarily enable authoring only when testing template creation.
 - `APP_PUBLIC_DEMO_DAILY_IP_LLM_LIMIT`
 - `APP_PUBLIC_DEMO_DAILY_USER_LLM_LIMIT`
 - `APP_TRUSTED_PROXY_IPS=127.0.0.1,::1` when nginx is colocated with the API

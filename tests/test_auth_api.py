@@ -73,6 +73,42 @@ def test_logged_out_can_read_public_stories(tmp_path) -> None:
     assert public_detail.status_code == 200
 
 
+def test_logged_out_cannot_create_narrative_template() -> None:
+    client = TestClient(app)
+    response = client.post(
+        "/narrative/templates",
+        json={"seed": "A reviewer finds a hidden palace audit log."},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "auth_session_required"
+
+
+def test_logged_out_cannot_mutate_story_visibility(tmp_path) -> None:
+    source = _publish_source("job-auth-mutate")
+    library_service = StoryLibraryService(SQLiteStoryLibraryStorage(str(tmp_path / "stories.sqlite3")))
+    original_author_service = main_module.author_job_service
+    original_library_service = main_module.story_library_service
+    main_module.author_job_service = _FakeAuthorJobService(source)
+    main_module.story_library_service = library_service
+    owner_client = TestClient(app)
+    anon_client = TestClient(app)
+    try:
+        ensure_authenticated_client(owner_client, display_name="Mutation Owner")
+        published = owner_client.post(f"/author/jobs/{source.source_job_id}/publish?visibility=public")
+        response = anon_client.patch(
+            f"/stories/{published.json()['story_id']}/visibility",
+            json={"visibility": "private"},
+        )
+    finally:
+        main_module.author_job_service = original_author_service
+        main_module.story_library_service = original_library_service
+
+    assert published.status_code == 200
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "auth_session_required"
+
+
 def test_logged_out_cannot_read_private_story_detail(tmp_path) -> None:
     source = _publish_source("job-auth-private")
     library_service = StoryLibraryService(SQLiteStoryLibraryStorage(str(tmp_path / "stories.sqlite3")))

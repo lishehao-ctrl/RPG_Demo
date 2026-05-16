@@ -117,11 +117,6 @@ export function ReplayPage({
     ? lang === "en" ? `"${replay.ending.subtitle}"` : `「${replay.ending.subtitle}」`
     : ""
 
-  // We need a notional template_id to navigate back to "play it yourself."
-  // Replay doesn't include it directly, so we derive nothing — the main CTA
-  // sends the viewer to the public plaza or back home.
-  void onOpenTemplate
-
   return (
     <div style={rpStyles.page}>
       {/* Hero: shell cover banner with title + meta */}
@@ -215,7 +210,9 @@ export function ReplayPage({
         replay.ending.highlights.length > 0 ? (
           <>
             <section style={rpStyles.section}>
-              <div style={rpStyles.sectionLabel}>{t("replay.preview_label")}</div>
+              <div style={rpStyles.sectionLabel}>
+                {t("replay.preview_label", { count: replay.ending.highlights.length })}
+              </div>
               <p style={rpStyles.previewHint}>{t("replay.preview_hint")}</p>
               <div style={rpStyles.highlightCarousel}>
                 {replay.ending.highlights.map((h, i) => (
@@ -259,10 +256,10 @@ export function ReplayPage({
                 </button>
                 <button
                   className="ts-btn ts-btn--primary ts-btn--lg"
-                  onClick={onBackHome}
+                  onClick={() => onOpenTemplate(replay.template_id)}
                   type="button"
                 >
-                  {t("replay.cta_back_plaza")}
+                  {t("replay.cta_play_template")}
                 </button>
               </div>
             </div>
@@ -360,6 +357,13 @@ export function ReplayPage({
           <p style={rpStyles.ctaHint}>{t("replay.cta_hint")}</p>
           <button
             className="ts-btn ts-btn--primary ts-btn--lg"
+            onClick={() => onOpenTemplate(replay.template_id)}
+            type="button"
+          >
+            {t("replay.cta_play_template")}
+          </button>
+          <button
+            className="ts-btn ts-btn--ghost ts-btn--lg"
             onClick={onBackHome}
             type="button"
           >

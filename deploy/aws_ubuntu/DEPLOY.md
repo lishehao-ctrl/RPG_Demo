@@ -56,7 +56,7 @@ sudo apt install -y python3 python3-venv python3-pip nginx git
 Preferred shared-host path:
 
 - build the frontend locally
-- sync the repo, including `frontend/dist`, to the server
+- sync the repo, including `frontend2/dist`, to the server
 - sync portrait assets under `artifacts/portraits/roster`
 - do not require Node/npm on the shared production host unless you explicitly choose on-host frontend builds
 
@@ -102,6 +102,9 @@ Minimum required values:
 - `APP_ENABLE_BENCHMARK_API=0`
 - `APP_AUTH_SESSION_COOKIE_SECURE=true`
 - `APP_AUTH_SESSION_COOKIE_SAMESITE=lax`
+- `APP_PUBLIC_DEMO_AUTHORING_ENABLED=false`
+- `APP_PUBLIC_DEMO_DAILY_IP_LLM_LIMIT`
+- `APP_PUBLIC_DEMO_DAILY_USER_LLM_LIMIT`
 
 ## Frontend Build
 
@@ -110,7 +113,7 @@ Preferred: build locally before upload.
 If you intentionally build on the server, install Node/npm first and then run:
 
 ```bash
-cd /srv/rpg-demo/app/frontend
+cd /srv/rpg-demo/app/frontend2
 npm ci
 npm run build
 ```
@@ -173,7 +176,6 @@ On a shared host, do not remove existing site files that belong to other apps su
 Backend health:
 
 ```bash
-curl http://127.0.0.1:8000/health
 curl http://127.0.0.1:8010/health
 ```
 
@@ -205,7 +207,7 @@ cd /srv/rpg-demo/app
 cd /srv/rpg-demo/app
 git pull
 /srv/rpg-demo/venv/bin/pip install -e ".[dev]"
-cd frontend
+cd frontend2
 npm ci
 npm run build
 sudo systemctl restart rpg-demo-backend

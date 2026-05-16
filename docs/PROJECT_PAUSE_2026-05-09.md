@@ -99,11 +99,14 @@ Optional live smoke, when an LLM endpoint is configured:
 
 ```bash
 uvicorn rpg_backend.main:app --host 127.0.0.1 --port 8000
-cd frontend2
-npm run dev -- --host 127.0.0.1 --port 5173
+python tools/http_product_smoke.py --base-url http://127.0.0.1:8000
 ```
 
-Then create a short story, pick a role, and advance at least one turn.
+The default no-token gate for the current narrative core is:
+
+```bash
+python tools/narrative_release_gate.py --mode fake
+```
 
 ## Startup notes
 

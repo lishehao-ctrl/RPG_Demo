@@ -521,6 +521,7 @@ class NarrativeService:
             highlights=highlights or None,
             branches=branches or None,
         )
+        completed_session = self._repo.get_session(session_id)
         _emit_metric(
             "session_completed",
             session_id=session_id,
@@ -528,6 +529,8 @@ class NarrativeService:
             ending_label=result.label,
             tier=tier,
             early=0,
+            turn_count=completed_session.turn_count,
+            turn_budget=completed_session.turn_budget,
             num_highlights=len(highlights),
             num_branches=len(branches),
         )
@@ -626,6 +629,8 @@ class NarrativeService:
             tier=tier,
             early=1,
             trigger=failure_trigger,
+            turn_count=len([m for m in full_history if m.role == "narrator"]),
+            turn_budget=0,
             num_highlights=len(highlights),
             num_branches=len(branches),
         )
@@ -678,9 +683,6 @@ class NarrativeService:
         )
 
     def get_public_replay(self, session_id: str) -> PublicReplayResponse:
-        # Emit a metric so we can see how often replays are viewed —
-        # proxy for share virality.
-        _emit_metric("replay_viewed", session_id=session_id)
         """Public, auth-free read of a completed (or in-progress) session.
 
         Anyone with the session_id URL can see the full playthrough — that's
@@ -693,6 +695,12 @@ class NarrativeService:
                 message=f"Narrative session not found: {session_id}",
                 status_code=404,
             ) from exc
+        _emit_metric(
+            "replay_viewed",
+            session_id=session_id,
+            template_id=session.template_id,
+            completed=int(session.ending_label is not None),
+        )
         try:
             template = self._repo.get_template(session.template_id)
         except NarrativeNotFoundError as exc:
@@ -720,6 +728,7 @@ class NarrativeService:
             )
         return PublicReplayResponse(
             session_id=session.session_id,
+            template_id=session.template_id,
             template_title=template.title,
             template_seed=template.seed,
             cast=template.cast,
@@ -840,6 +849,12 @@ class NarrativeService:
                 template_id=template.template_id,
                 new_budget=new_budget,
             )
+        _emit_metric(
+            "advisor_used",
+            session_id=session_id,
+            template_id=template.template_id,
+            oracle=int(is_oracle),
+        )
 
         return AdvisorAskResponse(
             player_message=player_message,

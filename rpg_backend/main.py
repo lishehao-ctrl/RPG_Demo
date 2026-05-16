@@ -67,6 +67,7 @@ from rpg_backend.narrative.contracts import (
     UpdateTemplateVisibilityRequest,
 )
 from rpg_backend.narrative.service import NarrativeServiceError, get_narrative_service
+from rpg_backend.quotas import DailyQuotaLimiter, QuotaExceededError
 
 app = FastAPI(title="rpg-demo-rebuild")
 settings = get_settings()
@@ -75,11 +76,49 @@ author_job_service = ProductAuthorJobService(settings=settings)
 story_library_service = get_story_library_service(settings)
 play_session_service = PlaySessionService(story_library_service=story_library_service, settings=settings)
 narrative_service = get_narrative_service(settings)
+llm_quota_limiter = DailyQuotaLimiter()
 
 
 def _require_benchmark_api() -> None:
     if not get_settings().enable_benchmark_api:
         raise HTTPException(status_code=404, detail="Not found")
+
+
+def _require_authoring_enabled() -> None:
+    if not get_settings().public_demo_authoring_enabled:
+        raise HTTPException(status_code=404, detail="Not found")
+
+
+def _client_ip_key(request: Request) -> str:
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        return forwarded_for.split(",", 1)[0].strip() or "unknown"
+    if request.client is None:
+        return "unknown"
+    return request.client.host or "unknown"
+
+
+def _llm_user_quota_key(user_id: str) -> str | None:
+    anonymous_user_id = get_settings().default_actor_id or "anonymous"
+    if user_id == anonymous_user_id:
+        return None
+    return user_id
+
+
+def _enforce_llm_quota(request: Request, *, user_id: str) -> None:
+    active_settings = get_settings()
+    try:
+        llm_quota_limiter.check_and_increment(
+            ip_key=_client_ip_key(request),
+            user_key=_llm_user_quota_key(user_id),
+            ip_limit=active_settings.public_demo_daily_ip_llm_limit,
+            user_limit=active_settings.public_demo_daily_user_llm_limit,
+        )
+    except QuotaExceededError as exc:
+        raise HTTPException(
+            status_code=429,
+            detail=f"{exc.scope} daily LLM quota exceeded; try again tomorrow.",
+        ) from exc
 
 
 def _apply_session_cookie(response: Response, session: AuthenticatedSession) -> None:
@@ -232,32 +271,43 @@ def get_current_actor(user=Depends(get_required_request_user)) -> CurrentActorRe
 @app.post("/author/story-previews", response_model=AuthorPreviewResponse)
 def create_story_preview(
     payload: AuthorPreviewRequest,
-    user=Depends(get_required_request_user),
+    request: Request,
+    session: AuthenticatedSession = Depends(get_required_request_session),
 ) -> AuthorPreviewResponse:
-    return author_job_service.create_preview(payload, actor_user_id=user.user_id)
+    _require_authoring_enabled()
+    _enforce_llm_quota(request, user_id=session.user.user_id)
+    return author_job_service.create_preview(payload, actor_user_id=session.user.user_id)
 
 
 @app.post("/author/jobs", response_model=AuthorJobStatusResponse)
 def create_author_job(
     payload: AuthorJobCreateRequest,
-    user=Depends(get_required_request_user),
+    request: Request,
+    session: AuthenticatedSession = Depends(get_required_request_session),
 ) -> AuthorJobStatusResponse:
-    return author_job_service.create_job(payload, actor_user_id=user.user_id)
+    _require_authoring_enabled()
+    _enforce_llm_quota(request, user_id=session.user.user_id)
+    return author_job_service.create_job(payload, actor_user_id=session.user.user_id)
 
 
 @app.get("/author/jobs/{job_id}", response_model=AuthorJobStatusResponse)
-def get_author_job(job_id: str, user=Depends(get_required_request_user)) -> AuthorJobStatusResponse:
-    return author_job_service.get_job(job_id, actor_user_id=user.user_id)
+def get_author_job(
+    job_id: str,
+    session: AuthenticatedSession = Depends(get_required_request_session),
+) -> AuthorJobStatusResponse:
+    _require_authoring_enabled()
+    return author_job_service.get_job(job_id, actor_user_id=session.user.user_id)
 
 
 @app.get("/author/jobs/{job_id}/events")
 def stream_author_job_events(
     job_id: str,
     last_event_id: int | None = None,
-    user=Depends(get_required_request_user),
+    session: AuthenticatedSession = Depends(get_required_request_session),
 ) -> StreamingResponse:
+    _require_authoring_enabled()
     return StreamingResponse(
-        author_job_service.stream_job_events(job_id, actor_user_id=user.user_id, last_event_id=last_event_id),
+        author_job_service.stream_job_events(job_id, actor_user_id=session.user.user_id, last_event_id=last_event_id),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -268,19 +318,24 @@ def stream_author_job_events(
 
 
 @app.get("/author/jobs/{job_id}/result", response_model=AuthorJobResultResponse)
-def get_author_job_result(job_id: str, user=Depends(get_required_request_user)) -> AuthorJobResultResponse:
-    return author_job_service.get_job_result(job_id, actor_user_id=user.user_id)
+def get_author_job_result(
+    job_id: str,
+    session: AuthenticatedSession = Depends(get_required_request_session),
+) -> AuthorJobResultResponse:
+    _require_authoring_enabled()
+    return author_job_service.get_job_result(job_id, actor_user_id=session.user.user_id)
 
 
 @app.post("/author/jobs/{job_id}/publish", response_model=PublishedStoryCard)
 def publish_author_job(
     job_id: str,
     visibility: StoryVisibility = Query(default="private"),
-    user=Depends(get_required_request_user),
+    session: AuthenticatedSession = Depends(get_required_request_session),
 ) -> PublishedStoryCard:
-    source = author_job_service.get_publishable_job_source(job_id, actor_user_id=user.user_id)
+    _require_authoring_enabled()
+    source = author_job_service.get_publishable_job_source(job_id, actor_user_id=session.user.user_id)
     return story_library_service.publish_story(
-        owner_user_id=user.user_id,
+        owner_user_id=session.user.user_id,
         source_job_id=source.source_job_id,
         prompt_seed=source.prompt_seed,
         summary=source.summary,
@@ -296,10 +351,10 @@ def publish_author_job(
 )
 def get_author_job_diagnostics(
     job_id: str,
-    user=Depends(get_required_request_user),
+    session: AuthenticatedSession = Depends(get_required_request_session),
 ) -> BenchmarkAuthorJobDiagnosticsResponse:
     _require_benchmark_api()
-    return author_job_service.get_job_diagnostics(job_id, actor_user_id=user.user_id)
+    return author_job_service.get_job_diagnostics(job_id, actor_user_id=session.user.user_id)
 
 
 @app.get("/stories", response_model=PublishedStoryListResponse)
@@ -338,10 +393,10 @@ def get_story(
 def update_story_visibility(
     story_id: str,
     payload: UpdateStoryVisibilityRequest,
-    user=Depends(get_required_request_user),
+    session: AuthenticatedSession = Depends(get_required_request_session),
 ) -> PublishedStoryCard:
     return story_library_service.update_story_visibility(
-        actor_user_id=user.user_id,
+        actor_user_id=session.user.user_id,
         story_id=story_id,
         request=payload,
     )
@@ -350,10 +405,10 @@ def update_story_visibility(
 @app.delete("/stories/{story_id}", response_model=DeleteStoryResponse)
 def delete_story(
     story_id: str,
-    user=Depends(get_required_request_user),
+    session: AuthenticatedSession = Depends(get_required_request_session),
 ) -> DeleteStoryResponse:
     play_session_service.delete_sessions_for_story(story_id=story_id)
-    story_library_service.delete_story(actor_user_id=user.user_id, story_id=story_id)
+    story_library_service.delete_story(actor_user_id=session.user.user_id, story_id=story_id)
     return DeleteStoryResponse(story_id=story_id, deleted=True)
 
 
@@ -433,10 +488,10 @@ def list_my_worlds(
 )
 def get_play_session_diagnostics(
     session_id: str,
-    user=Depends(get_required_request_user),
+    session: AuthenticatedSession = Depends(get_required_request_session),
 ) -> BenchmarkPlaySessionDiagnosticsResponse:
     _require_benchmark_api()
-    return play_session_service.get_session_diagnostics(session_id, actor_user_id=user.user_id)
+    return play_session_service.get_session_diagnostics(session_id, actor_user_id=session.user.user_id)
 
 
 # --------------------------------------------------------------------------
@@ -449,10 +504,12 @@ def get_play_session_diagnostics(
 @app.post("/narrative/templates", response_model=CreateTemplateResponse)
 def create_narrative_template(
     payload: CreateTemplateRequest,
-    user=Depends(get_required_request_user),
+    request: Request,
+    session: AuthenticatedSession = Depends(get_required_request_session),
 ) -> CreateTemplateResponse:
     """Create a new story template (and auto-spawn the creator's first session)."""
-    return narrative_service.create_template(payload, owner_user_id=user.user_id)
+    _enforce_llm_quota(request, user_id=session.user.user_id)
+    return narrative_service.create_template(payload, owner_user_id=session.user.user_id)
 
 
 @app.get("/narrative/templates", response_model=TemplateListResponse)
@@ -478,10 +535,10 @@ def get_narrative_template(
 def update_narrative_template_visibility(
     template_id: str,
     payload: UpdateTemplateVisibilityRequest,
-    user=Depends(get_required_request_user),
+    session: AuthenticatedSession = Depends(get_required_request_session),
 ) -> NarrativeTemplateSummary:
     return narrative_service.update_visibility(
-        template_id, payload, owner_user_id=user.user_id
+        template_id, payload, owner_user_id=session.user.user_id
     )
 
 
@@ -523,8 +580,10 @@ def get_narrative_story(
 def advance_narrative_turn(
     session_id: str,
     payload: AdvanceTurnRequest,
+    request: Request,
     user=Depends(get_required_request_user),
 ) -> AdvanceTurnResponse:
+    _enforce_llm_quota(request, user_id=user.user_id)
     return narrative_service.advance(session_id, payload, player_user_id=user.user_id)
 
 
@@ -535,8 +594,10 @@ def advance_narrative_turn(
 def ask_narrative_advisor(
     session_id: str,
     payload: AdvisorAskRequest,
+    request: Request,
     user=Depends(get_required_request_user),
 ) -> AdvisorAskResponse:
+    _enforce_llm_quota(request, user_id=user.user_id)
     return narrative_service.ask_advisor(session_id, payload, player_user_id=user.user_id)
 
 
@@ -553,18 +614,18 @@ def get_narrative_advisor_history(
 
 @app.get("/me/narrative/templates", response_model=TemplateListResponse)
 def list_my_narrative_templates(
-    user=Depends(get_required_request_user),
+    session: AuthenticatedSession = Depends(get_required_request_session),
 ) -> TemplateListResponse:
     """Templates I created."""
-    return narrative_service.list_my_templates(owner_user_id=user.user_id)
+    return narrative_service.list_my_templates(owner_user_id=session.user.user_id)
 
 
 @app.get("/me/narrative/sessions", response_model=SessionListResponse)
 def list_my_narrative_sessions(
-    user=Depends(get_required_request_user),
+    session: AuthenticatedSession = Depends(get_required_request_session),
 ) -> SessionListResponse:
     """Sessions I'm playing (mine + ones I forked from public templates)."""
-    return narrative_service.list_my_sessions(player_user_id=user.user_id)
+    return narrative_service.list_my_sessions(player_user_id=session.user.user_id)
 
 
 @app.get("/narrative/sessions/{session_id}/ending", response_model=NarrativeEnding | None)

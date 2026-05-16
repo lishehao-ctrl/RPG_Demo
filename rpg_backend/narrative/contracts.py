@@ -394,6 +394,7 @@ class PublicReplayResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     session_id: str
+    template_id: str
     template_title: str
     template_seed: str
     cast: list[CastMember]

@@ -122,6 +122,39 @@ def test_quota_error_uses_frontend_error_envelope(monkeypatch) -> None:
     assert response.json()["error"]["code"] == "ip_llm_quota_exceeded"
 
 
+def test_whitespace_template_seed_rejected_before_quota_debit() -> None:
+    original_limiter = main_module.llm_quota_limiter
+    test_limiter = main_module.DailyQuotaLimiter()
+    main_module.llm_quota_limiter = test_limiter
+    client = TestClient(app)
+    try:
+        ensure_authenticated_client(client, display_name="BlankSeed")
+        response = client.post("/narrative/templates", json={"seed": "   "})
+    finally:
+        main_module.llm_quota_limiter = original_limiter
+
+    assert response.status_code == 422
+    assert test_limiter._counts == {}
+
+
+def test_whitespace_advisor_question_rejected_before_quota_debit() -> None:
+    original_limiter = main_module.llm_quota_limiter
+    test_limiter = main_module.DailyQuotaLimiter()
+    main_module.llm_quota_limiter = test_limiter
+    client = TestClient(app)
+    try:
+        ensure_authenticated_client(client, display_name="BlankAdvisor")
+        response = client.post(
+            "/narrative/sessions/session_blank/advisor",
+            json={"question": "   "},
+        )
+    finally:
+        main_module.llm_quota_limiter = original_limiter
+
+    assert response.status_code == 422
+    assert test_limiter._counts == {}
+
+
 def test_invalid_turn_validation_runs_before_quota_debit(monkeypatch) -> None:
     class RejectingNarrativeService:
         estimated = False
@@ -167,6 +200,38 @@ def test_invalid_turn_validation_runs_before_quota_debit(monkeypatch) -> None:
     assert response.json()["error"]["code"] == "option_out_of_range"
     assert fake_service.estimated is False
     assert fake_service.advanced is False
+    assert test_limiter._counts == {}
+
+
+def test_author_job_reserves_full_pipeline_quota(monkeypatch) -> None:
+    class FakeAuthorService:
+        called = False
+
+        def create_job(self, *_args, **_kwargs):  # noqa: ANN202
+            self.called = True
+            raise AssertionError("author job should not start when full quota is unavailable")
+
+    monkeypatch.setenv("APP_PUBLIC_DEMO_DAILY_IP_LLM_LIMIT", "6")
+    monkeypatch.setenv("APP_PUBLIC_DEMO_DAILY_USER_LLM_LIMIT", "6")
+    main_module.get_settings.cache_clear()
+    original_limiter = main_module.llm_quota_limiter
+    original_author_service = main_module.author_job_service
+    test_limiter = main_module.DailyQuotaLimiter()
+    fake_service = FakeAuthorService()
+    main_module.llm_quota_limiter = test_limiter
+    main_module.author_job_service = fake_service
+    client = TestClient(app)
+    try:
+        ensure_authenticated_client(client, display_name="AuthorQuota")
+        response = client.post("/author/jobs", json={"prompt_seed": "seed"})
+    finally:
+        main_module.llm_quota_limiter = original_limiter
+        main_module.author_job_service = original_author_service
+        main_module.get_settings.cache_clear()
+
+    assert response.status_code == 429
+    assert response.json()["error"]["code"] == "ip_llm_quota_exceeded"
+    assert fake_service.called is False
     assert test_limiter._counts == {}
 
 

@@ -79,6 +79,7 @@ story_library_service = get_story_library_service(settings)
 play_session_service = PlaySessionService(story_library_service=story_library_service, settings=settings)
 narrative_service = get_narrative_service(settings)
 llm_quota_limiter = DailyQuotaLimiter()
+AUTHOR_JOB_LLM_OPERATION_COST = 7
 
 
 def _require_benchmark_api() -> None:
@@ -324,7 +325,11 @@ def create_author_job(
     session: AuthenticatedSession = Depends(get_required_request_session),
 ) -> AuthorJobStatusResponse:
     _require_authoring_enabled()
-    _enforce_llm_quota(request, user_id=session.user.user_id)
+    _enforce_llm_quota(
+        request,
+        user_id=session.user.user_id,
+        operation_cost=AUTHOR_JOB_LLM_OPERATION_COST,
+    )
     return author_job_service.create_job(payload, actor_user_id=session.user.user_id)
 
 

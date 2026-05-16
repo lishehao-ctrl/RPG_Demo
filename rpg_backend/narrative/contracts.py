@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 # --------------------------------------------------------------------------
@@ -428,6 +428,14 @@ class CreateTemplateRequest(BaseModel):
     # all sessions forking this template share the same language.
     language: TemplateLanguage = DEFAULT_TEMPLATE_LANGUAGE
 
+    @field_validator("seed")
+    @classmethod
+    def _strip_seed(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("Seed must not be empty.")
+        return stripped
+
 
 class CreateTemplateResponse(BaseModel):
     """Returned when a user creates a new template.
@@ -521,6 +529,14 @@ class AdvisorAskRequest(BaseModel):
     # pulse trends, unused leverage) to give the player a mood-appropriate
     # hint. Costs 1 turn from session.turn_budget. Off by default.
     oracle_mode: bool = False
+
+    @field_validator("question")
+    @classmethod
+    def _strip_question(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("Question must not be empty.")
+        return stripped
 
 
 class AdvisorAskResponse(BaseModel):

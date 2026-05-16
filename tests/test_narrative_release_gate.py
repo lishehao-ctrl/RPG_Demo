@@ -15,7 +15,7 @@ def test_parse_narrative_release_gate_defaults() -> None:
     assert config.mode == "fake"
     assert config.seed == DEFAULT_SEED
     assert config.first_turn_input == DEFAULT_FIRST_TURN_INPUT
-    assert config.db_path.name == "narrative.sqlite3"
+    assert config.db_path is None
 
 
 def test_fake_narrative_release_gate_covers_current_core(tmp_path) -> None:

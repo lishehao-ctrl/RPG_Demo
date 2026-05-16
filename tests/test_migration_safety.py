@@ -125,3 +125,66 @@ def test_story_schema_migration_archives_non_v2_rows_before_active_removal(tmp_p
     assert archived is not None
     assert archived[0] == "non_relationship_drama_v2"
     assert json.loads(archived[1])["source_job_id"] == "legacy-job"
+
+
+def test_story_archive_handles_more_ids_than_sqlite_parameter_limit(tmp_path) -> None:
+    db_path = tmp_path / "stories.sqlite3"
+    storage = SQLiteStoryLibraryStorage(str(db_path))
+    story_ids = [f"legacy-{i}" for i in range(1200)]
+    connection = storage._connect()
+    try:
+        rows = [
+            (
+                story_id,
+                f"job-{i}",
+                "legacy seed",
+                f"Legacy {i}",
+                "old",
+                "old premise",
+                "legacy",
+                "legacy",
+                1,
+                1,
+                "solo",
+                "owner",
+                "private",
+                "relationship_drama_v1",
+                json.dumps({"title": f"Legacy {i}"}),
+                json.dumps({"structure": {"cast_topology": "solo"}}),
+                json.dumps({"old": True}),
+                "2026-05-01T00:00:00",
+            )
+            for i, story_id in enumerate(story_ids)
+        ]
+        connection.executemany(
+            """
+            INSERT INTO published_stories (
+                story_id, source_job_id, prompt_seed, title, one_liner, premise,
+                theme, tone, npc_count, beat_count, topology, owner_user_id,
+                visibility, package_version, summary_json, preview_json,
+                bundle_json, published_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            rows,
+        )
+        storage._archive_and_remove_story_ids(
+            connection,
+            story_ids=story_ids,
+            reason="bulk_legacy_archive",
+        )
+        connection.commit()
+        active_count = connection.execute(
+            "SELECT COUNT(*) FROM published_stories WHERE story_id LIKE 'legacy-%'"
+        ).fetchone()[0]
+        archived_count = connection.execute(
+            """
+            SELECT COUNT(*)
+            FROM published_story_migration_archive
+            WHERE reason = 'bulk_legacy_archive'
+            """
+        ).fetchone()[0]
+    finally:
+        connection.close()
+
+    assert active_count == 0
+    assert archived_count == len(story_ids)

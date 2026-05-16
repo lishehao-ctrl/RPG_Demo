@@ -84,6 +84,44 @@ def test_logged_out_cannot_create_narrative_template() -> None:
     assert response.json()["error"]["code"] == "auth_session_required"
 
 
+def test_authoring_disabled_blocks_signed_in_narrative_template_create(monkeypatch) -> None:
+    monkeypatch.setenv("APP_PUBLIC_DEMO_AUTHORING_ENABLED", "false")
+    main_module.get_settings.cache_clear()
+    client = TestClient(app)
+    try:
+        ensure_authenticated_client(client, display_name="AuthoringOff")
+        response = client.post(
+            "/narrative/templates",
+            json={"seed": "A reviewer finds a hidden palace audit log."},
+        )
+    finally:
+        main_module.get_settings.cache_clear()
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Not found"
+
+
+def test_quota_error_uses_frontend_error_envelope(monkeypatch) -> None:
+    monkeypatch.setenv("APP_PUBLIC_DEMO_DAILY_IP_LLM_LIMIT", "2")
+    monkeypatch.setenv("APP_PUBLIC_DEMO_DAILY_USER_LLM_LIMIT", "2")
+    main_module.get_settings.cache_clear()
+    original_limiter = main_module.llm_quota_limiter
+    main_module.llm_quota_limiter = main_module.DailyQuotaLimiter()
+    client = TestClient(app)
+    try:
+        ensure_authenticated_client(client, display_name="QuotaEnvelope")
+        response = client.post(
+            "/narrative/templates",
+            json={"seed": "A reviewer finds a hidden palace audit log."},
+        )
+    finally:
+        main_module.llm_quota_limiter = original_limiter
+        main_module.get_settings.cache_clear()
+
+    assert response.status_code == 429
+    assert response.json()["error"]["code"] == "ip_llm_quota_exceeded"
+
+
 def test_logged_out_cannot_mutate_story_visibility(tmp_path) -> None:
     source = _publish_source("job-auth-mutate")
     library_service = StoryLibraryService(SQLiteStoryLibraryStorage(str(tmp_path / "stories.sqlite3")))

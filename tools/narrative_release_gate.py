@@ -33,7 +33,7 @@ DEFAULT_FIRST_TURN_INPUT = (
 @dataclass(frozen=True)
 class NarrativeReleaseGateConfig:
     mode: Literal["fake", "live"]
-    db_path: Path
+    db_path: Path | None
     seed: str
     first_turn_input: str
     output_path: Path | None
@@ -362,13 +362,9 @@ def parse_args(argv: list[str] | None = None) -> NarrativeReleaseGateConfig:
     parser.add_argument("--first-turn-input", default=DEFAULT_FIRST_TURN_INPUT)
     parser.add_argument("--output-path")
     args = parser.parse_args(argv)
-    if args.db_path:
-        db_path = Path(args.db_path).expanduser().resolve()
-    else:
-        db_path = Path(tempfile.mkdtemp(prefix="tiny-stories-release-gate-")) / "narrative.sqlite3"
     return NarrativeReleaseGateConfig(
         mode=args.mode,
-        db_path=db_path,
+        db_path=Path(args.db_path).expanduser().resolve() if args.db_path else None,
         seed=str(args.seed),
         first_turn_input=str(args.first_turn_input),
         output_path=Path(args.output_path).expanduser().resolve() if args.output_path else None,
@@ -382,8 +378,8 @@ def _timed_step(summary: dict[str, Any], name: str, fn):
     return result
 
 
-def _build_service(config: NarrativeReleaseGateConfig) -> tuple[NarrativeService, Any]:
-    repo = NarrativeRepository(str(config.db_path))
+def _build_service(config: NarrativeReleaseGateConfig, db_path: Path) -> tuple[NarrativeService, Any]:
+    repo = NarrativeRepository(str(db_path))
     if config.mode == "fake":
         gateway = FakeNarrativeGateway()
     else:
@@ -397,11 +393,18 @@ def _build_service(config: NarrativeReleaseGateConfig) -> tuple[NarrativeService
 
 
 def run_release_gate(config: NarrativeReleaseGateConfig) -> dict[str, Any]:
-    service, gateway = _build_service(config)
+    if config.db_path is None:
+        with tempfile.TemporaryDirectory(prefix="tiny-stories-release-gate-") as tmpdir:
+            return _run_release_gate_with_db(config, Path(tmpdir) / "narrative.sqlite3")
+    return _run_release_gate_with_db(config, config.db_path)
+
+
+def _run_release_gate_with_db(config: NarrativeReleaseGateConfig, db_path: Path) -> dict[str, Any]:
+    service, gateway = _build_service(config, db_path)
     summary: dict[str, Any] = {
         "ok": False,
         "mode": config.mode,
-        "db_path": str(config.db_path),
+        "db_path": str(db_path),
         "seed": config.seed,
         "steps": {},
         "ids": {},

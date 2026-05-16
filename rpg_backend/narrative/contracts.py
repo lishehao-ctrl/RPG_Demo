@@ -395,6 +395,7 @@ class PublicReplayResponse(BaseModel):
 
     session_id: str
     template_id: str
+    template_forkable: bool = False
     template_title: str
     template_seed: str
     cast: list[CastMember]

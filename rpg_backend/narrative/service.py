@@ -448,6 +448,37 @@ class NarrativeService:
             is_complete=ending_payload is not None,
         )
 
+    def estimate_advance_llm_operation_cost(
+        self,
+        session_id: str,
+        *,
+        player_user_id: str,
+    ) -> int:
+        """Conservative quota reservation for one advance request.
+
+        The actual LLM calls happen below the HTTP route, inside the narrative
+        engine. Public demo quota therefore reserves the maximum plausible
+        calls before invoking the service so finalization cannot bypass the
+        daily cap.
+        """
+        session = self._load_session_for_player(session_id, player_user_id)
+        if session.ending_label is not None:
+            raise NarrativeServiceError(
+                code="session_complete",
+                message="这一局故事已经走完了——去看你的结局吧。",
+                status_code=409,
+            )
+        template = self._repo.get_template(session.template_id)
+        upcoming_turn_index = session.turn_count + 1
+        is_final_turn = upcoming_turn_index >= session.turn_budget
+        if is_final_turn:
+            # advance_turn + ending + highlights + branches
+            return 4
+        if session.difficulty == "gauntlet" and template.failure_conditions:
+            # advance_turn + judge_failure + possible early ending/highlights/branches
+            return 5
+        return 1
+
     def _finalize_session(
         self,
         session_id: str,
@@ -621,6 +652,7 @@ class NarrativeService:
             highlights=highlights or None,
             branches=branches or None,
         )
+        completed_session = self._repo.get_session(session_id)
         _emit_metric(
             "session_completed",
             session_id=session_id,
@@ -629,8 +661,8 @@ class NarrativeService:
             tier=tier,
             early=1,
             trigger=failure_trigger,
-            turn_count=len([m for m in full_history if m.role == "narrator"]),
-            turn_budget=0,
+            turn_count=completed_session.turn_count,
+            turn_budget=completed_session.turn_budget,
             num_highlights=len(highlights),
             num_branches=len(branches),
         )
@@ -729,6 +761,7 @@ class NarrativeService:
         return PublicReplayResponse(
             session_id=session.session_id,
             template_id=session.template_id,
+            template_forkable=template.visibility != "private",
             template_title=template.title,
             template_seed=template.seed,
             cast=template.cast,

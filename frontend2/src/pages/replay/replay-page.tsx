@@ -256,10 +256,10 @@ export function ReplayPage({
                 </button>
                 <button
                   className="ts-btn ts-btn--primary ts-btn--lg"
-                  onClick={() => onOpenTemplate(replay.template_id)}
+                  onClick={() => replay.template_forkable ? onOpenTemplate(replay.template_id) : onBackHome()}
                   type="button"
                 >
-                  {t("replay.cta_play_template")}
+                  {replay.template_forkable ? t("replay.cta_play_template") : t("replay.cta_back_plaza")}
                 </button>
               </div>
             </div>
@@ -355,13 +355,15 @@ export function ReplayPage({
 
         <div style={rpStyles.cta}>
           <p style={rpStyles.ctaHint}>{t("replay.cta_hint")}</p>
-          <button
-            className="ts-btn ts-btn--primary ts-btn--lg"
-            onClick={() => onOpenTemplate(replay.template_id)}
-            type="button"
-          >
-            {t("replay.cta_play_template")}
-          </button>
+          {replay.template_forkable ? (
+            <button
+              className="ts-btn ts-btn--primary ts-btn--lg"
+              onClick={() => onOpenTemplate(replay.template_id)}
+              type="button"
+            >
+              {t("replay.cta_play_template")}
+            </button>
+          ) : null}
           <button
             className="ts-btn ts-btn--ghost ts-btn--lg"
             onClick={onBackHome}

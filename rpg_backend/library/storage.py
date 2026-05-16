@@ -146,30 +146,32 @@ class SQLiteStoryLibraryStorage:
         if not story_ids:
             return
         archived_at = datetime.now(timezone.utc).isoformat()
-        rows_by_id = {
-            str(row["story_id"]): row
-            for row in connection.execute(
-                """
-                SELECT *
-                FROM published_stories
-                WHERE story_id IN ({})
-                """.format(",".join("?" for _ in story_ids)),
-                story_ids,
-            ).fetchall()
-        }
-        archive_rows = [
-            (story_id, reason, archived_at, self._row_to_archive_payload(row))
-            for story_id, row in rows_by_id.items()
-        ]
-        if archive_rows:
-            connection.executemany(
-                """
-                INSERT INTO published_story_migration_archive (
-                    story_id, reason, archived_at, row_json
-                ) VALUES (?, ?, ?, ?)
-                """,
-                archive_rows,
-            )
+        for start in range(0, len(story_ids), 500):
+            batch_ids = story_ids[start : start + 500]
+            rows_by_id = {
+                str(row["story_id"]): row
+                for row in connection.execute(
+                    """
+                    SELECT *
+                    FROM published_stories
+                    WHERE story_id IN ({})
+                    """.format(",".join("?" for _ in batch_ids)),
+                    batch_ids,
+                ).fetchall()
+            }
+            archive_rows = [
+                (story_id, reason, archived_at, self._row_to_archive_payload(row))
+                for story_id, row in rows_by_id.items()
+            ]
+            if archive_rows:
+                connection.executemany(
+                    """
+                    INSERT INTO published_story_migration_archive (
+                        story_id, reason, archived_at, row_json
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    archive_rows,
+                )
         connection.executemany(
             "DELETE FROM published_stories WHERE story_id = ?",
             [(story_id,) for story_id in story_ids],

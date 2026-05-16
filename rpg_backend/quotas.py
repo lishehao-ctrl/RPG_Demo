@@ -36,24 +36,26 @@ class DailyQuotaLimiter:
         user_key: str | None,
         ip_limit: int | None,
         user_limit: int | None,
+        amount: int = 1,
         now: datetime | None = None,
     ) -> None:
+        debit = max(1, int(amount))
         day = self._day_key(now)
         ip_counter = ("ip", day, ip_key)
         user_counter = ("user", day, user_key) if user_key else None
         with self._lock:
-            if ip_limit is not None and self._counts.get(ip_counter, 0) >= ip_limit:
+            if ip_limit is not None and self._counts.get(ip_counter, 0) + debit > ip_limit:
                 raise QuotaExceededError(scope="ip", limit=ip_limit)
             if (
                 user_limit is not None
                 and user_counter is not None
-                and self._counts.get(user_counter, 0) >= user_limit
+                and self._counts.get(user_counter, 0) + debit > user_limit
             ):
                 raise QuotaExceededError(scope="user", limit=user_limit)
             if ip_limit is not None:
-                self._counts[ip_counter] = self._counts.get(ip_counter, 0) + 1
+                self._counts[ip_counter] = self._counts.get(ip_counter, 0) + debit
             if user_limit is not None and user_counter is not None:
-                self._counts[user_counter] = self._counts.get(user_counter, 0) + 1
+                self._counts[user_counter] = self._counts.get(user_counter, 0) + debit
 
     def reset(self) -> None:
         with self._lock:

@@ -90,9 +90,12 @@ def _require_authoring_enabled() -> None:
 
 
 def _client_ip_key(request: Request) -> str:
+    real_ip = request.headers.get("x-real-ip")
+    if real_ip and real_ip.strip():
+        return real_ip.strip()
     forwarded_for = request.headers.get("x-forwarded-for")
     if forwarded_for:
-        return forwarded_for.split(",", 1)[0].strip() or "unknown"
+        return forwarded_for.rsplit(",", 1)[-1].strip() or "unknown"
     if request.client is None:
         return "unknown"
     return request.client.host or "unknown"
@@ -105,20 +108,15 @@ def _llm_user_quota_key(user_id: str) -> str | None:
     return user_id
 
 
-def _enforce_llm_quota(request: Request, *, user_id: str) -> None:
+def _enforce_llm_quota(request: Request, *, user_id: str, operation_cost: int = 1) -> None:
     active_settings = get_settings()
-    try:
-        llm_quota_limiter.check_and_increment(
-            ip_key=_client_ip_key(request),
-            user_key=_llm_user_quota_key(user_id),
-            ip_limit=active_settings.public_demo_daily_ip_llm_limit,
-            user_limit=active_settings.public_demo_daily_user_llm_limit,
-        )
-    except QuotaExceededError as exc:
-        raise HTTPException(
-            status_code=429,
-            detail=f"{exc.scope} daily LLM quota exceeded; try again tomorrow.",
-        ) from exc
+    llm_quota_limiter.check_and_increment(
+        ip_key=_client_ip_key(request),
+        user_key=_llm_user_quota_key(user_id),
+        ip_limit=active_settings.public_demo_daily_ip_llm_limit,
+        user_limit=active_settings.public_demo_daily_user_llm_limit,
+        amount=operation_cost,
+    )
 
 
 def _apply_session_cookie(response: Response, session: AuthenticatedSession) -> None:
@@ -222,6 +220,19 @@ def handle_narrative_error(_: Request, exc: NarrativeServiceError) -> JSONRespon
     return JSONResponse(
         status_code=exc.status_code,
         content={"error": {"code": exc.code, "message": exc.message}},
+    )
+
+
+@app.exception_handler(QuotaExceededError)
+def handle_quota_error(_: Request, exc: QuotaExceededError) -> JSONResponse:
+    return JSONResponse(
+        status_code=429,
+        content={
+            "error": {
+                "code": f"{exc.scope}_llm_quota_exceeded",
+                "message": f"{exc.scope} daily LLM quota exceeded; try again tomorrow.",
+            }
+        },
     )
 
 
@@ -508,7 +519,8 @@ def create_narrative_template(
     session: AuthenticatedSession = Depends(get_required_request_session),
 ) -> CreateTemplateResponse:
     """Create a new story template (and auto-spawn the creator's first session)."""
-    _enforce_llm_quota(request, user_id=session.user.user_id)
+    _require_authoring_enabled()
+    _enforce_llm_quota(request, user_id=session.user.user_id, operation_cost=3)
     return narrative_service.create_template(payload, owner_user_id=session.user.user_id)
 
 
@@ -583,7 +595,11 @@ def advance_narrative_turn(
     request: Request,
     user=Depends(get_required_request_user),
 ) -> AdvanceTurnResponse:
-    _enforce_llm_quota(request, user_id=user.user_id)
+    operation_cost = narrative_service.estimate_advance_llm_operation_cost(
+        session_id,
+        player_user_id=user.user_id,
+    )
+    _enforce_llm_quota(request, user_id=user.user_id, operation_cost=operation_cost)
     return narrative_service.advance(session_id, payload, player_user_id=user.user_id)
 
 

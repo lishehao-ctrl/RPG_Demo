@@ -45,3 +45,33 @@ def test_stage_timings_summary_extracts_stage_and_elapsed_ms() -> None:
         {"stage": "running", "elapsed_ms": 120},
         {"stage": "beat_plan_ready", "elapsed_ms": 480},
     ]
+
+
+def test_public_template_items_filters_visibility() -> None:
+    payload = {
+        "items": [
+            {"template_id": "tmpl_private", "visibility": "private"},
+            {"template_id": "tmpl_public", "visibility": "public"},
+            {"template_id": "tmpl_unlisted", "visibility": "unlisted"},
+        ]
+    }
+
+    assert http_product_smoke._public_template_items(payload) == [
+        {"template_id": "tmpl_public", "visibility": "public"}
+    ]
+
+
+def test_player_role_index_for_template_clamps_to_available_roles() -> None:
+    assert http_product_smoke._player_role_index_for_template({}) is None
+    assert (
+        http_product_smoke._player_role_index_for_template(
+            {"player_role_options": [{"role_id": "only"}]}
+        )
+        == 0
+    )
+    assert (
+        http_product_smoke._player_role_index_for_template(
+            {"player_role_options": [{"role_id": "first"}, {"role_id": "second"}]}
+        )
+        == 1
+    )

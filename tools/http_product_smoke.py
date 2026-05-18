@@ -150,6 +150,21 @@ def _stage_timings_summary(diagnostics: dict[str, Any] | None) -> list[dict[str,
     return rows
 
 
+def _public_template_items(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for item in list(payload.get("items") or []):
+        if isinstance(item, dict) and item.get("visibility") == "public":
+            items.append(dict(item))
+    return items
+
+
+def _player_role_index_for_template(template: dict[str, Any]) -> int | None:
+    roles = list(template.get("player_role_options") or [])
+    if not roles:
+        return None
+    return min(1, len(roles) - 1)
+
+
 def _advance_turn(
     session: requests.Session,
     config: HttpProductSmokeConfig,
@@ -219,7 +234,7 @@ def run_http_product_smoke(config: HttpProductSmokeConfig) -> dict[str, Any]:
                 f"{config.base_url}/narrative/templates",
                 request_timeout_seconds=config.request_timeout_seconds,
             )
-            public_templates = list(list_payload.get("items") or [])
+            public_templates = _public_template_items(list_payload)
             if not public_templates:
                 raise RuntimeError(
                     "No public narrative templates found. Seed one before running "
@@ -231,7 +246,8 @@ def run_http_product_smoke(config: HttpProductSmokeConfig) -> dict[str, Any]:
                 raise RuntimeError("First public template did not include template_id")
             summary["steps"]["list_templates"] = {
                 "elapsed_seconds": list_elapsed,
-                "count": len(public_templates),
+                "returned_count": len(list(list_payload.get("items") or [])),
+                "public_count": len(public_templates),
             }
             summary["steps"]["template_source"] = {
                 "mode": "first_public_template",
@@ -277,12 +293,17 @@ def run_http_product_smoke(config: HttpProductSmokeConfig) -> dict[str, Any]:
             summary["contracts"]["template_language_known"] = template.get("language") in {"en", "zh"}
         summary["contracts"]["template_has_role_cards"] = bool(template.get("player_role_options"))
 
+        start_session_body: dict[str, Any] = {"turn_budget": config.turn_budget, "difficulty": "story"}
+        player_role_index = _player_role_index_for_template(template)
+        if player_role_index is not None:
+            start_session_body["player_role_index"] = player_role_index
+
         fork_payload, fork_elapsed = _request_json(
             session,
             "POST",
             f"{config.base_url}/narrative/templates/{template_id}/sessions",
             request_timeout_seconds=config.request_timeout_seconds,
-            json={"turn_budget": config.turn_budget, "difficulty": "story", "player_role_index": 1},
+            json=start_session_body,
         )
         fork_session = dict(fork_payload.get("session") or {})
         opening = dict(fork_payload.get("opening") or {})

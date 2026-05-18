@@ -266,10 +266,13 @@ npm run render:admissions
 ```
 
 For a configured live backend, the HTTP smoke follows the same current
-`/narrative/*` product path:
+`/narrative/*` product path. Local authoring-enabled runs can create a
+template; production authoring-off runs should read and play an already seeded
+public template:
 
 ```bash
 python tools/http_product_smoke.py --base-url http://127.0.0.1:8000
+python tools/http_product_smoke.py --base-url http://127.0.0.1:8000 --use-first-public-template
 ```
 
 ---

@@ -104,7 +104,7 @@ Minimum required values:
 - `APP_AUTH_SESSION_COOKIE_SAMESITE=lax`
 - `APP_PUBLIC_DEMO_AUTHORING_ENABLED=false` for public demos; use the read/play smoke below, or temporarily enable authoring only when testing template creation.
 - `APP_PUBLIC_DEMO_DAILY_IP_LLM_LIMIT`
-- `APP_PUBLIC_DEMO_DAILY_USER_LLM_LIMIT` (at least `40` for one default 12-turn run)
+- `APP_PUBLIC_DEMO_DAILY_USER_LLM_LIMIT` (at least `40` for one default story-mode 12-turn run; gauntlet runs need a higher ceiling)
 - `APP_TRUSTED_PROXY_IPS=127.0.0.1,::1` when nginx is colocated with the API
 
 ## Frontend Build
@@ -198,6 +198,9 @@ cd /srv/rpg-demo/app
 This read/play smoke matches `APP_PUBLIC_DEMO_AUTHORING_ENABLED=false` and requires at
 least one public template already seeded. To exercise template creation in a private
 maintenance window, temporarily enable authoring and omit `--use-first-public-template`.
+On a fresh host, temporarily set `APP_PUBLIC_DEMO_AUTHORING_ENABLED=true`, restart,
+create and publish one public template through the app or by running the smoke once
+without `--use-first-public-template`, then set it back to `false` and restart.
 
 If you temporarily enable benchmark diagnostics in a non-public environment:
 

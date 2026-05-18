@@ -11,6 +11,7 @@ from rpg_backend.narrative.contracts import (
     AdvisorAskResponse,
     AdvisorHistoryResponse,
     AdvisorMessage,
+    CastMember,
     CreateTemplateRequest,
     CreateTemplateResponse,
     EndingDistributionEntry,
@@ -48,6 +49,9 @@ from rpg_backend.narrative.gateway import (
     get_narrative_gateway,
 )
 from rpg_backend.narrative.repository import NarrativeNotFoundError, NarrativeRepository
+
+
+PRIVATE_REPLAY_TITLE = "Shared private story"
 
 
 def _emit_metric(event: str, **fields: object) -> None:
@@ -795,16 +799,17 @@ class NarrativeService:
                 highlights=highlights,
                 branches=branches,
             )
+        is_public_template = template.visibility == "public"
         return PublicReplayResponse(
             session_id=session.session_id,
             template_id=session.template_id,
-            template_forkable=template.visibility != "private",
-            template_title=template.title,
-            template_seed=template.seed,
-            cast=template.cast,
-            advisor_persona=template.advisor_persona,
-            player_goals=template.player_goals,
-            player_role=_resolve_player_role(template, session.selected_player_role_id),
+            template_forkable=is_public_template,
+            template_title=template.title if is_public_template else PRIVATE_REPLAY_TITLE,
+            template_seed=template.seed if is_public_template else "",
+            cast=_public_replay_cast(template.cast) if is_public_template else [],
+            advisor_persona=template.advisor_persona if is_public_template else "",
+            player_goals=template.player_goals if is_public_template else [],
+            player_role=None,
             turn_budget=session.turn_budget,
             turn_count=session.turn_count,
             difficulty=session.difficulty,
@@ -1076,6 +1081,19 @@ def _resolve_player_role(
         if role.role_id == role_id:
             return role
     return None
+
+
+def _public_replay_cast(cast: list[CastMember]) -> list[CastMember]:
+    return [
+        member.model_copy(
+            update={
+                "hidden_objective": None,
+                "leverage_over_player": None,
+                "leverages_over_other_npcs": [],
+            }
+        )
+        for member in cast
+    ]
 
 
 def _summarize_template(

@@ -799,16 +799,16 @@ class NarrativeService:
                 highlights=highlights,
                 branches=branches,
             )
-        is_public_template = template.visibility == "public"
+        is_shareable_template = template.visibility != "private"
         return PublicReplayResponse(
             session_id=session.session_id,
             template_id=session.template_id,
-            template_forkable=is_public_template,
-            template_title=template.title if is_public_template else PRIVATE_REPLAY_TITLE,
-            template_seed=template.seed if is_public_template else "",
-            cast=_public_replay_cast(template.cast) if is_public_template else [],
-            advisor_persona=template.advisor_persona if is_public_template else "",
-            player_goals=template.player_goals if is_public_template else [],
+            template_forkable=is_shareable_template,
+            template_title=template.title if is_shareable_template else PRIVATE_REPLAY_TITLE,
+            template_seed=template.seed if is_shareable_template else "",
+            cast=_public_replay_cast(template.cast) if is_shareable_template else [],
+            advisor_persona=template.advisor_persona if is_shareable_template else "",
+            player_goals=template.player_goals if is_shareable_template else [],
             player_role=None,
             turn_budget=session.turn_budget,
             turn_count=session.turn_count,

@@ -6,7 +6,9 @@ from rpg_backend.narrative.contracts import (
     AdvanceTurnRequest,
     CastMember,
     FailureCondition,
+    NPCLeverageOverNPC,
     PlayerGoal,
+    PlayerLeverageOverNPC,
     PlayerRole,
     StoryMessage,
     StoryOption,
@@ -45,6 +47,14 @@ def _create_template_and_session(
                 display_name="Evan",
                 role="Witness",
                 relation_to_protagonist="Former partner with leverage",
+                hidden_objective="Push Mira into admitting the board knew.",
+                leverage_over_player="A draft memo that contradicts the player's story.",
+                leverages_over_other_npcs=[
+                    NPCLeverageOverNPC(
+                        target_npc_id="mira",
+                        leverage="Knows Mira authorized the first leak.",
+                    )
+                ],
             )
         ],
         advisor_persona="A calm strategy coach.",
@@ -59,6 +69,13 @@ def _create_template_and_session(
                 label="Founder",
                 public_persona="Cofounder under pressure",
                 hidden_objective="Keep the audit from becoming a cover-up.",
+                leverages_over_npcs=[
+                    PlayerLeverageOverNPC(
+                        npc_id="evan",
+                        leverage="Evan accepted a private severance term.",
+                    )
+                ],
+                starting_assets=["sealed audit packet"],
             )
         ],
         failure_conditions=failure_conditions or [],
@@ -99,6 +116,10 @@ def test_public_replay_includes_template_id_for_fork_cta(tmp_path) -> None:
     assert replay.template_forkable is True
     assert replay.template_title == "Merger Test"
     assert replay.messages[0].chosen_option_index == 0
+    assert replay.player_role is None
+    assert replay.cast[1].hidden_objective is None
+    assert replay.cast[1].leverage_over_player is None
+    assert replay.cast[1].leverages_over_other_npcs == []
 
 
 def test_public_replay_marks_private_templates_as_not_forkable(tmp_path) -> None:
@@ -115,6 +136,34 @@ def test_public_replay_marks_private_templates_as_not_forkable(tmp_path) -> None
 
     assert replay.template_id == "tmpl_private_replay"
     assert replay.template_forkable is False
+    assert replay.template_title == "Shared private story"
+    assert replay.template_seed == ""
+    assert replay.cast == []
+    assert replay.advisor_persona == ""
+    assert replay.player_goals == []
+    assert replay.player_role is None
+
+
+def test_public_replay_keeps_unlisted_templates_link_forkable(tmp_path) -> None:
+    repo = NarrativeRepository(str(tmp_path / "runtime.sqlite3"))
+    service = NarrativeService(repository=repo, gateway=None)
+    _create_template_and_session(
+        repo,
+        template_id="tmpl_unlisted_replay",
+        session_id="sess_unlisted_replay",
+        visibility="unlisted",
+    )
+
+    replay = service.get_public_replay("sess_unlisted_replay")
+
+    assert replay.template_id == "tmpl_unlisted_replay"
+    assert replay.template_forkable is True
+    assert replay.template_title == "Merger Test"
+    assert replay.template_seed
+    assert replay.cast[1].hidden_objective is None
+    assert replay.cast[1].leverage_over_player is None
+    assert replay.cast[1].leverages_over_other_npcs == []
+    assert replay.player_role is None
 
 
 def test_advance_quota_estimate_reserves_finalization_operations(tmp_path) -> None:

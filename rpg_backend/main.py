@@ -154,8 +154,8 @@ def _require_non_blank_llm_input(value: str, *, code: str, message: str) -> None
 
 
 def _author_job_llm_operation_cost(payload: AuthorJobCreateRequest) -> int:
-    preview_cost = 0 if payload.preview_id else AUTHOR_PREVIEW_LLM_OPERATION_COST
-    return AUTHOR_JOB_LLM_OPERATION_COST + preview_cost
+    del payload
+    return AUTHOR_JOB_LLM_OPERATION_COST + AUTHOR_PREVIEW_LLM_OPERATION_COST
 
 
 def _apply_session_cookie(response: Response, session: AuthenticatedSession) -> None:

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import pytest
 from starlette.requests import Request
 
@@ -90,6 +92,27 @@ def test_daily_quota_limiter_keeps_real_user_limit_across_ips() -> None:
 
     assert excinfo.value.scope == "user"
     assert excinfo.value.limit == 1
+
+
+def test_daily_quota_limiter_prunes_stale_day_counters() -> None:
+    limiter = DailyQuotaLimiter()
+
+    limiter.check_and_increment(
+        ip_key="203.0.113.7",
+        user_key="usr_demo",
+        ip_limit=10,
+        user_limit=10,
+        now=datetime(2026, 1, 1, tzinfo=timezone.utc),
+    )
+    limiter.check_and_increment(
+        ip_key="203.0.113.7",
+        user_key="usr_demo",
+        ip_limit=10,
+        user_limit=10,
+        now=datetime(2026, 1, 2, tzinfo=timezone.utc),
+    )
+
+    assert all(key[1] == "2026-01-02" for key in limiter._counts)
 
 
 def test_default_actor_is_not_used_as_shared_user_quota_key(monkeypatch) -> None:

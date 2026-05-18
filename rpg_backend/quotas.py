@@ -44,6 +44,9 @@ class DailyQuotaLimiter:
         ip_counter = ("ip", day, ip_key)
         user_counter = ("user", day, user_key) if user_key else None
         with self._lock:
+            stale_keys = [key for key in self._counts if key[1] != day]
+            for key in stale_keys:
+                del self._counts[key]
             if ip_limit is not None and self._counts.get(ip_counter, 0) + debit > ip_limit:
                 raise QuotaExceededError(scope="ip", limit=ip_limit)
             if (
